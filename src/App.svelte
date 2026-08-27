@@ -33,6 +33,11 @@
 
   // v1.7：初始散点位置改由 chainToElements 预写入（根节点锚定原点，其余绕根圆环），
   // 这里统一"从当前位置续排"——首次加载从预散点起排，拖动/滑条调整从当前位置起排。
+  // v2.0 性能修复（大图卡死根因）：
+  //   - id→index Map 替代 indexOf（O(n·m)→O(m)）
+  //   - cy.batch() 批量写位置（cytoscape 官方性能建议：避免每帧逐元素触发样式重算）
+  //   - 早停：最大位移 <0.3px 连续 12 帧 → 收敛
+  //   - 自适应迭代上限：节点越多帧数越少；n>400 直接跳过模拟（O(n²)/帧 不可行）
   function runForceLayout(cyRef: Core) {
     stopForce();
     const nodeArr = cyRef.nodes().toArray();   // 固定顺序的节点数组（模拟期间成员不变）
@@ -45,6 +50,16 @@
     }
 
     const pos = nodeArr.map((nd) => ({ x: nd.position('x'), y: nd.position('y') }));
+
+    // v2.0 超大图谱：跳过力模拟，直接适配视野（散点位置已在 chainToElements 预写入）
+    if (n > 400) {
+      cyRef.fit(undefined, 60);
+      return;
+    }
+
+    // id → 索引映射
+    const idx = new Map<string, number>();
+    nodeArr.forEach((nd, i) => idx.set(nd.id(), i));
 
     const vx = new Float64Array(n);
     const vy = new Float64Array(n);
@@ -59,12 +74,14 @@
 
     let alpha = 1.0;
     const ALPHA_DECAY = 0.97;   // 模拟冷却（~150 tick ≈ 2.5s 收敛）
-    const MAX_ITER = 400;
+    // v2.0 自适应迭代上限：节点越多每帧 O(n²) 越贵，代数递减
+    const MAX_ITER = n > 250 ? 100 : n > 100 ? 200 : 400;
 
     let iter = 0;
+    let still = 0;   // 连续低位移帧计数（早停）
     const tick = () => {
       forceRun = null;
-      if (iter++ >= MAX_ITER || alpha < 0.01) {
+      if (iter++ >= MAX_ITER || alpha < 0.01 || still > 12) {
         // v1.7 收敛后平滑适配视野（原先瞬跳，观感像"图自己跳到中央"）
         cyRef.animate({
           fit: { eles: cyRef.elements(), padding: 60 },
@@ -96,9 +113,9 @@
       }
       // 2) 边弹簧吸引：F = 刚度 × (当前长 - 理想长)，沿边方向
       edges.forEach((e) => {
-        const si = nodeArr.indexOf(e.source());
-        const ti = nodeArr.indexOf(e.target());
-        if (si < 0 || ti < 0) return;
+        const si = idx.get(e.source().id());
+        const ti = idx.get(e.target().id());
+        if (si === undefined || ti === undefined) return;
         let dx = pos[ti].x - pos[si].x;
         let dy = pos[ti].y - pos[si].y;
         const d = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
@@ -117,6 +134,7 @@
         vy[i] -= pos[i].y * gc;
       }
       // 4) 阻尼 + 积分 + 位移钳制（v1.6: 每帧最多 MAX_STEP，杜绝飞出/爆开）
+      let maxStep = 0;
       for (let i = 0; i < n; i++) {
         vx[i] *= 0.86;
         vy[i] *= 0.86;
@@ -129,10 +147,14 @@
         }
         pos[i].x += sx;
         pos[i].y += sy;
+        if (sp > maxStep) maxStep = sp;
       }
       alpha *= ALPHA_DECAY;
-      // 5) 写回画布
-      for (let i = 0; i < n; i++) nodeArr[i].position({ x: pos[i].x, y: pos[i].y });
+      if (maxStep < 0.3) still++; else still = 0;
+      // 5) 写回画布（v2.0 批量写入：一次样式重算而非每节点一次）
+      cyRef.batch(() => {
+        for (let i = 0; i < n; i++) nodeArr[i].position({ x: pos[i].x, y: pos[i].y });
+      });
       forceRun = requestAnimationFrame(tick);
     };
     forceRun = requestAnimationFrame(tick);
@@ -183,6 +205,12 @@
   // v1.4：改为平方根缓增 + 封顶，大小对比温和（Obsidian 风格）：
   //   度0→14px, 度4→22px, 度9→26px, 度16→30px, 度36+→38px（封顶）
   const nodeSize = (ele: any): number => 14 + Math.min(Math.sqrt(ele.degree()), 6) * 4;
+
+  // v2.0 边宽度函数：与两端节点大小挂钩（小节点 0.8px → 大节点 2.0px）
+  const edgeBaseWidth = (ele: any): number => {
+    const s = Math.min(nodeSize(ele.source()), nodeSize(ele.target()));
+    return 0.8 + (s - 14) * 0.05;
+  };
 
   // v1.4 图例数据（与节点配色一致，UI 上直接提示颜色含义；v2.0 增知识库中性「笔记」）
   const typeLegend: { t: string; label: string; color: string }[] = [
@@ -254,30 +282,31 @@
       },
     },
     { selector: 'node:selected', style: { 'border-width': 2, 'border-color': '#ffffff', 'border-opacity': 0.95, 'border-style': 'solid' } },
-    // v2.0 边：现代图谱观感（参照 Obsidian 类型色边 / SqlMesh 渐变连线）
-    // - 渐变线：源类型色 → 目标类型色（方向感一眼可读）
-    // - 圆头微曲线 + 低饱和底透明度 + 悬停点亮
+    // v2.0 边：粗细与节点大小挂钩（用户反馈：边应随节点大小，且要细）——
+    // 小节点(14px) 0.8px → 大节点(38px) 2.0px；曲率收敛（52→30px 控制距离，短边不再鼓大包）；
+    // 渐变按 cytoscape 官方性能建议在大图（>300 边）降级为实线
     {
       selector: 'edge',
       style: {
-        'width': 1.2,
+        'width': edgeBaseWidth,
         'curve-style': 'bezier',
-        'control-point-distances': '52px',
+        'control-point-distances': '30px',
         'control-point-weights': 0.5,
         'line-cap': 'round',
-        'line-fill': 'linear-gradient',
+        'line-color': 'rgba(148,163,184,0.45)',   // 大图降级实线时的中性色
+        'line-fill': (ele: any) => (ele.cy().edges().length > 300 ? 'solid' : 'linear-gradient'),
         'line-gradient-stop-colors': 'data(gradColors)',
         'line-gradient-stop-positions': '0%, 100%',
         'target-arrow-shape': 'triangle',
         'target-arrow-color': 'data(tgtColor)',
-        'arrow-scale': 0.6,
+        'arrow-scale': 0.55,
         'opacity': 0.5,
         // v1.4 聚焦过渡
         'transition-property': 'opacity, width',
         'transition-duration': '0.2s',
       },
     },
-    { selector: 'edge:hover', style: { 'opacity': 1, 'width': 2.4 } },
+    { selector: 'edge:hover', style: { 'opacity': 1, 'width': (ele: any) => Math.min(edgeBaseWidth(ele) * 1.8, 3) } },
     // v1.6.1 Obsidian 风格点击聚焦：淡出无关元素、点亮选中节点与邻居
     // 注意：dim 不透明度不宜过低（0.10 在黑底上近似隐形，用户误以为"数据全没了"），
     // 且关闭侧栏/按 Esc/点空白处都必须解除聚焦
@@ -426,9 +455,13 @@
     }
   }
 
-  // v1.6 节点集合签名：watcher 推送同一批节点（如无关快照）时不再随机重散，
-  // 而是从当前位置续排；只有节点集合真正变化才散点重排
-  let lastSig = '';
+  // v2.0 三签名防抖（大图卡死的另一根因：watcher 噪音推送反复触发全图重建+重排）：
+  // - idsSig（节点集合）：变化才重建元素 + 散点重排
+  // - dataSig（字段内容）：变化只原位更新元素数据（不重排、不重建——保存/外部编辑不扰动布局）
+  // - sliderSig（滑条）：变化只从当前位置续排
+  let lastIdsSig = '';
+  let lastDataSig = '';
+  let lastSliderSig = '';
 
   // ⚠️ Svelte 5 坑：if (cy && snapshot) 短路求值会让 effect 漏追踪 snapshot
   // （第一次跑时 cy=null，JS 短路求值不会读 snapshot，Svelte 5 不会追踪）
@@ -436,34 +469,54 @@
   $effect(() => {
     if (!snapshot) return;  // 强制追踪 snapshot
     if (!cy) return;
+    const snap = snapshot;   // TS 收窄：嵌套闭包里保持非空类型
     const cyRef = cy;
 
     // 追踪滑块值，拖动时触发重新模拟
     const _r = repulsion;
     const _g = gravity;
     const _e = edgeLen;
+    const sliderSig = `${_r}-${_g}-${_e}`;
 
-    const sig = snapshot.nodes.map(x => x.id).sort().join(',');
-    if (sig === lastSig && cyRef.elements().length > 0) {
-      // v1.6 同一批节点（滑条调整/watcher 重推）→ 不重新散点；
-      // v1.7 但必须重建元素数据（外部编辑标题/状态后标签要刷新），重建后恢复各节点原位置
-      const keep = new Map(cyRef.nodes().map((nd) => [nd.id(), nd.position()] as const));
+    const idsSig = snap.nodes.map(x => x.id).sort().join(',');
+    const dataSig = snap.nodes
+      .map(x => `${x.id}|${x.type}|${x.updated}|${x.revision}|${x.status}|${x.title}|${x.tags.join('~')}|${x.evidence.join('~')}`)
+      .sort()
+      .join(';');
+
+    if (idsSig !== lastIdsSig) {
+      // 节点集合变化：全量重建 + 预散点 + 首帧视图 + 力模拟
+      lastIdsSig = idsSig;
+      lastDataSig = dataSig;
+      lastSliderSig = sliderSig;
+      stopForce();
       cyRef.elements().remove();
-      cyRef.add(chainToElements(snapshot));
-      cyRef.nodes().forEach((nd) => {
-        const p = keep.get(nd.id());
-        if (p) nd.position(p);
+      cyRef.add(chainToElements(snap));
+      // v1.7 首帧视图：同步 fit 全图 + 根节点对准屏幕中央（消除"左上角堆叠→跳中央"的闪烁）
+      initialView(cyRef, snap.manifest.root);
+      runForceLayout(cyRef);   // v1.5 全局力导向：预散点起步，收敛后平滑适配视野
+      return;
+    }
+
+    if (dataSig !== lastDataSig) {
+      // 内容变化（保存/外部编辑/watcher 推送）：原位更新节点与边数据，位置与布局不动
+      lastDataSig = dataSig;
+      cyRef.batch(() => {
+        for (const def of chainToElements(snap)) {
+          const ele = cyRef.getElementById(def.data.id as string);
+          if (ele.nonempty()) ele.data(def.data);
+        }
       });
+      return;
+    }
+
+    if (sliderSig !== lastSliderSig) {
+      // 仅滑条变化：从当前位置续排（保留 v1.6 手感）
+      lastSliderSig = sliderSig;
       runForceLayout(cyRef);
       return;
     }
-    lastSig = sig;
-    stopForce();
-    cyRef.elements().remove();
-    cyRef.add(chainToElements(snapshot));
-    // v1.7 首帧视图：同步 fit 全图 + 根节点对准屏幕中央（消除"左上角堆叠→跳中央"的闪烁）
-    initialView(cyRef, snapshot.manifest.root);
-    runForceLayout(cyRef);   // v1.5 全局力导向：预散点起步，收敛后平滑适配视野
+    // watcher 重推但内容无变化：直接忽略，避免大图反复重建卡顿
   });
 
   onMount(() => {
