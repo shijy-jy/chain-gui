@@ -48,15 +48,40 @@ pub fn open_evidence(dir: String, rel: String) -> Result<(), String> {
     open_with_default_app(&target)
 }
 
-/// 用系统默认程序打开文件（Windows: explorer.exe 单参直传，无 cmd 元字符重解析且支持中文/空格路径；
-/// macOS: open；Linux: xdg-open）。路径必须是普通形态（非 `\\?\` verbatim——ShellExecute 不接受）。
+/// 用系统默认程序打开文件。
+/// Windows：ShellExecuteW 直调——不经过 explorer.exe（它会复用已打开的 Explorer 窗口、
+/// 有自己的命令行解析怪癖，v1.8 曾出现"跳到文档文件夹却不打开文件"）；
+/// macOS：open；Linux：xdg-open。路径必须是普通形态（非 `\\?\` verbatim）。
 fn open_with_default_app(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer.exe")
-            .arg(path)
-            .spawn()
-            .map_err(|e| format!("打开失败：{e}"))?;
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Foundation::HWND;
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+
+        // UTF-16 宽字符 + 结尾 null
+        let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+        wide.push(0);
+        let op: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+
+        // ShellExecuteW 返回值 > 32 = 成功；≤ 32 = SE_ERR_* 错误码
+        let ret = unsafe {
+            ShellExecuteW(
+                0 as HWND,
+                op.as_ptr(),
+                wide.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1, // SW_SHOWNORMAL
+            )
+        };
+        if (ret as u32) <= 32 {
+            return Err(format!(
+                "系统打开失败（{se}）：{}",
+                path.display(),
+                se = se_err_msg(ret as u32),
+            ));
+        }
     }
     #[cfg(target_os = "macos")]
     {
@@ -73,6 +98,25 @@ fn open_with_default_app(path: &Path) -> Result<(), String> {
             .map_err(|e| format!("打开失败：{e}"))?;
     }
     Ok(())
+}
+
+/// ShellExecute 的 SE_ERR_* 错误码 → 可读说明（https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutea#return-value）
+#[cfg(target_os = "windows")]
+fn se_err_msg(code: u32) -> &'static str {
+    match code {
+        2 => "找不到指定文件（SE_ERR_FNF）",
+        3 => "找不到指定路径（SE_ERR_PNF）",
+        5 => "拒绝访问（SE_ERR_ACCESSDENIED）",
+        8 => "内存不足（SE_ERR_OOM）",
+        26 => "没有与该文件类型关联的默认程序（SE_ERR_NOASSOC）",
+        27 => "找不到或无法加载关联的动态库（SE_ERR_DDLL）",
+        28 => "关联程序未响应（SE_ERR_DDEBUS）",
+        29 => "DDE 事务失败（SE_ERR_DDEFAIL）",
+        30 => "文件正被其他程序占用（SE_ERR_SHARE）",
+        31 => "文件类型关联无效（SE_ERR_ASSOCINCOMPLETE）",
+        32 => "关联程序加载失败（SE_ERR_DLLNOTFOUND）",
+        _ => "未知系统错误",
+    }
 }
 
 #[cfg(test)]

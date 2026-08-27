@@ -28,6 +28,9 @@ tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2.7.2"
 notify = "8.2.0"
+# v1.8 证据打开：ShellExecuteW 直调（参照 tauri-plugin-opener/open crate 的 shellexecute 实现与 Python os.startfile；
+# explorer.exe/cmd start 均有怪癖，不可靠）。windows-sys 0.59 已在依赖树中，无新增外部 crate。
+windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_Foundation"] }
 
 [dev-dependencies]
 tempfile = "3"
