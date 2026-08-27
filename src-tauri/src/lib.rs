@@ -30,6 +30,8 @@ pub fn run() {
         commands::snapshot::list_snapshots,
         commands::snapshot::read_snapshot,
         commands::fold::fold_chain,
+        commands::evidence::open_evidence,
+        commands::evidence::evidence_rel_path,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

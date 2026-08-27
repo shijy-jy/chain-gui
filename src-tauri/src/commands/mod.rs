@@ -5,3 +5,4 @@ pub mod init_chain;
 pub mod process_log;
 pub mod snapshot;
 pub mod fold;
+pub mod evidence;
