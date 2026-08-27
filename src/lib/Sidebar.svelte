@@ -91,6 +91,18 @@
   // —— 证据：只显示文件名；点击用系统默认程序打开 ——
   const evName = (rel: string) => rel.split(/[\\/]/).pop() ?? rel;
 
+  // v1.8 安全策略：双击会"执行/导入"的危险扩展名 → 后端强制记事本只读查看，前端加"只读"徽标。
+  // ⚠️ 与 src-tauri/src/commands/evidence.rs 的 VIEW_ONLY_EXTS 保持同步（后端才是实际行为）。
+  const VIEW_ONLY_EXTS = new Set([
+    'exe','bat','cmd','com','msi','msp','mst','scr','pif','cpl','msc',
+    'reg','vbs','vbe','js','jse','wsf','wsh','hta','ps1','psm1','psd1',
+    'py','pyw','pyc','jar','rb','sh','lnk','chm','dll','sys','ocx','drv',
+  ]);
+  const isViewOnly = (rel: string) => {
+    const ext = rel.split('.').pop()?.toLowerCase() ?? '';
+    return VIEW_ONLY_EXTS.has(ext);
+  };
+
   async function openEvidence(rel: string) {
     if (!chainDir || evBusy) return;
     evMessage = null;
@@ -278,7 +290,10 @@
         <div class="evidence-list">
           {#each evidence as rel (rel)}
             <div class="ev-row">
-              <button class="ev-name" title="打开 {rel}" onclick={() => openEvidence(rel)}>{evName(rel)}</button>
+              <button class="ev-name" title={isViewOnly(rel) ? `记事本查看（不运行）：${rel}` : `打开：${rel}`} onclick={() => openEvidence(rel)}>{evName(rel)}</button>
+              {#if isViewOnly(rel)}
+                <span class="ev-badge" title="脚本/可执行文件：点击仅用记事本查看，不会运行">只读</span>
+              {/if}
               <button class="ev-del" title="移除该证据" onclick={() => removeEvidence(rel)} disabled={saving}>✕</button>
             </div>
           {/each}
@@ -565,6 +580,17 @@
     transition: background 0.15s ease;
   }
   .ev-name:hover { background: rgba(125, 211, 252, 0.16); }
+  /* v1.8 只读徽标：危险扩展名点击仅记事本查看 */
+  .ev-badge {
+    flex-shrink: 0;
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.12);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    white-space: nowrap;
+  }
   .ev-del {
     flex-shrink: 0;
     width: 22px;

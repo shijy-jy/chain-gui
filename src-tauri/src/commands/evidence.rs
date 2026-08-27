@@ -40,12 +40,50 @@ pub fn resolve_evidence(root: &Path, rel: &str) -> Result<PathBuf, String> {
     Ok(joined)
 }
 
-/// 用系统默认程序打开证据文件
+/// 用系统默认程序打开证据文件；危险扩展名强制"只读查看"（记事本），绝不执行。
+/// 证据是产物（截图/日志/文档），不是可执行体——误点 .py/.bat/.reg 可能造成破坏（v1.8 安全策略）。
 #[command]
 pub fn open_evidence(dir: String, rel: String) -> Result<(), String> {
     let root = PathBuf::from(&dir);
     let target = resolve_evidence(&root, &rel)?;
-    open_with_default_app(&target)
+    if is_view_only(&target) {
+        open_with_notepad(&target)
+    } else {
+        open_with_default_app(&target)
+    }
+}
+
+/// 双击会"执行/导入"的危险扩展名（Windows）：点击证据时改为记事本打开查看。
+/// 与前端 Sidebar.svelte 的 VIEW_ONLY_EXTS 保持同步（前端仅用于显示"只读"徽标）。
+const VIEW_ONLY_EXTS: &[&str] = &[
+    "exe", "bat", "cmd", "com", "msi", "msp", "mst", "scr", "pif", "cpl", "msc",
+    "reg", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "ps1", "psm1", "psd1",
+    "py", "pyw", "pyc", "jar", "rb", "sh", "lnk", "chm", "dll", "sys", "ocx", "drv",
+];
+
+/// 该文件是否属于"只能看不能跑"的类型（按扩展名，不区分大小写）
+pub fn is_view_only(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| VIEW_ONLY_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+/// 用记事本只读查看（不执行、不导入）
+fn open_with_notepad(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("notepad.exe")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("用记事本打开失败：{e}"))?;
+        Ok(())
+    }
+    // 非 Windows 平台：脚本/可执行文件由桌面关联处理（Linux/macOS 默认也是编辑器而非执行）
+    #[cfg(not(target_os = "windows"))]
+    {
+        open_with_default_app(path)
+    }
 }
 
 /// 用系统默认程序打开文件。
@@ -198,5 +236,19 @@ mod tests {
             "不能返回 verbatim 路径（ShellExecute 打不开）: {s}"
         );
         assert!(resolved.exists(), "返回的路径应真实存在: {s}");
+    }
+
+    #[test]
+    fn test_view_only_extensions() {
+        // 双击会执行/导入的危险扩展名 → 只读查看（记事本），绝不运行
+        for ext in ["py", "PY", "Py", "bat", "exe", "reg", "ps1", "js", "vbs", "lnk", "jar"] {
+            assert!(is_view_only(Path::new(&format!("x.{ext}"))), "{ext} 应判定为只读查看");
+        }
+        // 普通产物 → 桌面双击方式
+        for ext in ["md", "png", "txt", "log", "json", "csv", "pdf", "html"] {
+            assert!(!is_view_only(Path::new(&format!("x.{ext}"))), "{ext} 应走默认打开");
+        }
+        // 无扩展名 → 默认打开
+        assert!(!is_view_only(Path::new("README")));
     }
 }
