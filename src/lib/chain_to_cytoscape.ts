@@ -10,6 +10,7 @@ export const NODE_TYPE_LABEL: Record<NodeType, string> = {
   design: '设计',
   task: '任务',
   verification: '验证',
+  note: '笔记',
 };
 
 // v2.0 类型色（与 App.svelte 图例/节点配色一致；边渐变 = 源类型色 → 目标类型色）
@@ -18,11 +19,14 @@ export const NODE_TYPE_COLOR: Record<NodeType, string> = {
   design: '#60a5fa',
   task: '#22d3ee',
   verification: '#34d399',
+  note: '#94a3b8',
 };
 
 function displayLabel(type: NodeType, title: string): string {
   const max = 20;
   const t = title.length > max ? `${title.slice(0, max)}…` : title;
+  // v2.0 开发模式中性类型 note：不加「笔记」前缀（知识库节点标题即显示名，类型可忽略）
+  if (type === 'note') return t;
   return `${NODE_TYPE_LABEL[type]} · ${t}`;
 }
 

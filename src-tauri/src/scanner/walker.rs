@@ -151,13 +151,13 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
     let (fm, body) = match parse(content) {
         Ok(result) => result,
         Err(_) => {
-            // 无 frontmatter：整个文件即正文
+            // 无 frontmatter：整个文件即正文（v2.0 默认中性类型 note / 无状态 none）
             return Node {
                 id: stem.to_string(),
-                node_type: NodeType::Task,
+                node_type: NodeType::Note,
                 title: first_title_or(stem, content),
                 parent: None,
-                status: NodeStatus::Pending,
+                status: NodeStatus::None,
                 created: now_iso8601(),
                 updated: now_iso8601(),
                 revision: 1,
@@ -176,9 +176,10 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
             "goal" => NodeType::Goal,
             "design" => NodeType::Design,
             "verification" => NodeType::Verification,
-            _ => NodeType::Task,
+            "task" => NodeType::Task,
+            _ => NodeType::Note,
         })
-        .unwrap_or(NodeType::Task);
+        .unwrap_or(NodeType::Note);
     let status = get("status")
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .map(|s| match s.as_str() {
@@ -186,9 +187,10 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
             "success" => NodeStatus::Success,
             "failed" => NodeStatus::Failed,
             "blocked" => NodeStatus::Blocked,
-            _ => NodeStatus::Pending,
+            "pending" => NodeStatus::Pending,
+            _ => NodeStatus::None,
         })
-        .unwrap_or(NodeStatus::Pending);
+        .unwrap_or(NodeStatus::None);
     let title = get("title")
         .and_then(|v| v.as_str().map(|s| s.trim().to_string()))
         .filter(|s| !s.is_empty())
@@ -288,6 +290,7 @@ fn build_chain_health(nodes: &[Node]) -> ChainHealth {
             crate::model::node::NodeStatus::InProgress => h.in_progress_count += 1,
             crate::model::node::NodeStatus::Pending => h.pending_count += 1,
             crate::model::node::NodeStatus::Success => h.success_count += 1,
+            crate::model::node::NodeStatus::None => {}   // v2.0 开发模式无状态不计入
         }
         if n.parent.is_none() {
             h.root_goal = n.title.clone();
@@ -332,6 +335,7 @@ fn build_active_chain(nodes: &[Node], mode: ScanMode) -> String {
             NodeStatus::Success => "✅",
             NodeStatus::Failed => "❌",
             NodeStatus::Blocked => "🚫",
+            NodeStatus::None => "",
         }
     };
 
@@ -341,6 +345,7 @@ fn build_active_chain(nodes: &[Node], mode: ScanMode) -> String {
             crate::model::node::NodeType::Design => "📐",
             crate::model::node::NodeType::Task => "🔧",
             crate::model::node::NodeType::Verification => "🔍",
+            crate::model::node::NodeType::Note => "🧩",
         }
     };
 
@@ -360,10 +365,12 @@ fn build_active_chain(nodes: &[Node], mode: ScanMode) -> String {
             return; // 防循环：重复 id 导致的无限递归
         }
         let connector = if prefix.is_empty() { "" } else if is_last { "└─ " } else { "├─ " };
-        let line = format!(
-            "{}{}{} {} [{}]",
-            prefix, connector, type_icon(node), node.title, status_icon(&node.status)
-        );
+        let icon = status_icon(&node.status);
+        let line = if icon.is_empty() {
+            format!("{}{}{} {}", prefix, connector, type_icon(node), node.title)
+        } else {
+            format!("{}{}{} {} [{}]", prefix, connector, type_icon(node), node.title, icon)
+        };
         lines.push(line);
 
         // 只递归非 success 的子节点
@@ -728,7 +735,8 @@ mod tests {
         assert_eq!(snap.nodes.len(), 2);
         let feynman = snap.nodes.iter().find(|n| n.id == "物理笔记").unwrap();
         assert_eq!(feynman.title, "费曼讲义要点");
-        assert_eq!(feynman.node_type, crate::model::node::NodeType::Task);
+        assert_eq!(feynman.node_type, crate::model::node::NodeType::Note);
+        assert_eq!(feynman.status, crate::model::node::NodeStatus::None);
         assert_eq!(feynman.parent, None);
         let misc = snap.nodes.iter().find(|n| n.id == "杂记").unwrap();
         assert_eq!(misc.title, "杂记");
@@ -777,5 +785,23 @@ mod tests {
         // 分析模式同样数据应报指南缺失 warning
         let snap_analysis = scan_chain_dir(root).unwrap();
         assert!(snap_analysis.validation.warnings.iter().any(|w| w.contains("AI_GUIDE")));
+    }
+
+    #[test]
+    fn test_analysis_rejects_note_and_none() {
+        // 中性类型 note / 无状态 none 是开发模式专属——分析模式必须报非法枚举
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let nodes_dir = root.join(".chain").join("nodes");
+        fs::create_dir_all(&nodes_dir).unwrap();
+        fs::write(
+            nodes_dir.join("a.md"),
+            "---\nid: a\ntype: note\ntitle: 知识库节点\nparent: null\nstatus: none\ncreated: 2026-08-27T10:00:00+08:00\nupdated: 2026-08-27T10:00:00+08:00\nrevision: 1\ntags: []\n---\n\n# 知识库节点\n",
+        ).unwrap();
+
+        let snap = scan_chain_dir(root).unwrap();
+        assert!(!snap.validation.valid, "分析模式应拒绝 note/none: {:?}", snap.validation.errors);
+        assert!(snap.validation.errors.iter().any(|e| e.contains("type: 非法枚举值")), "应报 type 非法: {:?}", snap.validation.errors);
+        assert!(snap.validation.errors.iter().any(|e| e.contains("status: 非法枚举值")), "应报 status 非法: {:?}", snap.validation.errors);
     }
 }

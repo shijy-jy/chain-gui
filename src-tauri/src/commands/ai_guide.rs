@@ -7,7 +7,7 @@ use tauri::command;
 pub const AI_GUIDE: &str = include_str!("../../../resources/AI_GUIDE.md");
 
 /// 内嵌指南的版本号（与 resources/AI_GUIDE.md 首行版本标记一致；改指南时必须同步 +1）
-pub const AI_GUIDE_VERSION: u32 = 5;
+pub const AI_GUIDE_VERSION: u32 = 6;
 
 /// 从指南文本解析版本标记（首行 `<!-- CHAIN_GUIDE_VERSION: N -->`）。
 /// 返回 None = 无标记（旧版指南或人工编辑过）。
@@ -56,6 +56,9 @@ mod tests {
         assert!(AI_GUIDE.contains("不拍脑袋实现"), "指南应含第 9 条守则「不拍脑袋实现」");
         assert!(AI_GUIDE.contains("不伪造结果"), "指南应含第 1 条守则");
         assert!(AI_GUIDE.contains("不跳验证"), "指南应含第 8 条守则");
+        // v6：守则 9 补强——接到需求先找与需求相关的优秀实现，检索手段不限
+        assert!(AI_GUIDE.contains("与需求相关的优秀实现"), "指南应含 v6 参考实现守则");
+        assert!(AI_GUIDE.contains("检索手段不限"), "指南应含检索手段不限");
     }
 
     #[test]

@@ -1,4 +1,4 @@
-﻿//! 链折叠模块（v1.3）：将已完成子链折叠为摘要节点，压缩节点数量。
+//! 链折叠模块（v1.3）：将已完成子链折叠为摘要节点，压缩节点数量。
 //! 参考 TencentDB Agent Memory 的"上下文卸载"理念：原始节点归档保留，
 //! 摘要节点替换进活跃链，保持可追溯性。
 //! 参考 MemGPT 的递归摘要：折叠时生成摘要正文，标注原始节点引用。
@@ -179,6 +179,7 @@ fn build_fold_summary(
                 crate::model::node::NodeType::Design => "📐",
                 crate::model::node::NodeType::Task => "🔧",
                 crate::model::node::NodeType::Verification => "🔍",
+                crate::model::node::NodeType::Note => "🧩",
             };
             // 取正文第一行作为摘要（UTF-8 安全截断，中文下 100 字节切中间会 panic）
             let first_line = node.body

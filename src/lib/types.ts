@@ -1,5 +1,5 @@
-export type NodeType = 'goal' | 'design' | 'task' | 'verification';
-export type NodeStatus = 'pending' | 'in_progress' | 'success' | 'failed' | 'blocked';
+export type NodeType = 'goal' | 'design' | 'task' | 'verification' | 'note';
+export type NodeStatus = 'pending' | 'in_progress' | 'success' | 'failed' | 'blocked' | 'none';
 
 // v2.0 软件工作模式：分析（严格 chain 协议）/ 开发（自由知识图谱）
 export type ScanMode = 'analysis' | 'dev';

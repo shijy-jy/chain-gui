@@ -7,6 +7,8 @@ pub enum NodeType {
     Design,
     Task,
     Verification,
+    /// v2.0 开发模式中性类型：知识库节点不属于链协议四类型（分析模式校验拒绝 note）
+    Note,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -17,6 +19,8 @@ pub enum NodeStatus {
     Success,
     Failed,
     Blocked,
+    /// v2.0 开发模式无状态：知识库节点不需要任务状态（分析模式校验拒绝 none）
+    None,
 }
 
 /// 折叠信息：当子链被折叠为摘要节点时记录

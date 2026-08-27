@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ChainNode, NodeStatus, NodeType } from '../lib/types';
+  import type { ChainNode } from '../lib/types';
 
   let {
     nodes,
@@ -7,33 +7,16 @@
     onCancel,
   }: {
     nodes: ChainNode[];
-    onCreate: (input: { id: string; title: string; node_type: NodeType; status: NodeStatus; parent: string | null }) => Promise<void>;
+    onCreate: (input: { id: string; title: string; parent: string | null }) => Promise<void>;
     onCancel: () => void;
   } = $props();
 
+  // v2.0 开发模式知识库：不要求类型/状态（后端默认中性 note/none）
   let id = $state('');           // 留空 = 自动生成
   let title = $state('');
-  let node_type = $state<NodeType>('task');
-  let status = $state<NodeStatus>('pending');
   let parent = $state<string | null>(null);
   let busy = $state(false);
   let error = $state<string | null>(null);
-
-  const typeOptions: NodeType[] = ['goal', 'design', 'task', 'verification'];
-  const statusOptions: NodeStatus[] = ['pending', 'in_progress', 'success', 'failed', 'blocked'];
-  const statusLabels: Record<NodeStatus, string> = {
-    pending: '待开始',
-    in_progress: '进行中',
-    success: '已完成',
-    failed: '失败',
-    blocked: '阻塞',
-  };
-  const typeLabels: Record<NodeType, string> = {
-    goal: '目标',
-    design: '设计',
-    task: '任务',
-    verification: '验证',
-  };
 
   async function submit() {
     if (busy) return;
@@ -47,8 +30,6 @@
       await onCreate({
         id: id.trim() || '',
         title: title.trim(),
-        node_type,
-        status,
         parent,
       });
     } catch (e) {
@@ -74,25 +55,6 @@
     <div class="field">
       <label for="new-title">标题</label>
       <input id="new-title" type="text" bind:value={title} placeholder="如：费曼讲义 · 量子力学" disabled={busy} />
-    </div>
-
-    <div class="row">
-      <div class="field">
-        <label for="new-type">类型</label>
-        <select id="new-type" bind:value={node_type} disabled={busy}>
-          {#each typeOptions as t}
-            <option value={t}>{typeLabels[t]}</option>
-          {/each}
-        </select>
-      </div>
-      <div class="field">
-        <label for="new-status">状态</label>
-        <select id="new-status" bind:value={status} disabled={busy}>
-          {#each statusOptions as s}
-            <option value={s}>{statusLabels[s]}</option>
-          {/each}
-        </select>
-      </div>
     </div>
 
     <div class="field">
@@ -154,8 +116,6 @@
     cursor: pointer;
   }
   .close:hover { color: rgba(255, 255, 255, 0.9); }
-  .row { display: flex; gap: 12px; }
-  .row .field { flex: 1; }
   .field { margin-bottom: 12px; }
   label {
     display: block;

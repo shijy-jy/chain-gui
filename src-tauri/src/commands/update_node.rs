@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 use tauri::command;
 use crate::model::ScanMode;
 use crate::model::chain::ChainSnapshot;
@@ -47,8 +47,8 @@ pub fn update_node(
             let now = scanner::frontmatter::now_iso8601();
             let mut m = serde_yaml::Mapping::new();
             m.insert(YamlValue::String("id".into()), YamlValue::String(node_id.clone()));
-            m.insert(YamlValue::String("type".into()), YamlValue::String("task".into()));
-            m.insert(YamlValue::String("status".into()), YamlValue::String("pending".into()));
+            m.insert(YamlValue::String("type".into()), YamlValue::String("note".into()));
+            m.insert(YamlValue::String("status".into()), YamlValue::String("none".into()));
             m.insert(YamlValue::String("title".into()), YamlValue::String(node_id.clone()));
             m.insert(YamlValue::String("created".into()), YamlValue::String(now.clone()));
             m.insert(YamlValue::String("updated".into()), YamlValue::String(now));

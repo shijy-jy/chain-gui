@@ -52,18 +52,22 @@ fn normalize_type(t: &Option<String>) -> &str {
     match t.as_deref() {
         Some("goal") => "goal",
         Some("design") => "design",
+        Some("task") => "task",
         Some("verification") => "verification",
-        _ => "task",
+        // v2.0 开发模式默认中性类型 note（知识库节点不好归入链协议四类型）
+        _ => "note",
     }
 }
 
 fn normalize_status(s: &Option<String>) -> &str {
     match s.as_deref() {
+        Some("pending") => "pending",
         Some("in_progress") => "in_progress",
         Some("success") => "success",
         Some("failed") => "failed",
         Some("blocked") => "blocked",
-        _ => "pending",
+        // v2.0 开发模式默认无状态 none
+        _ => "none",
     }
 }
 
@@ -171,8 +175,8 @@ pub fn set_parent(
             let now = crate::scanner::frontmatter::now_iso8601();
             let mut m = serde_yaml::Mapping::new();
             m.insert(YamlValue::String("id".into()), YamlValue::String(node_id.clone()));
-            m.insert(YamlValue::String("type".into()), YamlValue::String("task".into()));
-            m.insert(YamlValue::String("status".into()), YamlValue::String("pending".into()));
+            m.insert(YamlValue::String("type".into()), YamlValue::String("note".into()));
+            m.insert(YamlValue::String("status".into()), YamlValue::String("none".into()));
             m.insert(YamlValue::String("title".into()), YamlValue::String(node_id.clone()));
             m.insert(YamlValue::String("created".into()), YamlValue::String(now.clone()));
             m.insert(YamlValue::String("updated".into()), YamlValue::String(now));

@@ -184,12 +184,13 @@
   //   度0→14px, 度4→22px, 度9→26px, 度16→30px, 度36+→38px（封顶）
   const nodeSize = (ele: any): number => 14 + Math.min(Math.sqrt(ele.degree()), 6) * 4;
 
-  // v1.4 图例数据（与节点配色一致，UI 上直接提示颜色含义）
+  // v1.4 图例数据（与节点配色一致，UI 上直接提示颜色含义；v2.0 增知识库中性「笔记」）
   const typeLegend: { t: string; label: string; color: string }[] = [
     { t: 'goal', label: '目标 goal', color: '#a78bfa' },
     { t: 'design', label: '设计 design', color: '#60a5fa' },
     { t: 'task', label: '任务 task', color: '#22d3ee' },
     { t: 'verification', label: '验证 verification', color: '#34d399' },
+    { t: 'note', label: '笔记 note（知识库）', color: '#94a3b8' },
   ];
   let showLegend = $state(true);
 
@@ -228,6 +229,7 @@
     { selector: 'node[nodeType = "design"]',       style: { 'background-color': '#60a5fa' } },
     { selector: 'node[nodeType = "task"]',         style: { 'background-color': '#22d3ee' } },
     { selector: 'node[nodeType = "verification"]', style: { 'background-color': '#34d399' } },
+    { selector: 'node[nodeType = "note"]',         style: { 'background-color': '#94a3b8' } },
     // 状态 = 光晕 / 透明度
     { selector: 'node[nodeStatus = "pending"]',     style: { 'background-opacity': 0.45 } },
     { selector: 'node[nodeStatus = "in_progress"]', style: { 'shadow-blur': 18, 'shadow-opacity': 0.55 } },
@@ -328,9 +330,10 @@
     }
   }
 
-  async function handleSave(fields: { title: string; status: NodeStatus; body: string; tags: string[]; evidence: string[] }) {
+  async function handleSave(fields: { title: string; status: NodeStatus | null; body: string; tags: string[]; evidence: string[] }) {
     if (!chainDir || !selectedNode) return;
     // 失败时 invoke reject，错误由 Sidebar 的 catch 显示；成功才更新 snapshot 并关侧栏
+    // v2.0 开发模式：status 为 null = 不写状态（知识库节点可有可无）
     const newSnapshot = await invoke<ChainSnapshot>('update_node', {
       dir: chainDir,
       nodeId: selectedNode.id,
@@ -342,16 +345,14 @@
     cy?.elements().removeClass('focus-dim focus-lit');   // v1.4 关闭侧栏同时解除聚焦
   }
 
-  // v2.0 开发模式：新建节点（id 留空 = 后端自动生成）
-  async function handleCreateNode(input: { id: string; title: string; node_type: NodeType; status: NodeStatus; parent: string | null }) {
+  // v2.0 开发模式：新建节点（id 留空 = 后端自动生成；类型/状态一律中性 note/none）
+  async function handleCreateNode(input: { id: string; title: string; parent: string | null }) {
     if (!chainDir) return;
     const newSnapshot = await invoke<ChainSnapshot>('create_node', {
       dir: chainDir,
       input: {
         id: input.id || null,
         title: input.title,
-        node_type: input.node_type,
-        status: input.status,
         parent: input.parent,
       },
       mode: scanMode,

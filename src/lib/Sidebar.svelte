@@ -9,7 +9,7 @@
     chainDir: string | null;
     mode: ScanMode;
     allNodes: ChainNode[];
-    onSave: (fields: { title: string; status: NodeStatus; body: string; tags: string[]; evidence: string[] }) => Promise<void>;
+    onSave: (fields: { title: string; status: NodeStatus | null; body: string; tags: string[]; evidence: string[] }) => Promise<void>;
     onCancel: () => void;
     onFold?: () => Promise<void>;
     onDelete?: (nodeId: string) => Promise<void>;
@@ -196,6 +196,7 @@
     success: '已完成',
     failed: '失败',
     blocked: '阻塞',
+    none: '无状态',
   };
 
   // 类型色点：与画布节点配色一致，详情面板和图谱互相呼应
@@ -204,6 +205,7 @@
     design: '#60a5fa',
     task: '#22d3ee',
     verification: '#34d399',
+    note: '#94a3b8',
   };
   let typeColor = $derived(typeColors[node.type]);
 
@@ -260,7 +262,8 @@
     error = null;
     try {
       const tags = tagsText.split(',').map(t => t.trim()).filter(t => t.length > 0);
-      await onSave({ title: title.trim(), status, body, tags, evidence });
+      // v2.0 开发模式不写状态（知识库节点状态可有可无）
+      await onSave({ title: title.trim(), status: isDev ? null : status, body, tags, evidence });
     } catch (e) {
       error = String(e);
     } finally {
@@ -316,14 +319,16 @@
       <label for="title">标题</label>
       <input id="title" type="text" bind:value={title} disabled={saving} />
     </div>
-    <div class="field">
-      <label for="status">状态</label>
-      <select id="status" bind:value={status} disabled={saving}>
-        {#each statusOptions as opt}
-          <option value={opt}>{statusLabels[opt]}</option>
-        {/each}
-      </select>
-    </div>
+    {#if !isDev}
+      <div class="field">
+        <label for="status">状态</label>
+        <select id="status" bind:value={status} disabled={saving}>
+          {#each statusOptions as opt}
+            <option value={opt}>{statusLabels[opt]}</option>
+          {/each}
+        </select>
+      </div>
+    {/if}
     <div class="field">
       <label for="tags">标签（逗号分隔）</label>
       <input id="tags" type="text" bind:value={tagsText} disabled={saving} />
