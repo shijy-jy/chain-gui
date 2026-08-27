@@ -7,7 +7,7 @@ use tauri::command;
 pub const AI_GUIDE: &str = include_str!("../../../resources/AI_GUIDE.md");
 
 /// 内嵌指南的版本号（与 resources/AI_GUIDE.md 首行版本标记一致；改指南时必须同步 +1）
-pub const AI_GUIDE_VERSION: u32 = 4;
+pub const AI_GUIDE_VERSION: u32 = 5;
 
 /// 从指南文本解析版本标记（首行 `<!-- CHAIN_GUIDE_VERSION: N -->`）。
 /// 返回 None = 无标记（旧版指南或人工编辑过）。
@@ -47,6 +47,7 @@ mod tests {
         assert!(AI_GUIDE.contains("success"), "指南应含 status 枚举");
         assert!(AI_GUIDE.contains("子 goal"), "指南应含子 goal 规则");
         assert!(AI_GUIDE.contains("title 命名规范"), "指南应含 v4 title 命名规范（图谱显示名）");
+        assert!(AI_GUIDE.contains("LaTeX"), "指南应含 v5 数学公式 LaTeX 书写约定");
     }
 
     #[test]

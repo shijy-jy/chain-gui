@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
+  import { renderBody } from './body_render';
   import type { ChainNode, NodeStatus, NodeType } from './types';
 
   let { node, chainDir, onSave, onCancel, onFold }: {
@@ -47,6 +48,10 @@
     logOpen: true,
   });
 
+  // v1.9 正文显示模式：编辑（textarea）/ 预览（Markdown + LaTeX 渲染），模块级保留用户选择
+  let bodyMode = $state<'edit' | 'preview'>('edit');
+  let bodyHtml = $derived(bodyMode === 'preview' ? renderBody(body) : '');
+
   // —— 布局拖拽：横向边界条调整上方内容区高度（VSCode 分栏手感）——
   function resizeSection(which: 'bodyH' | 'evidenceH' | 'logH') {
     return (e: PointerEvent) => {
@@ -66,6 +71,14 @@
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up);
     };
+  }
+
+  // pane-head 键盘可达（role=button）：Enter/空格 折叠/展开
+  function paneHeadKey(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).click();
+    }
   }
 
   // 面板左缘竖向条：拖拽调整面板整体宽度
@@ -265,14 +278,26 @@
     </div>
   </div>
 
-  <!-- v1.8 正文区：可折叠 + 可拖边界调高度 -->
-  <button type="button" class="pane-head" onclick={() => (panel.bodyOpen = !panel.bodyOpen)}>
+  <!-- v1.9 正文区：可折叠 + 编辑/预览切换 + 可拖边界调高度 -->
+  <div class="pane-head" role="button" tabindex="0" onclick={() => (panel.bodyOpen = !panel.bodyOpen)} onkeydown={paneHeadKey}>
     <span class="chev">{panel.bodyOpen ? '▾' : '▸'}</span>正文
-    <span class="pane-hint">点击折叠 · 拖下方边界调高度</span>
-  </button>
+    <span class="pane-hint">拖下方边界调高度</span>
+    <span class="mode-switch" role="group" aria-label="正文显示模式">
+      <button type="button" class="mode-btn" class:active={bodyMode === 'edit'}
+              onclick={(e) => { e.stopPropagation(); bodyMode = 'edit'; }}>编辑</button>
+      <button type="button" class="mode-btn" class:active={bodyMode === 'preview'}
+              title="Markdown + LaTeX 公式渲染（$...$ 行内、$$...$$ 独立行）"
+              onclick={(e) => { e.stopPropagation(); bodyMode = 'preview'; }}>预览</button>
+    </span>
+  </div>
   {#if panel.bodyOpen}
     <div class="pane" style:height="{panel.bodyH}px">
-      <textarea id="body" class="body-input" bind:value={body} disabled={saving}></textarea>
+      {#if bodyMode === 'edit'}
+        <textarea id="body" class="body-input" bind:value={body} disabled={saving}></textarea>
+      {:else}
+        <!-- v1.9 预览：Markdown + LaTeX 公式渲染 -->
+        <div class="body-preview">{@html bodyHtml}</div>
+      {/if}
     </div>
     <div class="h-handle" role="separator" aria-orientation="horizontal" onpointerdown={resizeSection('bodyH')} title="拖拽调整正文高度"><span class="grip"></span></div>
   {/if}
@@ -539,6 +564,89 @@
     background: rgba(255, 255, 255, 0.12);
     transition: background 0.15s ease;
   }
+
+  /* v1.9 正文编辑/预览切换按钮 */
+  .mode-switch {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: 8px;
+  }
+  .mode-btn {
+    font-size: 9px;
+    font-family: inherit;
+    letter-spacing: 0;
+    text-transform: none;
+    padding: 2px 9px;
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.45);
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .mode-btn:hover { color: rgba(255, 255, 255, 0.85); border-color: rgba(255, 255, 255, 0.3); }
+  .mode-btn.active {
+    background: rgba(255, 255, 255, 0.88);
+    color: #0a0a0a;
+    border-color: rgba(255, 255, 255, 0.88);
+  }
+
+  /* v1.9 正文预览：Markdown 暗色排版 + KaTeX 公式。
+     目标元素由 {@html} 运行时注入（编译器视作"未使用"），故后代选择器一律 :global() */
+  .body-preview {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 6px 4px 2px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.85);
+  }
+  .body-preview :global(h1) {
+    font-size: 17px;
+    margin: 12px 0 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .body-preview :global(h2) { font-size: 15px; margin: 10px 0 5px; }
+  .body-preview :global(h3), .body-preview :global(h4) { font-size: 14px; margin: 8px 0 4px; }
+  .body-preview :global(p) { margin: 6px 0; }
+  .body-preview :global(ul), .body-preview :global(ol) { margin: 6px 0; padding-left: 20px; }
+  .body-preview :global(li) { margin: 2px 0; }
+  .body-preview :global(code) {
+    font-family: 'Consolas', monospace;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .body-preview :global(pre) {
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 10px;
+    overflow-x: auto;
+  }
+  .body-preview :global(pre) :global(code) { background: none; padding: 0; }
+  .body-preview :global(blockquote) {
+    margin: 6px 0;
+    padding: 2px 12px;
+    border-left: 3px solid rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.6);
+  }
+  .body-preview :global(table) { border-collapse: collapse; margin: 8px 0; }
+  .body-preview :global(th), .body-preview :global(td) {
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+  .body-preview :global(a) { color: #7dd3fc; }
+  .body-preview :global(img) { max-width: 100%; border-radius: 6px; }
+  .body-preview :global(hr) { border: none; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 10px 0; }
+  /* KaTeX 暗色适配：公式随正文配色、独立行公式可横向滚动 */
+  .body-preview :global(.katex) { font-size: 1.05em; color: rgba(255, 255, 255, 0.92); }
+  .body-preview :global(.katex-display) { margin: 10px 0; padding: 2px 0; overflow-x: auto; overflow-y: hidden; }
+  .body-preview :global(.katex-error) { color: #f87171; }
 
   /* v1.8 证据区 */
   .ev-pane { gap: 8px; }
