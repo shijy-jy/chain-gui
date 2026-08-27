@@ -293,12 +293,10 @@
         'control-point-distances': '30px',
         'control-point-weights': 0.5,
         'line-cap': 'round',
-        'line-color': 'rgba(148,163,184,0.45)',   // 大图降级实线时的中性色
-        'line-fill': (ele: any) => (ele.cy().edges().length > 300 ? 'solid' : 'linear-gradient'),
-        'line-gradient-stop-colors': 'data(gradColors)',
-        'line-gradient-stop-positions': '0%, 100%',
+        'line-color': 'rgba(148,163,184,0.45)',   // 实线兜底色
+        'line-fill': 'linear-gradient',           // 停靠点颜色/位置由逐边内联样式提供（见 chainToElements）
         'target-arrow-shape': 'triangle',
-        'target-arrow-color': 'data(tgtColor)',
+        'target-arrow-color': 'rgba(255,255,255,0.35)',   // 兜底（每条边都有逐边样式覆盖为目标色）
         'arrow-scale': 0.55,
         'opacity': 0.5,
         // v1.4 聚焦过渡
@@ -306,7 +304,9 @@
         'transition-duration': '0.2s',
       },
     },
-    { selector: 'edge:hover', style: { 'opacity': 1, 'width': (ele: any) => Math.min(edgeBaseWidth(ele) * 1.8, 3) } },
+    // 注意：cytoscape 不支持 `edge:hover` 选择器（会报 invalid selector）；
+    // 悬停高亮改用事件加 .edge-hover 类实现（见 onMount 的 mouseover/mouseout 监听）
+    { selector: 'edge.edge-hover', style: { 'opacity': 1, 'width': (ele: any) => Math.min(edgeBaseWidth(ele) * 1.8, 3) } },
     // v1.6.1 Obsidian 风格点击聚焦：淡出无关元素、点亮选中节点与邻居
     // 注意：dim 不透明度不宜过低（0.10 在黑底上近似隐形，用户误以为"数据全没了"），
     // 且关闭侧栏/按 Esc/点空白处都必须解除聚焦
@@ -565,6 +565,9 @@
         };
       });
       cy.on('mouseout', 'node', () => (hoverTip = null));
+      // v2.0 边悬停高亮（cytoscape 无 :hover 选择器，用事件类实现）
+      cy.on('mouseover', 'edge', (evt) => evt.target.addClass('edge-hover'));
+      cy.on('mouseout', 'edge', (evt) => evt.target.removeClass('edge-hover'));
       // v1.5 拖动节点：按住时暂停模拟，松开后从当前位置续排（Obsidian 手感）
       cy.on('grab', () => {
         hoverTip = null;

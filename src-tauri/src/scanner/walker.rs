@@ -77,12 +77,6 @@ pub fn scan_chain_dir_mode(root: &Path, mode: ScanMode) -> Result<ChainSnapshot>
         match serde_yaml::from_str::<Node>(&yaml_str) {
             Ok(mut node) => {
                 node.body = body;
-                if let Some(parent_id) = &node.parent {
-                    edges.push(Edge {
-                        parent: parent_id.clone(),
-                        child: node.id.clone(),
-                    });
-                }
                 nodes_with_files.push((filename.clone(), node.clone()));
                 nodes.push(node);
             }
@@ -92,9 +86,10 @@ pub fn scan_chain_dir_mode(root: &Path, mode: ScanMode) -> Result<ChainSnapshot>
         }
     }
 
-    if mode.is_dev() {
-        // 开发模式：边两遍构建——parent 指向不存在的节点时静默跳过（等目标出现后边自动出现），
-        // 允许多根、孤立节点、环，不做结构校验，不检查 AI_GUIDE
+    // 边构建（两模式统一）：parent 指向不存在的节点时静默跳过——
+    // 悬空引用由结构校验（分析模式）报错提示，但绝不能把悬空边交给前端
+    // （cytoscape cy.add 遇到不存在的端点会抛异常，导致整图不渲染——v2.0 实测踩坑）。
+    {
         let ids: std::collections::HashSet<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
         for node in &nodes {
             if let Some(parent_id) = &node.parent {
@@ -106,6 +101,10 @@ pub fn scan_chain_dir_mode(root: &Path, mode: ScanMode) -> Result<ChainSnapshot>
                 }
             }
         }
+    }
+
+    if mode.is_dev() {
+        // 开发模式：允许多根、孤立节点、环，不做结构校验，不检查 AI_GUIDE
     } else {
         // 结构级校验
         let refs: Vec<(&str, &Node)> = nodes_with_files

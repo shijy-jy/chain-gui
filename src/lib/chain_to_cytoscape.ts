@@ -62,19 +62,26 @@ export function chainToElements(snap: ChainSnapshot): ElementDefinition[] {
   });
 
   for (const edge of snap.edges) {
-    // v2.0 现代链接观感：边渐变（源类型色 → 目标类型色）+ 箭头取目标色
-    // 参照 Obsidian 图谱的类型色边、SqlMesh EdgeWithGradient 的渐变连线设计
+    // 悬空边直接跳过（后端理论上已过滤；这里双保险——cytoscape cy.add 遇到
+    // 不存在的端点会抛异常导致整图不渲染，绝不能把坏边喂给它）
     const src = nodes.find((n) => n.id === edge.parent);
     const tgt = nodes.find((n) => n.id === edge.child);
-    const srcColor = src ? NODE_TYPE_COLOR[src.type] : '#888888';
-    const tgtColor = tgt ? NODE_TYPE_COLOR[tgt.type] : '#888888';
+    if (!src || !tgt) continue;
+    // v2.0 边渐变（源类型色 → 目标类型色）：用「逐边内联样式 + 数组字面值」实现——
+    // 关键坑：cytoscape 的 data() 映射不支持多值属性（line-gradient-stop-colors），
+    // 解析器会跳过映射分支把 "data(...)" 当字面颜色 → null → 渲染崩溃（已实测踩坑，勿回退）
+    const srcColor = NODE_TYPE_COLOR[src.type];
+    const tgtColor = NODE_TYPE_COLOR[tgt.type];
     elements.push({
       data: {
         id: `${edge.parent}->${edge.child}`,
         source: edge.parent,
         target: edge.child,
-        gradColors: `${srcColor}, ${tgtColor}`,
-        tgtColor,
+      },
+      style: {
+        'line-gradient-stop-colors': [srcColor, tgtColor],
+        'line-gradient-stop-positions': ['0%', '100%'],
+        'target-arrow-color': tgtColor,
       },
     });
   }
