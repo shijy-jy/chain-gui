@@ -23,18 +23,21 @@ pub fn evidence_rel_path(dir: String, abs: String) -> Result<String, String> {
 }
 
 /// 解析并校验证据相对路径，防路径穿越（不允许打开工程目录外的文件）。
+/// 注意：校验用 canonicalize（能解符号链接/穿越），但**返回普通形态的绝对路径**——
+/// Windows 上 canonicalize 会返回 `\\?\` verbatim 路径，ShellExecute（cmd start / explorer）打不开它，
+/// 这是 v1.8 首版"证据文件存在却打不开"的根因。
 pub fn resolve_evidence(root: &Path, rel: &str) -> Result<PathBuf, String> {
-    let root = root
+    let canon_root = root
         .canonicalize()
         .map_err(|e| format!("工程目录不可访问：{e}"))?;
-    let canon = root
-        .join(rel)
+    let joined = root.join(rel);
+    let canon = joined
         .canonicalize()
         .map_err(|e| format!("证据文件不存在或不可访问：{rel}（{e}）"))?;
-    if !canon.starts_with(&root) {
+    if !canon.starts_with(&canon_root) {
         return Err("证据路径越界（不允许打开工程目录外的文件）".into());
     }
-    Ok(canon)
+    Ok(joined)
 }
 
 /// 用系统默认程序打开证据文件
@@ -45,12 +48,13 @@ pub fn open_evidence(dir: String, rel: String) -> Result<(), String> {
     open_with_default_app(&target)
 }
 
-/// 用系统默认程序打开文件（Windows: cmd /C start；macOS: open；Linux: xdg-open）
+/// 用系统默认程序打开文件（Windows: explorer.exe 单参直传，无 cmd 元字符重解析且支持中文/空格路径；
+/// macOS: open；Linux: xdg-open）。路径必须是普通形态（非 `\\?\` verbatim——ShellExecute 不接受）。
 fn open_with_default_app(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", path.to_str().ok_or("路径含非法字符")?])
+        std::process::Command::new("explorer.exe")
+            .arg(path)
             .spawn()
             .map_err(|e| format!("打开失败：{e}"))?;
     }
@@ -131,5 +135,24 @@ mod tests {
 
         let resolved = resolve_evidence(root, "artifacts/t-001/报告.png").unwrap();
         assert!(resolved.ends_with("报告.png"));
+    }
+
+    #[test]
+    fn test_resolve_returns_normal_path_not_verbatim() {
+        // 回归测试（v1.8 证据打不开根因）：canonicalize 在 Windows 返回 \\?\ verbatim 路径，
+        // ShellExecute 打不开它；resolve_evidence 必须返回普通形态路径。
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let file = root.join("artifacts/t-001/截图.png");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, b"x").unwrap();
+
+        let resolved = resolve_evidence(root, "artifacts/t-001/截图.png").unwrap();
+        let s = resolved.to_string_lossy();
+        assert!(
+            !s.starts_with(r"\\?\"),
+            "不能返回 verbatim 路径（ShellExecute 打不开）: {s}"
+        );
+        assert!(resolved.exists(), "返回的路径应真实存在: {s}");
     }
 }
