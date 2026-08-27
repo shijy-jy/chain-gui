@@ -317,7 +317,9 @@
     initializing = true;
     error = null;
     try {
-      snapshot = await invoke<ChainSnapshot>('init_chain', { dir: chainDir, mode: scanMode });
+      await invoke<ChainSnapshot>('init_chain', { dir: chainDir, mode: scanMode });
+      // init_chain 不启动文件监听；这里补一次 scan_chain 让 watcher 生效（改文件自动刷新）
+      snapshot = await invoke<ChainSnapshot>('scan_chain', { dir: chainDir, mode: scanMode });
       needsInit = false;
     } catch (e) {
       error = String(e);
@@ -937,6 +939,9 @@
     font-weight: 500;
     letter-spacing: 0.5px;
     transition: all 0.15s ease;
+    /* v2.0 修复：父容器 .empty-hint 有 pointer-events:none（防挡画布），
+       pointer-events 会被子元素继承导致按钮点不到——必须显式恢复 */
+    pointer-events: auto;
   }
   .init-btn:hover:not(:disabled) { background: #fff; box-shadow: 0 0 12px rgba(255, 255, 255, 0.15); }
   .init-btn:disabled { opacity: 0.4; cursor: not-allowed; }
