@@ -1,13 +1,20 @@
 use std::path::Path;
 use anyhow::Result;
 use walkdir::WalkDir;
+use crate::model::ScanMode;
 use crate::scanner::frontmatter::{parse, now_iso8601};
 use crate::scanner::validator;
 use crate::model::node::Node;
 use crate::model::chain::{ChainSnapshot, Manifest, Edge, ChainHealth, ProjectPersona};
 use crate::model::validation::ValidationReport;
 
+/// 分析模式扫描（严格 chain 协议）——兼容旧调用方的薄封装
 pub fn scan_chain_dir(root: &Path) -> Result<ChainSnapshot> {
+    scan_chain_dir_mode(root, ScanMode::Analysis)
+}
+
+/// 双模式扫描：Analysis 走严格协议校验；Dev 走自由知识图谱规则（v2.0）
+pub fn scan_chain_dir_mode(root: &Path, mode: ScanMode) -> Result<ChainSnapshot> {
     let chain_dir = root.join(".chain");
     let nodes_dir = chain_dir.join("nodes");
 
@@ -45,6 +52,14 @@ pub fn scan_chain_dir(root: &Path) -> Result<ChainSnapshot> {
             }
         };
 
+        if mode.is_dev() {
+            // 开发模式：任何 .md 都是节点，字段全部宽松，无内容要求
+            let node = build_dev_node(&filename, &content);
+            nodes_with_files.push((filename.clone(), node.clone()));
+            nodes.push(node);
+            continue;
+        }
+
         // 解析 frontmatter → Mapping + body
         let (fm, body) = match parse(&content) {
             Ok(result) => result,
@@ -77,19 +92,35 @@ pub fn scan_chain_dir(root: &Path) -> Result<ChainSnapshot> {
         }
     }
 
-    // 结构级校验
-    let refs: Vec<(&str, &Node)> = nodes_with_files
-        .iter()
-        .map(|(f, n)| (f.as_str(), n))
-        .collect();
-    validator::validate_structure(&refs, &mut errors, &mut warnings);
+    if mode.is_dev() {
+        // 开发模式：边两遍构建——parent 指向不存在的节点时静默跳过（等目标出现后边自动出现），
+        // 允许多根、孤立节点、环，不做结构校验，不检查 AI_GUIDE
+        let ids: std::collections::HashSet<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
+        for node in &nodes {
+            if let Some(parent_id) = &node.parent {
+                if ids.contains(parent_id.as_str()) {
+                    edges.push(Edge {
+                        parent: parent_id.clone(),
+                        child: node.id.clone(),
+                    });
+                }
+            }
+        }
+    } else {
+        // 结构级校验
+        let refs: Vec<(&str, &Node)> = nodes_with_files
+            .iter()
+            .map(|(f, n)| (f.as_str(), n))
+            .collect();
+        validator::validate_structure(&refs, &mut errors, &mut warnings);
 
-    // v1.2：检测 .chain/AI_GUIDE.md 是否陈旧（无版本标记或版本低于内嵌指南）
-    check_guide_staleness(&chain_dir, &mut warnings);
+        // v1.2：检测 .chain/AI_GUIDE.md 是否陈旧（无版本标记或版本低于内嵌指南）
+        check_guide_staleness(&chain_dir, &mut warnings);
+    }
 
     let valid = errors.is_empty();
     let chain_health = build_chain_health(&nodes);
-    let active_chain = build_active_chain(&nodes);
+    let active_chain = build_active_chain(&nodes, mode);
     let project_persona = build_project_persona(&nodes, &chain_dir);
 
     let manifest = Manifest {
@@ -108,6 +139,109 @@ pub fn scan_chain_dir(root: &Path) -> Result<ChainSnapshot> {
         manifest,
         validation: ValidationReport { valid, errors, warnings },
     })
+}
+
+/// 开发模式节点构造：frontmatter 可有可无、字段可缺省，全部有兜底默认值。
+/// id 一律取文件名（保证 update/delete/链接操作按文件定位），其余字段宽松。
+fn build_dev_node(filename: &str, content: &str) -> Node {
+    use serde_yaml::Value as YamlValue;
+    use crate::model::node::{NodeStatus, NodeType};
+
+    let stem = filename.trim_end_matches(".md");
+    let (fm, body) = match parse(content) {
+        Ok(result) => result,
+        Err(_) => {
+            // 无 frontmatter：整个文件即正文
+            return Node {
+                id: stem.to_string(),
+                node_type: NodeType::Task,
+                title: first_title_or(stem, content),
+                parent: None,
+                status: NodeStatus::Pending,
+                created: now_iso8601(),
+                updated: now_iso8601(),
+                revision: 1,
+                tags: Vec::new(),
+                evidence: Vec::new(),
+                body: content.to_string(),
+                folded: None,
+            };
+        }
+    };
+
+    let get = |k: &str| fm.get(&YamlValue::String(k.into())).cloned();
+    let type_val = get("type")
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .map(|t| match t.as_str() {
+            "goal" => NodeType::Goal,
+            "design" => NodeType::Design,
+            "verification" => NodeType::Verification,
+            _ => NodeType::Task,
+        })
+        .unwrap_or(NodeType::Task);
+    let status = get("status")
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .map(|s| match s.as_str() {
+            "in_progress" => NodeStatus::InProgress,
+            "success" => NodeStatus::Success,
+            "failed" => NodeStatus::Failed,
+            "blocked" => NodeStatus::Blocked,
+            _ => NodeStatus::Pending,
+        })
+        .unwrap_or(NodeStatus::Pending);
+    let title = get("title")
+        .and_then(|v| v.as_str().map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| first_title_or(stem, &body));
+    let parent = match get("parent") {
+        Some(YamlValue::String(p)) if !p.trim().is_empty() => Some(p),
+        _ => None,
+    };
+    let created = get("created").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(now_iso8601);
+    let updated = get("updated").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(now_iso8601);
+    let revision = get("revision")
+        .and_then(|v| v.as_u64())
+        .filter(|&r| r > 0)
+        .unwrap_or(1) as u32;
+    let tags = get("tags")
+        .and_then(|v| v.as_sequence().map(|seq| {
+            seq.iter().filter_map(|i| i.as_str().map(|s| s.to_string())).collect()
+        }))
+        .unwrap_or_default();
+    let evidence = get("evidence")
+        .and_then(|v| v.as_sequence().map(|seq| {
+            seq.iter().filter_map(|i| i.as_str().map(|s| s.to_string())).collect()
+        }))
+        .unwrap_or_default();
+
+    Node {
+        id: stem.to_string(),
+        node_type: type_val,
+        title,
+        parent,
+        status,
+        created,
+        updated,
+        revision,
+        tags,
+        evidence,
+        body,
+        folded: None,
+    }
+}
+
+/// 标题兜底：正文第一个 markdown 一级标题；否则用 id
+fn first_title_or(fallback: &str, content: &str) -> String {
+    for line in content.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("# ") {
+            let title = rest.trim();
+            if !title.is_empty() {
+                return title.to_string();
+            }
+        }
+    }
+    fallback.to_string()
 }
 
 /// v1.2：检测 .chain/AI_GUIDE.md 版本是否陈旧（无标记或低于内嵌版本）→ 追加 warning。
@@ -162,8 +296,9 @@ fn build_chain_health(nodes: &[Node]) -> ChainHealth {
     h
 }
 
-/// 生成紧凑树状摘要（≤200 token），只展示非 success 节点
-fn build_active_chain(nodes: &[Node]) -> String {
+/// 生成紧凑树状摘要（≤200 token），只展示非 success 节点。
+/// 开发模式：可能无根（全部成环）或多根——无根时取第一个节点起画（visited 防环兜底）。
+fn build_active_chain(nodes: &[Node], mode: ScanMode) -> String {
     use std::collections::{HashMap, HashSet};
     use crate::model::node::NodeStatus;
 
@@ -178,7 +313,16 @@ fn build_active_chain(nodes: &[Node]) -> String {
     // 找根节点
     let root = match nodes.iter().find(|n| n.parent.is_none()) {
         Some(r) => r,
-        None => return "(无根节点)".to_string(),
+        None => {
+            if nodes.is_empty() {
+                return "(无节点)".to_string();
+            }
+            if mode.is_dev() {
+                &nodes[0] // 开发模式全部成环时，从第一个节点开始（visited 防环）
+            } else {
+                return "(无根节点)".to_string();
+            }
+        }
     };
 
     let status_icon = |s: &NodeStatus| -> &str {
@@ -565,5 +709,73 @@ mod tests {
 
         let snap = scan_chain_dir(root).unwrap();
         assert!(snap.manifest.project_persona.is_none(), "无技术栈的通用内容不应生成画像");
+    }
+
+    // ── v2.0 开发模式（自由知识图谱）测试 ──
+
+    #[test]
+    fn test_dev_mode_plain_md_becomes_node() {
+        // 无 frontmatter 的普通 .md 也是节点：id=文件名、标题=首个 H1、字段默认
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let nodes_dir = root.join(".chain").join("nodes");
+        fs::create_dir_all(&nodes_dir).unwrap();
+        fs::write(nodes_dir.join("物理笔记.md"), "# 费曼讲义要点\n\n正文内容随便写。").unwrap();
+        fs::write(nodes_dir.join("杂记.md"), "没有任何标题的纯文本。").unwrap();
+
+        let snap = scan_chain_dir_mode(root, ScanMode::Dev).unwrap();
+        assert!(snap.validation.valid, "开发模式无内容要求: {:?}", snap.validation.errors);
+        assert_eq!(snap.nodes.len(), 2);
+        let feynman = snap.nodes.iter().find(|n| n.id == "物理笔记").unwrap();
+        assert_eq!(feynman.title, "费曼讲义要点");
+        assert_eq!(feynman.node_type, crate::model::node::NodeType::Task);
+        assert_eq!(feynman.parent, None);
+        let misc = snap.nodes.iter().find(|n| n.id == "杂记").unwrap();
+        assert_eq!(misc.title, "杂记");
+    }
+
+    #[test]
+    fn test_dev_mode_allows_multi_root_dangling_cycle() {
+        // 多根 + 悬空 parent + 环：全部合法（无结构错误）
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let nodes_dir = root.join(".chain").join("nodes");
+        fs::create_dir_all(&nodes_dir).unwrap();
+        let node = |id: &str, parent: &str| {
+            format!("---\nid: {id}\ntype: task\ntitle: {id}\nparent: {parent}\nstatus: pending\ncreated: 2026-08-27T10:00:00+08:00\nupdated: 2026-08-27T10:00:00+08:00\nrevision: 1\ntags: []\n---\n\n# {id}\n")
+        };
+        fs::write(nodes_dir.join("a.md"), node("a", "null")).unwrap();      // 根 1
+        fs::write(nodes_dir.join("b.md"), node("b", "null")).unwrap();      // 根 2（多根 OK）
+        fs::write(nodes_dir.join("c.md"), node("c", "ghost")).unwrap();     // 悬空 parent → 边静默跳过
+        fs::write(nodes_dir.join("d.md"), node("d", "a")).unwrap();
+        fs::write(nodes_dir.join("e.md"), node("e", "d")).unwrap();
+
+        let snap = scan_chain_dir_mode(root, ScanMode::Dev).unwrap();
+        assert!(snap.validation.valid, "开发模式应全合法: {:?}", snap.validation.errors);
+        assert_eq!(snap.nodes.len(), 5);
+        // 悬空 c→ghost 无边；a→d、d→e 两条
+        assert_eq!(snap.edges.len(), 2, "悬空边应被跳过: {:?}", snap.edges);
+
+        // 再改成环 a→c→a：也合法，且 active_chain 不 panic
+        fs::write(nodes_dir.join("a.md"), node("a", "c")).unwrap();
+        let snap2 = scan_chain_dir_mode(root, ScanMode::Dev).unwrap();
+        assert!(snap2.validation.valid, "环在开发模式应合法: {:?}", snap2.validation.errors);
+        assert!(!snap2.manifest.active_chain.is_empty());
+    }
+
+    #[test]
+    fn test_dev_mode_skips_guide_warning() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let nodes_dir = root.join(".chain").join("nodes");
+        fs::create_dir_all(&nodes_dir).unwrap();
+        fs::write(nodes_dir.join("a.md"), "# 随便写\n\n无协议内容。").unwrap();
+
+        let snap = scan_chain_dir_mode(root, ScanMode::Dev).unwrap();
+        assert!(!snap.validation.warnings.iter().any(|w| w.contains("AI_GUIDE")),
+                "开发模式不应有指南陈旧告警: {:?}", snap.validation.warnings);
+        // 分析模式同样数据应报指南缺失 warning
+        let snap_analysis = scan_chain_dir(root).unwrap();
+        assert!(snap_analysis.validation.warnings.iter().any(|w| w.contains("AI_GUIDE")));
     }
 }

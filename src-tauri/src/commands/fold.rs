@@ -1,28 +1,34 @@
-//! 链折叠模块（v1.3）：将已完成子链折叠为摘要节点，压缩节点数量。
+﻿//! 链折叠模块（v1.3）：将已完成子链折叠为摘要节点，压缩节点数量。
 //! 参考 TencentDB Agent Memory 的"上下文卸载"理念：原始节点归档保留，
 //! 摘要节点替换进活跃链，保持可追溯性。
 //! 参考 MemGPT 的递归摘要：折叠时生成摘要正文，标注原始节点引用。
 use std::fs;
 use std::path::PathBuf;
 use tauri::command;
+use crate::model::ScanMode;
 use crate::model::chain::ChainSnapshot;
 use crate::model::node::{FoldedInfo, Node, NodeStatus};
 use crate::scanner::frontmatter::{now_iso8601, parse, serialize};
-use crate::scanner::walker::scan_chain_dir;
+use crate::scanner::walker::scan_chain_dir_mode;
 
 const ARCHIVE_DIR: &str = "archive";
 
 /// 折叠指定节点及其所有子孙节点为一个摘要节点。
 /// 前提：子链中所有节点必须为 success 状态。
 /// 折叠后：原始节点文件移至 .chain/archive/{fold_id}/，摘要节点原地替换。
+/// v2.0：仅分析模式可用——开发模式是自由图谱（可成环、多根），不存在"子链"语义。
 #[command]
-pub fn fold_chain(dir: String, node_id: String) -> Result<ChainSnapshot, String> {
+pub fn fold_chain(dir: String, node_id: String, mode: Option<String>) -> Result<ChainSnapshot, String> {
+    let scan_mode = mode.as_deref().map(ScanMode::from_str).unwrap_or(ScanMode::Analysis);
+    if scan_mode.is_dev() {
+        return Err("开发模式不支持折叠：自由图谱可成环、多根，没有「子链」语义（折叠是分析模式的链协议功能）".into());
+    }
     let root = PathBuf::from(&dir);
     let chain_dir = root.join(".chain");
     let nodes_dir = chain_dir.join("nodes");
 
     // 1. 扫描当前链，获取完整节点列表
-    let snap = scan_chain_dir(&root).map_err(|e| format!("扫描失败：{e}"))?;
+    let snap = scan_chain_dir_mode(&root, scan_mode).map_err(|e| format!("扫描失败：{e}"))?;
 
     // 2. 找到目标节点
     let target = snap.nodes.iter()
@@ -146,7 +152,7 @@ pub fn fold_chain(dir: String, node_id: String) -> Result<ChainSnapshot, String>
         .map_err(|e| format!("写摘要节点失败：{e}"))?;
 
     // 8. 重扫返回
-    scan_chain_dir(&root).map_err(|e| format!("重扫失败：{e}"))
+    scan_chain_dir_mode(&root, scan_mode).map_err(|e| format!("重扫失败：{e}"))
 }
 
 /// 生成折叠摘要正文，参考 TencentDB 的 JSONL 中间层 + MemGPT 的递归摘要
@@ -234,7 +240,7 @@ mod tests {
         let tmp = setup_deep_chain();
         let dir = tmp.path().to_str().unwrap().to_string();
 
-        let snap = fold_chain(dir.clone(), "d-001".into()).unwrap();
+        let snap = fold_chain(dir.clone(), "d-001".into(), None).unwrap();
 
         // d-001 应变为 success + 有 folded 标记
         let d = snap.nodes.iter().find(|n| n.id == "d-001").unwrap();
@@ -265,7 +271,7 @@ mod tests {
         let modified = raw.replace("status: success", "status: pending");
         fs::write(&t_path, modified).unwrap();
 
-        let result = fold_chain(dir, "d-001".into());
+        let result = fold_chain(dir, "d-001".into(), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("不是 success"));
     }
@@ -274,7 +280,7 @@ mod tests {
     fn test_fold_nonexistent_node() {
         let tmp = setup_deep_chain();
         let dir = tmp.path().to_str().unwrap().to_string();
-        let result = fold_chain(dir, "x-999".into());
+        let result = fold_chain(dir, "x-999".into(), None);
         assert!(result.is_err());
     }
 
@@ -287,7 +293,7 @@ mod tests {
         let raw = fs::read_to_string(&d_path).unwrap();
         fs::write(&d_path, raw.replace("status: success", "status: failed")).unwrap();
 
-        let result = fold_chain(dir, "d-001".into());
+        let result = fold_chain(dir, "d-001".into(), None);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("failed"), "应拒绝 failed 目标: {err}");
@@ -304,7 +310,7 @@ mod tests {
         let raw = fs::read_to_string(&d_path).unwrap();
         fs::write(&d_path, raw.replace("status: success", "status: blocked")).unwrap();
 
-        let result = fold_chain(dir, "d-001".into());
+        let result = fold_chain(dir, "d-001".into(), None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("blocked"));
     }
@@ -314,7 +320,7 @@ mod tests {
         let tmp = setup_deep_chain();
         let dir = tmp.path().to_str().unwrap().to_string();
 
-        fold_chain(dir.clone(), "d-001".into()).unwrap();
+        fold_chain(dir.clone(), "d-001".into(), None).unwrap();
 
         // 目标节点折叠前的原始内容必须备份在 archive/_self.md
         let self_backup = tmp.path().join(".chain/archive/fold_d-001/_self.md");
@@ -344,7 +350,7 @@ mod tests {
         ).unwrap();
 
         let dir = tmp.path().to_str().unwrap().to_string();
-        let snap = fold_chain(dir.clone(), "d-001".into()).unwrap();
+        let snap = fold_chain(dir.clone(), "d-001".into(), None).unwrap();
         let d = snap.nodes.iter().find(|n| n.id == "d-001").unwrap();
         // 摘要行应存在且带省略号
         assert!(d.body.contains("汉字正文"), "摘要应含截断后的正文: {}", d.body);

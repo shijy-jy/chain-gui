@@ -103,6 +103,14 @@ pub fn apply_update(
             ),
         );
     }
+    // v2.0：parent 链接编辑（Some(None) = 断开 → null）
+    if let Some(parent) = &fields.parent {
+        let value = match parent {
+            Some(id) => YamlValue::String(id.clone()),
+            None => YamlValue::Null,
+        };
+        fm.insert(YamlValue::String("parent".into()), value);
+    }
 
     // 自增 revision
     let rev_key = YamlValue::String("revision".into());

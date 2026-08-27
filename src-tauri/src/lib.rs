@@ -7,7 +7,11 @@ pub mod watcher;
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
-    .manage(crate::watcher::WatchState(std::sync::Mutex::new(None)))
+    .manage(crate::watcher::WatchState {
+      watcher: std::sync::Mutex::new(None),
+      mode: std::sync::Arc::new(std::sync::Mutex::new(crate::model::ScanMode::Analysis)),
+      dir: std::sync::Mutex::new(None),
+    })
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -32,6 +36,10 @@ pub fn run() {
         commands::fold::fold_chain,
         commands::evidence::open_evidence,
         commands::evidence::evidence_rel_path,
+        commands::graph_edit::create_node,
+        commands::graph_edit::delete_node,
+        commands::graph_edit::set_parent,
+        commands::graph_edit::set_mode,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

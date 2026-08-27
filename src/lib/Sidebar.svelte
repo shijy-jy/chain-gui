@@ -2,15 +2,21 @@
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
   import { renderBody } from './body_render';
-  import type { ChainNode, NodeStatus, NodeType } from './types';
+  import type { ChainNode, NodeStatus, NodeType, ScanMode } from './types';
 
-  let { node, chainDir, onSave, onCancel, onFold }: {
+  let { node, chainDir, mode, allNodes, onSave, onCancel, onFold, onDelete, onSetParent }: {
     node: ChainNode;
     chainDir: string | null;
+    mode: ScanMode;
+    allNodes: ChainNode[];
     onSave: (fields: { title: string; status: NodeStatus; body: string; tags: string[]; evidence: string[] }) => Promise<void>;
     onCancel: () => void;
     onFold?: () => Promise<void>;
+    onDelete?: (nodeId: string) => Promise<void>;
+    onSetParent?: (nodeId: string, parent: string | null) => Promise<void>;
   } = $props();
+
+  let isDev = $derived(mode === 'dev');
 
   // 初始值用字面量（不用 node.xxx），避免 Svelte 5 state_referenced_locally 警告；
   // 实际值由下面的 $effect 同步（组件挂载和 node 切换时都会跑）
@@ -31,6 +37,14 @@
   let foldArmed = $state(false);
   let foldBusy = $state(false);
   let foldMessage = $state<string | null>(null);
+
+  // v2.0 开发模式：链接编辑 + 删除节点（两段式确认）
+  let parentSel = $state<string | null>(null);
+  let parentBusy = $state(false);
+  let parentMessage = $state<string | null>(null);
+  let delArmed = $state(false);
+  let delBusy = $state(false);
+  let delMessage = $state<string | null>(null);
 
   // 证据（v1.8）：文件名列表 + 点击打开 + 文件选择器添加
   let evBusy = $state(false);
@@ -200,8 +214,45 @@
     body = node.body;
     tagsText = node.tags.join(', ');
     evidence = [...node.evidence];
+    parentSel = node.parent;
     error = null;
   });
+
+  // v2.0 开发模式：改链接（父节点）
+  async function handleChangeParent() {
+    if (!onSetParent || parentBusy || parentSel === node.parent) return;
+    parentBusy = true;
+    parentMessage = null;
+    try {
+      await onSetParent(node.id, parentSel);
+      parentMessage = parentSel ? `链接已指向 ${parentSel}` : '已断开链接（独立节点）';
+    } catch (e) {
+      parentMessage = String(e);
+      parentSel = node.parent;
+    } finally {
+      parentBusy = false;
+    }
+  }
+
+  // v2.0 开发模式：删除节点（两段式确认）
+  async function handleDelete() {
+    if (!onDelete || delBusy) return;
+    if (!delArmed) {
+      delArmed = true;
+      delMessage = `再次点击确认删除「${node.title}」——文件将被删除，不可恢复`;
+      return;
+    }
+    delBusy = true;
+    delMessage = null;
+    try {
+      await onDelete(node.id);
+    } catch (e) {
+      delMessage = String(e);
+      delArmed = false;
+    } finally {
+      delBusy = false;
+    }
+  }
 
   async function handleSave() {
     if (saving) return;
@@ -277,6 +328,26 @@
       <label for="tags">标签（逗号分隔）</label>
       <input id="tags" type="text" bind:value={tagsText} disabled={saving} />
     </div>
+    {#if isDev}
+      <!-- v2.0 开发模式：自由编辑链接（父节点） -->
+      <div class="field">
+        <label for="parent-sel">父节点（链接）</label>
+        <div class="parent-row">
+          <select id="parent-sel" bind:value={parentSel} disabled={parentBusy || saving}>
+            <option value={null}>无（独立节点）</option>
+            {#each allNodes.filter((n) => n.id !== node.id) as n (n.id)}
+              <option value={n.id}>{n.title} · {n.id}</option>
+            {/each}
+          </select>
+          <button class="parent-apply" onclick={handleChangeParent} disabled={parentBusy || saving || parentSel === node.parent}>
+            {parentBusy ? '…' : '改链接'}
+          </button>
+        </div>
+        {#if parentMessage}
+          <p class="parent-msg">{parentMessage}</p>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   <!-- v1.9 正文区：可折叠 + 编辑/预览切换 + 可拖边界调高度 -->
@@ -356,7 +427,7 @@
 
   <!-- 底部固定区：折叠 / 错误 / 保存（始终可见，不随分栏滚动） -->
   <div class="bottom-fixed">
-    {#if canFold}
+    {#if canFold && !isDev}
       <div class="fold-block">
         <div class="fold-title">子链折叠（v1.3）</div>
         <button class="fold-btn" class:armed={foldArmed} onclick={handleFold} disabled={foldBusy}>
@@ -364,6 +435,19 @@
         </button>
         {#if foldMessage}
           <p class="fold-msg">{foldMessage}</p>
+        {/if}
+      </div>
+    {/if}
+
+    {#if isDev}
+      <!-- v2.0 开发模式：删除节点（两段式确认） -->
+      <div class="fold-block">
+        <div class="fold-title">删除节点（开发模式）</div>
+        <button class="fold-btn del-btn" class:armed={delArmed} onclick={handleDelete} disabled={delBusy}>
+          {delBusy ? '删除中…' : delArmed ? '⚠ 确认删除？' : '删除此节点'}
+        </button>
+        {#if delMessage}
+          <p class="fold-msg">{delMessage}</p>
         {/if}
       </div>
     {/if}
@@ -842,4 +926,29 @@
     font-family: 'Consolas', monospace;
     color: rgba(255, 255, 255, 0.5);
   }
+
+  /* v2.0 开发模式：链接编辑 + 删除按钮 */
+  .parent-row { display: flex; gap: 8px; }
+  .parent-row select { flex: 1; }
+  .parent-apply {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 0 14px;
+    background: rgba(125, 211, 252, 0.1);
+    color: #7dd3fc;
+    border: 1px solid rgba(125, 211, 252, 0.3);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .parent-apply:hover:not(:disabled) { background: rgba(125, 211, 252, 0.2); }
+  .parent-apply:disabled { opacity: 0.4; cursor: not-allowed; }
+  .parent-msg {
+    margin: 6px 0 0;
+    font-size: 10px;
+    font-family: 'Consolas', monospace;
+    color: rgba(255, 255, 255, 0.45);
+    word-break: break-all;
+  }
+  .del-btn { color: #f87171; border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.1); }
+  .del-btn:hover:not(:disabled) { background: rgba(248, 113, 113, 0.2); }
 </style>

@@ -19,7 +19,7 @@ fn test_full_flow_on_real_dir() {
     let root = Path::new(TEST_ROOT);
 
     // 1. init_chain：建结构 + 写指南 + 示例节点
-    let snap = init_chain(root.to_str().unwrap().into()).unwrap();
+    let snap = init_chain(root.to_str().unwrap().into(), None).unwrap();
     assert_eq!(snap.nodes.len(), 1, "init 应生成 1 个示例节点");
     assert!(snap.validation.valid, "init 后应校验通过: {:?}", snap.validation.errors);
 
@@ -28,7 +28,7 @@ fn test_full_flow_on_real_dir() {
     assert_eq!(parse_guide_version(&guide), Some(AI_GUIDE_VERSION));
 
     // 2. 再 init：幂等（节点不覆盖、指南同版不刷新）
-    let snap2 = init_chain(root.to_str().unwrap().into()).unwrap();
+    let snap2 = init_chain(root.to_str().unwrap().into(), None).unwrap();
     assert_eq!(snap2.nodes.len(), 1, "幂等 init 不应增节点");
 
     // 3. update_node：改状态 + evidence
@@ -38,8 +38,9 @@ fn test_full_flow_on_real_dir() {
         body: Some("验证：真实目录 update_node + evidence".into()),
         tags: Some(vec!["验证".into()]),
         evidence: Some(vec!["artifacts/g-001/验证截图.png".into()]),
+        parent: None,
     };
-    let snap3 = update_node(root.to_str().unwrap().into(), "g-001".into(), fields).unwrap();
+    let snap3 = update_node(root.to_str().unwrap().into(), "g-001".into(), fields, None).unwrap();
     let g = snap3.nodes.iter().find(|n| n.id == "g-001").unwrap();
     assert_eq!(g.status, NodeStatus::InProgress);
     assert_eq!(g.evidence, vec!["artifacts/g-001/验证截图.png"]);
@@ -76,7 +77,7 @@ fn test_full_flow_on_real_dir() {
         nodes_dir.join("t-001.md"),
         "---\nid: t-001\ntype: task\ntitle: 验证任务\nparent: d-001\nstatus: success\ncreated: 2026-08-14T10:00:00+08:00\nupdated: 2026-08-14T10:00:00+08:00\nrevision: 1\ntags: []\n---\n\n# 验证任务\n\n汉字正文汉字正文汉字正文汉字正文汉字正文汉字正文汉字正文汉字正文汉字正文汉字正文汉字正文汉字正文汉字正文\n",
     ).unwrap();
-    let after_fold = fold_chain(root.to_str().unwrap().into(), "d-001".into()).unwrap();
+    let after_fold = fold_chain(root.to_str().unwrap().into(), "d-001".into(), None).unwrap();
     let d = after_fold.nodes.iter().find(|n| n.id == "d-001").unwrap();
     assert!(d.folded.is_some(), "折叠后应有 folded 标记");
     assert!(!nodes_dir.join("t-001.md").exists(), "t-001 应已归档");

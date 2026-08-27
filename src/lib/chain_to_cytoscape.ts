@@ -12,6 +12,14 @@ export const NODE_TYPE_LABEL: Record<NodeType, string> = {
   verification: '验证',
 };
 
+// v2.0 类型色（与 App.svelte 图例/节点配色一致；边渐变 = 源类型色 → 目标类型色）
+export const NODE_TYPE_COLOR: Record<NodeType, string> = {
+  goal: '#a78bfa',
+  design: '#60a5fa',
+  task: '#22d3ee',
+  verification: '#34d399',
+};
+
 function displayLabel(type: NodeType, title: string): string {
   const max = 20;
   const t = title.length > max ? `${title.slice(0, max)}…` : title;
@@ -50,11 +58,19 @@ export function chainToElements(snap: ChainSnapshot): ElementDefinition[] {
   });
 
   for (const edge of snap.edges) {
+    // v2.0 现代链接观感：边渐变（源类型色 → 目标类型色）+ 箭头取目标色
+    // 参照 Obsidian 图谱的类型色边、SqlMesh EdgeWithGradient 的渐变连线设计
+    const src = nodes.find((n) => n.id === edge.parent);
+    const tgt = nodes.find((n) => n.id === edge.child);
+    const srcColor = src ? NODE_TYPE_COLOR[src.type] : '#888888';
+    const tgtColor = tgt ? NODE_TYPE_COLOR[tgt.type] : '#888888';
     elements.push({
       data: {
         id: `${edge.parent}->${edge.child}`,
         source: edge.parent,
         target: edge.child,
+        gradColors: `${srcColor}, ${tgtColor}`,
+        tgtColor,
       },
     });
   }

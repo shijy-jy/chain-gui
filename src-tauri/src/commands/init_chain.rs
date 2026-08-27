@@ -2,17 +2,20 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::command;
 use crate::commands::ai_guide::{AI_GUIDE, AI_GUIDE_VERSION, parse_guide_version};
+use crate::model::ScanMode;
 use crate::model::chain::ChainSnapshot;
 use crate::scanner::frontmatter::now_iso8601;
-use crate::scanner::walker::scan_chain_dir;
+use crate::scanner::walker::scan_chain_dir_mode;
 
 /// 在 dir 下初始化 chain 工程：建 .chain/nodes/ + 写一个示例 goal 节点
 /// + 写入 .chain/AI_GUIDE.md（AI 使用指南），然后重扫返回。
 /// 幂等：已有 g-001.md 时不覆盖。
 /// v1.2：AI_GUIDE.md 改为版本对比——盘上无版本标记或版本 < 内嵌版本时刷新
 /// （旧版指南会丢掉新增的守则/协议，必须更新）；同版或更新则保留（尊重用户批注）。
+/// v2.0：开发模式下不写 AI_GUIDE.md（自由知识图谱，不要求 AI 协议）。
 #[command]
-pub fn init_chain(dir: String) -> Result<ChainSnapshot, String> {
+pub fn init_chain(dir: String, mode: Option<String>) -> Result<ChainSnapshot, String> {
+    let scan_mode = mode.as_deref().map(ScanMode::from_str).unwrap_or(ScanMode::Analysis);
     let root = PathBuf::from(&dir);
     let nodes_dir = root.join(".chain").join("nodes");
     fs::create_dir_all(&nodes_dir).map_err(|e| format!("创建 .chain/nodes 失败：{e}"))?;
@@ -26,10 +29,12 @@ pub fn init_chain(dir: String) -> Result<ChainSnapshot, String> {
         fs::write(&example, content).map_err(|e| format!("写示例节点失败：{e}"))?;
     }
 
-    // AI 使用指南：版本对比刷新（v1.2）
-    refresh_ai_guide_if_stale(&root)?;
+    // AI 使用指南：分析模式版本对比刷新（v1.2）；开发模式不写（v2.0）
+    if !scan_mode.is_dev() {
+        refresh_ai_guide_if_stale(&root)?;
+    }
 
-    scan_chain_dir(&root).map_err(|e| e.to_string())
+    scan_chain_dir_mode(&root, scan_mode).map_err(|e| e.to_string())
 }
 
 /// 盘上 AI_GUIDE.md 无版本标记或版本低于内嵌版本时，用内嵌指南刷新。
@@ -66,7 +71,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path().to_str().unwrap().to_string();
 
-        let snap = init_chain(dir).unwrap();
+        let snap = init_chain(dir, None).unwrap();
 
         // .chain/nodes/g-001.md 存在
         assert!(tmp.path().join(".chain").join("nodes").join("g-001.md").exists());
@@ -89,7 +94,7 @@ mod tests {
         let dir = tmp.path().to_str().unwrap().to_string();
 
         // 第一次 init
-        init_chain(dir.clone()).unwrap();
+        init_chain(dir.clone(), None).unwrap();
 
         // 改掉 g-001.md 的 title
         let node_path = tmp.path().join(".chain").join("nodes").join("g-001.md");
@@ -98,7 +103,7 @@ mod tests {
         fs::write(&node_path, modified).unwrap();
 
         // 第二次 init（节点幂等，不覆盖）
-        init_chain(dir).unwrap();
+        init_chain(dir, None).unwrap();
 
         let after = fs::read_to_string(&node_path).unwrap();
         assert!(after.contains("我改过了"));

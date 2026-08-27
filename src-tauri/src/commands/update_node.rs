@@ -1,16 +1,21 @@
-use std::path::Path;
+﻿use std::path::Path;
 use tauri::command;
+use crate::model::ScanMode;
 use crate::model::chain::ChainSnapshot;
 use crate::model::UpdateFields;
 use crate::scanner;
 
-/// 修改指定节点的字段并写回磁盘
+/// 修改指定节点的字段并写回磁盘。
+/// v2.0：mode 区分——分析模式严格（body 不能为空）；开发模式宽松（无内容要求，
+/// 连 frontmatter 都没有的 .md 也能改：先补一个最小 frontmatter 再应用字段）。
 #[command]
 pub fn update_node(
     dir: String,
     node_id: String,
     fields: UpdateFields,
+    mode: Option<String>,
 ) -> Result<ChainSnapshot, String> {
+    let scan_mode = mode.as_deref().map(ScanMode::from_str).unwrap_or(ScanMode::Analysis);
     let dir = Path::new(&dir);
     let node_path = dir
         .join(".chain")
@@ -21,10 +26,12 @@ pub fn update_node(
         return Err(format!("节点文件不存在：{}", node_path.display()));
     }
 
-    // body 前置校验：空 body 直接拒绝（在读文件之前失败，错误来源直观）
-    if let Some(b) = &fields.body {
-        if b.trim().is_empty() {
-            return Err("body 不能为空".into());
+    // body 前置校验：分析模式下空 body 直接拒绝（在读文件之前失败，错误来源直观）
+    if !scan_mode.is_dev() {
+        if let Some(b) = &fields.body {
+            if b.trim().is_empty() {
+                return Err("body 不能为空".into());
+            }
         }
     }
 
@@ -32,9 +39,25 @@ pub fn update_node(
     let raw = std::fs::read_to_string(&node_path)
         .map_err(|e| format!("读取失败：{}", e))?;
 
-    // 2. 解析 frontmatter
-    let (mut fm, body) =
-        crate::scanner::frontmatter::parse(&raw).map_err(|e| format!("解析 frontmatter 失败：{}", e))?;
+    // 2. 解析 frontmatter（开发模式：无 frontmatter 时兜底为最小 frontmatter）
+    let (mut fm, body) = match scanner::frontmatter::parse(&raw) {
+        Ok(result) => result,
+        Err(_) if scan_mode.is_dev() => {
+            use serde_yaml::Value as YamlValue;
+            let now = scanner::frontmatter::now_iso8601();
+            let mut m = serde_yaml::Mapping::new();
+            m.insert(YamlValue::String("id".into()), YamlValue::String(node_id.clone()));
+            m.insert(YamlValue::String("type".into()), YamlValue::String("task".into()));
+            m.insert(YamlValue::String("status".into()), YamlValue::String("pending".into()));
+            m.insert(YamlValue::String("title".into()), YamlValue::String(node_id.clone()));
+            m.insert(YamlValue::String("created".into()), YamlValue::String(now.clone()));
+            m.insert(YamlValue::String("updated".into()), YamlValue::String(now));
+            m.insert(YamlValue::String("revision".into()), YamlValue::Number(1u64.into()));
+            m.insert(YamlValue::String("parent".into()), YamlValue::Null);
+            (m, raw.clone())
+        }
+        Err(e) => return Err(format!("解析 frontmatter 失败：{}", e)),
+    };
 
     // 3. 应用 fields
     crate::model::node::apply_update(&mut fm, &fields)
@@ -51,8 +74,8 @@ pub fn update_node(
         .map_err(|e| format!("序列化失败：{}", e))?;
     std::fs::write(&node_path, new_content).map_err(|e| format!("写回失败：{}", e))?;
 
-    // 6. 重扫整个 chain，返回新 snapshot
-    scanner::walker::scan_chain_dir(dir).map_err(|e| format!("重扫失败：{}", e))
+    // 6. 按当前模式重扫整个 chain，返回新 snapshot
+    scanner::walker::scan_chain_dir_mode(dir, scan_mode).map_err(|e| format!("重扫失败：{}", e))
 }
 
 #[cfg(test)]
@@ -91,8 +114,9 @@ mod tests {
             body: None,
             tags: None,
             evidence: None,
+            parent: None,
         };
-        let snap = update_node(dir, "g-001".into(), fields).unwrap();
+        let snap = update_node(dir, "g-001".into(), fields, None).unwrap();
 
         let g = snap.nodes.iter().find(|n| n.id == "g-001").unwrap();
         assert_eq!(g.title, "新的目标标题");
@@ -114,8 +138,9 @@ mod tests {
             body: None,
             tags: None,
             evidence: None,
+            parent: None,
         };
-        let snap = update_node(dir, "g-001".into(), fields).unwrap();
+        let snap = update_node(dir, "g-001".into(), fields, None).unwrap();
 
         let g = snap.nodes.iter().find(|n| n.id == "g-001").unwrap();
         assert_eq!(g.status, NodeStatus::InProgress);
@@ -135,8 +160,9 @@ mod tests {
             body: None,
             tags: Some(vec!["new1".into(), "new2".into()]),
             evidence: None,
+            parent: None,
         };
-        let snap = update_node(dir, "d-001".into(), fields).unwrap();
+        let snap = update_node(dir, "d-001".into(), fields, None).unwrap();
 
         let d = snap.nodes.iter().find(|n| n.id == "d-001").unwrap();
         assert_eq!(d.tags, vec!["new1", "new2"]);
@@ -157,8 +183,9 @@ mod tests {
             body: None,
             tags: None,
             evidence: None,
+            parent: None,
         };
-        let result = update_node(dir, "nonexistent".into(), fields);
+        let result = update_node(dir, "nonexistent".into(), fields, None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("节点文件不存在"));
     }
@@ -174,8 +201,9 @@ mod tests {
             body: Some("".into()),
             tags: None,
             evidence: None,
+            parent: None,
         };
-        let result = update_node(dir, "g-001".into(), fields);
+        let result = update_node(dir, "g-001".into(), fields, None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("body 不能为空"));
     }
@@ -191,8 +219,9 @@ mod tests {
             body: None,
             tags: None,
             evidence: Some(vec!["artifacts/d-001/架构图.png".into()]),
+            parent: None,
         };
-        let snap = update_node(dir, "d-001".into(), fields).unwrap();
+        let snap = update_node(dir, "d-001".into(), fields, None).unwrap();
 
         let d = snap.nodes.iter().find(|n| n.id == "d-001").unwrap();
         assert_eq!(d.evidence, vec!["artifacts/d-001/架构图.png"]);
@@ -214,8 +243,9 @@ mod tests {
             body: None,
             tags: None,
             evidence: None,
+            parent: None,
         };
-        update_node(dir, "g-001".into(), fields).unwrap();
+        update_node(dir, "g-001".into(), fields, None).unwrap();
 
         let raw = fs::read_to_string(tmp.path().join(".chain/nodes/g-001.md")).unwrap();
         let updated_line = raw

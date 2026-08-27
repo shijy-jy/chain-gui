@@ -6,3 +6,4 @@ pub mod process_log;
 pub mod snapshot;
 pub mod fold;
 pub mod evidence;
+pub mod graph_edit;

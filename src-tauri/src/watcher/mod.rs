@@ -1,19 +1,24 @@
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+use crate::model::ScanMode;
 
-/// 全局 watcher 状态（同一时间只监听一个目录）
-pub struct WatchState(pub Mutex<Option<RecommendedWatcher>>);
+/// 全局 watcher 状态（同一时间只监听一个目录）+ 当前扫描模式（v2.0 双模式）
+pub struct WatchState {
+    pub watcher: Mutex<Option<RecommendedWatcher>>,
+    pub mode: Arc<Mutex<ScanMode>>,
+    pub dir: Mutex<Option<PathBuf>>,
+}
 
 /// 重扫并 emit 的纯逻辑（可测试，不依赖 AppHandle）
-pub fn rescan_and_emit<F>(dir: &std::path::Path, emit_fn: F)
+pub fn rescan_and_emit<F>(dir: &std::path::Path, mode: ScanMode, emit_fn: F)
 where
     F: Fn(RescanResult),
 {
-    use crate::scanner::walker::scan_chain_dir;
-    match scan_chain_dir(dir) {
+    use crate::scanner::walker::scan_chain_dir_mode;
+    match scan_chain_dir_mode(dir, mode) {
         Ok(snapshot) => emit_fn(RescanResult::Ok(snapshot)),
         Err(e) => emit_fn(RescanResult::Err(e.to_string())),
     }
@@ -25,10 +30,21 @@ pub enum RescanResult {
 }
 
 /// 启动/重启对 dir\.chain\nodes 的监听。重复调用安全：旧 watcher 被 drop 后重建。
-pub fn start_watch(dir: PathBuf, app: AppHandle, state: &WatchState) -> Result<(), String> {
+/// 回调里的重扫使用 state.mode 的当前值（模式切换后文件变化按新模式解析）。
+pub fn start_watch(
+    dir: PathBuf,
+    app: AppHandle,
+    state: &WatchState,
+    mode: Arc<Mutex<ScanMode>>,
+) -> Result<(), String> {
     let nodes_dir = dir.join(".chain").join("nodes");
     if !nodes_dir.is_dir() {
         return Err(format!("nodes 目录不存在：{}", nodes_dir.display()));
+    }
+
+    {
+        let mut dir_guard = state.dir.lock().map_err(|e| e.to_string())?;
+        *dir_guard = Some(dir.clone());
     }
 
     let last_fire = std::sync::Arc::new(Mutex::new(Instant::now() - Duration::from_secs(1)));
@@ -48,8 +64,11 @@ pub fn start_watch(dir: PathBuf, app: AppHandle, state: &WatchState) -> Result<(
             if last.elapsed() < Duration::from_millis(300) { return; }
             *last = Instant::now();
         }
-        // 重扫并推送
-        rescan_and_emit(&scan_dir, |result| match result {
+        // 按当前模式重扫并推送
+        let Ok(mode_guard) = mode.lock() else { return };
+        let scan_mode = *mode_guard;
+        drop(mode_guard);
+        rescan_and_emit(&scan_dir, scan_mode, |result| match result {
             RescanResult::Ok(snapshot) => { let _ = app.emit("chain-changed", &snapshot); }
             RescanResult::Err(e) => { let _ = app.emit("chain-error", e); }
         });
@@ -58,7 +77,7 @@ pub fn start_watch(dir: PathBuf, app: AppHandle, state: &WatchState) -> Result<(
     watcher.watch(&nodes_dir, RecursiveMode::NonRecursive)
         .map_err(|e| format!("监听失败：{e}"))?;
 
-    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+    let mut guard = state.watcher.lock().map_err(|e| e.to_string())?;
     *guard = Some(watcher);
     Ok(())
 }
@@ -89,7 +108,7 @@ mod tests {
         let fc = fire_count.clone();
 
         // 直接测试 rescan_and_emit 纯函数
-        rescan_and_emit(tmp.path(), move |result| {
+        rescan_and_emit(tmp.path(), ScanMode::Analysis, move |result| {
             match result {
                 RescanResult::Ok(snap) => {
                     assert_eq!(snap.nodes.len(), 1);
@@ -112,7 +131,7 @@ mod tests {
         ).unwrap();
 
         let got_nodes = std::cell::Cell::new(0usize);
-        rescan_and_emit(tmp.path(), |result| {
+        rescan_and_emit(tmp.path(), ScanMode::Analysis, |result| {
             if let RescanResult::Ok(snap) = result {
                 got_nodes.set(snap.nodes.len());
             }
@@ -124,7 +143,7 @@ mod tests {
     fn test_rescan_error_on_no_chain_dir() {
         let tmp = TempDir::new().unwrap();
         let got_err = std::cell::Cell::new(false);
-        rescan_and_emit(tmp.path(), |result| {
+        rescan_and_emit(tmp.path(), ScanMode::Analysis, |result| {
             if let RescanResult::Err(_) = result {
                 got_err.set(true);
             }

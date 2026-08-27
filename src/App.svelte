@@ -8,7 +8,8 @@
   import { chainToElements, NODE_TYPE_LABEL } from './lib/chain_to_cytoscape';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
-  import type { ChainSnapshot, ChainNode, NodeStatus, NodeType } from './lib/types';
+  import CreateNodeDialog from './components/CreateNodeDialog.svelte';
+  import type { ChainSnapshot, ChainNode, NodeStatus, NodeType, ScanMode } from './lib/types';
 
   // v1.5：cose 在链式图上会缩成团块 → 换自研全局力导向模拟（d3-force 风格）：
   //   所有节点两两斥力（库仑式）+ 边弹簧吸引 + 弱中心引力 = 神经元式全局铺开
@@ -156,6 +157,24 @@
   let needsInit = $state(false);
   let initializing = $state(false);
 
+  // v2.0 软件模式：analysis（严格链协议）/ dev（自由知识图谱），持久化到 localStorage
+  let scanMode = $state<ScanMode>(
+    (localStorage.getItem('chain-gui-mode') as ScanMode) ?? 'analysis'
+  );
+  let showCreate = $state(false);
+
+  function switchMode(m: ScanMode) {
+    if (m === scanMode) return;
+    scanMode = m;
+    localStorage.setItem('chain-gui-mode', m);
+    // 通知后端（watcher 后续文件变化按新模式重扫），有目录时拿新快照刷新视图
+    invoke<ChainSnapshot | null>('set_mode', { mode: m })
+      .then((snap) => {
+        if (snap) snapshot = snap;
+      })
+      .catch((e) => (error = `切换模式失败：${String(e)}`));
+  }
+
   let container: HTMLDivElement;
   let cy: Core | null = null;
   let unlisten: (() => void) | undefined;
@@ -233,28 +252,37 @@
       },
     },
     { selector: 'node:selected', style: { 'border-width': 2, 'border-color': '#ffffff', 'border-opacity': 0.95, 'border-style': 'solid' } },
-    // 边 = 1px 半透明白微曲线 + 小箭头
+    // v2.0 边：现代图谱观感（参照 Obsidian 类型色边 / SqlMesh 渐变连线）
+    // - 渐变线：源类型色 → 目标类型色（方向感一眼可读）
+    // - 圆头微曲线 + 低饱和底透明度 + 悬停点亮
     {
       selector: 'edge',
       style: {
-        'width': 1,
-        'line-color': 'rgba(255,255,255,0.28)',
-        'target-arrow-color': 'rgba(255,255,255,0.35)',
-        'target-arrow-shape': 'triangle',
-        'arrow-scale': 0.7,
+        'width': 1.2,
         'curve-style': 'bezier',
+        'control-point-distances': '52px',
+        'control-point-weights': 0.5,
+        'line-cap': 'round',
+        'line-fill': 'linear-gradient',
+        'line-gradient-stop-colors': 'data(gradColors)',
+        'line-gradient-stop-positions': '0%, 100%',
+        'target-arrow-shape': 'triangle',
+        'target-arrow-color': 'data(tgtColor)',
+        'arrow-scale': 0.6,
+        'opacity': 0.5,
         // v1.4 聚焦过渡
-        'transition-property': 'opacity, line-color, width',
-        'transition-duration': '0.25s',
+        'transition-property': 'opacity, width',
+        'transition-duration': '0.2s',
       },
     },
+    { selector: 'edge:hover', style: { 'opacity': 1, 'width': 2.4 } },
     // v1.6.1 Obsidian 风格点击聚焦：淡出无关元素、点亮选中节点与邻居
     // 注意：dim 不透明度不宜过低（0.10 在黑底上近似隐形，用户误以为"数据全没了"），
     // 且关闭侧栏/按 Esc/点空白处都必须解除聚焦
     { selector: 'node.focus-dim', style: { 'opacity': 0.16, 'text-opacity': 0.15 } },
-    { selector: 'edge.focus-dim', style: { 'opacity': 0.07 } },
+    { selector: 'edge.focus-dim', style: { 'opacity': 0.06 } },
     { selector: 'node.focus-lit', style: { 'opacity': 1, 'text-opacity': 1 } },
-    { selector: 'edge.focus-lit', style: { 'line-color': 'rgba(255,255,255,0.75)', 'width': 1.8 } },
+    { selector: 'edge.focus-lit', style: { 'opacity': 1, 'width': 2.2 } },
   ];
 
   async function pickChainDir() {
@@ -271,7 +299,7 @@
     error = null;
     needsInit = false;
     try {
-      snapshot = await invoke<ChainSnapshot>('scan_chain', { dir: chainDir });
+      snapshot = await invoke<ChainSnapshot>('scan_chain', { dir: chainDir, mode: scanMode });
     } catch (e) {
       const msg = String(e);
       if (msg.includes('不存在 .chain')) {
@@ -289,7 +317,7 @@
     initializing = true;
     error = null;
     try {
-      snapshot = await invoke<ChainSnapshot>('init_chain', { dir: chainDir });
+      snapshot = await invoke<ChainSnapshot>('init_chain', { dir: chainDir, mode: scanMode });
       needsInit = false;
     } catch (e) {
       error = String(e);
@@ -305,18 +333,65 @@
       dir: chainDir,
       nodeId: selectedNode.id,
       fields: fields,
+      mode: scanMode,
     });
     snapshot = newSnapshot;
     selectedNode = null;
     cy?.elements().removeClass('focus-dim focus-lit');   // v1.4 关闭侧栏同时解除聚焦
   }
 
-  // v1.3：折叠子链（两段式确认在 Sidebar 内完成，这里只执行）
+  // v2.0 开发模式：新建节点（id 留空 = 后端自动生成）
+  async function handleCreateNode(input: { id: string; title: string; node_type: NodeType; status: NodeStatus; parent: string | null }) {
+    if (!chainDir) return;
+    const newSnapshot = await invoke<ChainSnapshot>('create_node', {
+      dir: chainDir,
+      input: {
+        id: input.id || null,
+        title: input.title,
+        node_type: input.node_type,
+        status: input.status,
+        parent: input.parent,
+      },
+      mode: scanMode,
+    });
+    snapshot = newSnapshot;
+    showCreate = false;
+  }
+
+  // v2.0 开发模式：删除节点（两段式确认在 Sidebar 内完成）
+  async function handleDeleteNode(nodeId: string) {
+    if (!chainDir) return;
+    const newSnapshot = await invoke<ChainSnapshot>('delete_node', {
+      dir: chainDir,
+      nodeId,
+      mode: scanMode,
+    });
+    snapshot = newSnapshot;
+    selectedNode = null;
+    cy?.elements().removeClass('focus-dim focus-lit');
+  }
+
+  // v2.0 开发模式：建立/断开链接
+  async function handleSetParent(nodeId: string, parent: string | null) {
+    if (!chainDir) return;
+    const newSnapshot = await invoke<ChainSnapshot>('set_parent', {
+      dir: chainDir,
+      nodeId,
+      parent,
+      mode: scanMode,
+    });
+    snapshot = newSnapshot;
+    const nodeData = newSnapshot.nodes.find((x) => x.id === nodeId);
+    if (nodeData) selectedNode = nodeData;
+  }
+
+  // v1.3：折叠子链（两段式确认在 Sidebar 内完成，这里只执行；v2.0 仅分析模式）
   async function handleFold() {
     if (!chainDir || !selectedNode) return;
     const newSnapshot = await invoke<ChainSnapshot>('fold_chain', {
       dir: chainDir,
       nodeId: selectedNode.id,
+      mode: scanMode,
     });
     snapshot = newSnapshot;
     selectedNode = null;
@@ -511,6 +586,11 @@
     {#if shortDir}
       <span class="dir" title={chainDir ?? ''}>{shortDir}</span>
     {/if}
+    <!-- v2.0 模式切换：分析=严格链协议校验；开发=自由知识图谱（字段宽松、任意增删节点与链接） -->
+    <span class="mode-switch" title="分析模式：严格 chain 协议校验（AI 协作图谱）&#10;开发模式：自由搭建知识库——字段无必填、可自由增删节点与链接">
+      <button class="pick mode-btn" class:active={scanMode === 'analysis'} onclick={() => switchMode('analysis')}>分析</button>
+      <button class="pick mode-btn" class:active={scanMode === 'dev'} onclick={() => switchMode('dev')}>开发</button>
+    </span>
     <span class="spacer"></span>
     {#if snapshot}
       <span class="slider-group">
@@ -535,6 +615,11 @@
       <button class="pick" onclick={loadChain} disabled={loading || !snapshot}>
         重新扫描
       </button>
+      {#if scanMode === 'dev'}
+        <button class="pick create-btn" onclick={() => (showCreate = true)} title="新建节点（开发模式）">
+          ＋ 节点
+        </button>
+      {/if}
       <div class="snap-group" title="创建链状态快照，支持受控回溯（.chain/logs/）">
         <input class="snap-input" bind:value={snapTag} placeholder="快照标签…" disabled={snapBusy} />
         <button class="pick snap-btn" onclick={handleSnapshot} disabled={snapBusy || !snapshot}>
@@ -603,6 +688,7 @@
         <div class="legend-sep"></div>
         <div class="legend-row"><span class="legend-label small">圆点大小 = 连接数（平缓）</span></div>
         <div class="legend-row"><span class="legend-label small">点击 = 聚焦局部 · 悬停 = 显示 id · 滚轮 = 缩放</span></div>
+        <div class="legend-row"><span class="legend-label small">连线渐变 = 源类型色 → 目标类型色</span></div>
         <div class="legend-row"><span class="legend-label small">拖动节点松手 = 自动重新布局</span></div>
       </div>
     {/if}
@@ -612,12 +698,24 @@
     <Sidebar
       node={selectedNode}
       chainDir={chainDir}
+      mode={scanMode}
+      allNodes={snapshot?.nodes ?? []}
       onSave={handleSave}
       onCancel={() => {
         selectedNode = null;
         cy?.elements().removeClass('focus-dim focus-lit');   // v1.6.1 关闭侧栏必须解除聚焦
       }}
       onFold={handleFold}
+      onDelete={handleDeleteNode}
+      onSetParent={handleSetParent}
+    />
+  {/if}
+
+  {#if showCreate && snapshot}
+    <CreateNodeDialog
+      nodes={snapshot.nodes}
+      onCreate={handleCreateNode}
+      onCancel={() => (showCreate = false)}
     />
   {/if}
 
@@ -716,6 +814,33 @@
     background: rgba(255, 255, 255, 0.95);
   }
   .spacer { flex: 1; }
+  /* v2.0 模式切换 */
+  .mode-switch {
+    display: inline-flex;
+    gap: 0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .mode-btn {
+    border: none;
+    border-radius: 0;
+    padding: 6px 14px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .mode-btn + .mode-btn { border-left: 1px solid rgba(255, 255, 255, 0.12); }
+  .mode-btn:hover { color: rgba(255, 255, 255, 0.9); }
+  .mode-btn.active { background: rgba(255, 255, 255, 0.14); color: #fff; }
+  .create-btn {
+    background: rgba(52, 211, 153, 0.12);
+    border: 1px dashed rgba(52, 211, 153, 0.4);
+    color: #34d399;
+  }
+  .create-btn:hover:not(:disabled) { background: rgba(52, 211, 153, 0.2); }
   .snap-group {
     display: flex;
     align-items: center;
