@@ -172,6 +172,7 @@
   }
 
   let chainDir = $state<string | null>(null);
+  let lastDir: string | null = null;   // v2.0：跟踪已加载目录，切换时清图（非响应式）
   let snapshot = $state<ChainSnapshot | null>(null);
   let error = $state<string | null>(null);
   let loading = $state(false);
@@ -326,6 +327,20 @@
 
   async function loadChain() {
     if (!chainDir) return;
+    // v2.0 修复：切换目录时清空旧图 + 重置三签名——
+    // 新旧目录节点 id 相同（如都是初始化的 g-001）时签名判定"无变化"，
+    // $effect 不重建，旧目录节点会残留重叠；扫描失败时旧图也必须清掉。
+    // 同目录"重新扫描"不触发清理（保留 v1.6 的位置续排手感）。
+    if (chainDir !== lastDir) {
+      lastDir = chainDir;
+      lastIdsSig = '';
+      lastDataSig = '';
+      lastSliderSig = '';
+      selectedNode = null;
+      hoverTip = null;
+      stopForce();
+      cy?.elements().remove();
+    }
     loading = true;
     error = null;
     needsInit = false;
@@ -334,6 +349,7 @@
     } catch (e) {
       const msg = String(e);
       if (msg.includes('不存在 .chain')) {
+        snapshot = null;   // 新目录无效：清掉旧快照，让初始化提示干净显示
         needsInit = true;
       } else {
         error = msg;
