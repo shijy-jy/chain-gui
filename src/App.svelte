@@ -5,10 +5,10 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import cytoscape from 'cytoscape';
   import type { StylesheetJson, Core } from 'cytoscape';
-  import { chainToElements } from './lib/chain_to_cytoscape';
+  import { chainToElements, NODE_TYPE_LABEL } from './lib/chain_to_cytoscape';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
-  import type { ChainSnapshot, ChainNode, NodeStatus } from './lib/types';
+  import type { ChainSnapshot, ChainNode, NodeStatus, NodeType } from './lib/types';
 
   // v1.5：cose 在链式图上会缩成团块 → 换自研全局力导向模拟（d3-force 风格）：
   //   所有节点两两斥力（库仑式）+ 边弹簧吸引 + 弱中心引力 = 神经元式全局铺开
@@ -30,8 +30,9 @@
     }
   }
 
-  // scatter=true: 初始散点重排（snapshot/滑条变化时）; false: 从当前位置续排（拖动节点后）
-  function runForceLayout(cyRef: Core, scatter = true) {
+  // v1.7：初始散点位置改由 chainToElements 预写入（根节点锚定原点，其余绕根圆环），
+  // 这里统一"从当前位置续排"——首次加载从预散点起排，拖动/滑条调整从当前位置起排。
+  function runForceLayout(cyRef: Core) {
     stopForce();
     const nodeArr = cyRef.nodes().toArray();   // 固定顺序的节点数组（模拟期间成员不变）
     const edges = cyRef.edges();
@@ -42,21 +43,7 @@
       return;
     }
 
-    const pos = scatter
-      ? nodeArr.map((_, i) => {
-          const ang = (i / n) * Math.PI * 2;
-          const r = 180 + n * 5;
-          return {
-            x: Math.cos(ang) * r + (Math.random() - 0.5) * 60,
-            y: Math.sin(ang) * r + (Math.random() - 0.5) * 60,
-          };
-        })
-      : nodeArr.map((nd) => ({ x: nd.position('x'), y: nd.position('y') }));
-
-    // v1.6 散点首帧立即写入：加载即圆环，避免 (0,0) 堆叠瞬间
-    if (scatter) {
-      nodeArr.forEach((nd, i) => nd.position({ x: pos[i].x, y: pos[i].y }));
-    }
+    const pos = nodeArr.map((nd) => ({ x: nd.position('x'), y: nd.position('y') }));
 
     const vx = new Float64Array(n);
     const vy = new Float64Array(n);
@@ -77,7 +64,12 @@
     const tick = () => {
       forceRun = null;
       if (iter++ >= MAX_ITER || alpha < 0.01) {
-        cyRef.fit(undefined, 60);   // 收敛后适配视野
+        // v1.7 收敛后平滑适配视野（原先瞬跳，观感像"图自己跳到中央"）
+        cyRef.animate({
+          fit: { eles: cyRef.elements(), padding: 60 },
+          duration: 300,
+          easing: 'ease-out',
+        });
         return;
       }
       // 1) 全节点两两斥力 O(n²)：F = min(K/d², MAX_F)（这就是"神经元链接"式全局铺开的关键）
@@ -145,6 +137,17 @@
     forceRun = requestAnimationFrame(tick);
   }
 
+  // v1.7 首帧视图：全图同步 fit 后再把根节点对准屏幕中央。
+  // 以前首帧渲染在模型原点（= 视口左上角），力模拟收敛后才 fit，产生"左上角堆叠→跳中央"的闪烁。
+  function initialView(cyRef: Core, rootId: string | null) {
+    if (cyRef.nodes().length === 0) return;
+    cyRef.fit(undefined, 70);   // 同步适配全图（无动画，首帧即最终视口）
+    if (rootId) {
+      const rootEl = cyRef.getElementById(rootId);
+      if (rootEl.nonempty()) cyRef.center(rootEl);   // 根节点对准屏幕中央
+    }
+  }
+
   let chainDir = $state<string | null>(null);
   let snapshot = $state<ChainSnapshot | null>(null);
   let error = $state<string | null>(null);
@@ -171,17 +174,22 @@
   ];
   let showLegend = $state(true);
 
+  // v1.7 悬停浮层：显示 id · 类型（id 已从画布标签移除以突出标题命名，悬停/点击可追溯）
+  let hoverTip = $state<{ x: number; y: number; text: string } | null>(null);
+
   const style: StylesheetJson = [
     {
       selector: 'node',
       style: {
         'shape': 'ellipse',
-        'label': 'data(id)',
-        'font-size': '10px',
-        'color': 'rgba(255,255,255,0.85)',
+        'label': 'data(label)',   // v1.7 显示名 = 「类型 · 标题」，生成见 chain_to_cytoscape
+        'font-size': '11px',
+        'color': 'rgba(255,255,255,0.92)',
         'text-opacity': 1,
         'text-valign': 'bottom',
-        'text-margin-y': 10,
+        'text-margin-y': 8,
+        'text-wrap': 'wrap',
+        'text-max-width': 150,
         'width': nodeSize,
         'height': nodeSize,
         'background-color': '#888888',
@@ -359,15 +367,25 @@
 
     const sig = snapshot.nodes.map(x => x.id).sort().join(',');
     if (sig === lastSig && cyRef.elements().length > 0) {
-      // v1.6 同一批节点（滑条调整/watcher 重推）→ 从当前位置续排
-      runForceLayout(cyRef, false);
+      // v1.6 同一批节点（滑条调整/watcher 重推）→ 不重新散点；
+      // v1.7 但必须重建元素数据（外部编辑标题/状态后标签要刷新），重建后恢复各节点原位置
+      const keep = new Map(cyRef.nodes().map((nd) => [nd.id(), nd.position()] as const));
+      cyRef.elements().remove();
+      cyRef.add(chainToElements(snapshot));
+      cyRef.nodes().forEach((nd) => {
+        const p = keep.get(nd.id());
+        if (p) nd.position(p);
+      });
+      runForceLayout(cyRef);
       return;
     }
     lastSig = sig;
     stopForce();
     cyRef.elements().remove();
     cyRef.add(chainToElements(snapshot));
-    runForceLayout(cyRef, true);   // v1.5 全局力导向：散点起步，收敛后自动适配视野
+    // v1.7 首帧视图：同步 fit 全图 + 根节点对准屏幕中央（消除"左上角堆叠→跳中央"的闪烁）
+    initialView(cyRef, snapshot.manifest.root);
+    runForceLayout(cyRef);   // v1.5 全局力导向：预散点起步，收敛后平滑适配视野
   });
 
   onMount(() => {
@@ -385,6 +403,7 @@
       cy.on('tap', 'node', (evt) => {
         const n = evt.target;
         stopForce();   // v1.5 点击聚焦时暂停力模拟，避免与镜头动画抢位置
+        hoverTip = null;
         // v1.4 Obsidian 式点击动态: 全图淡出 → 点亮节点+邻居 → 平滑缩放聚焦
         const nbh = n.closedNeighborhood();
         cy?.elements().addClass('focus-dim');
@@ -404,10 +423,24 @@
           clearFocus();
         }
       });
+      // v1.7 悬停浮层：id · 类型（id 已从画布标签移除，悬停即可追溯）
+      cy.on('mouseover', 'node', (evt) => {
+        const n = evt.target;
+        const rp = n.renderedPosition();
+        hoverTip = {
+          x: rp.x,
+          y: rp.y - 24,
+          text: `${n.id()} · ${NODE_TYPE_LABEL[n.data('nodeType') as NodeType] ?? ''}`,
+        };
+      });
+      cy.on('mouseout', 'node', () => (hoverTip = null));
       // v1.5 拖动节点：按住时暂停模拟，松开后从当前位置续排（Obsidian 手感）
-      cy.on('grab', () => stopForce());
+      cy.on('grab', () => {
+        hoverTip = null;
+        stopForce();
+      });
       cy.on('free', () => {
-        if (cy) runForceLayout(cy, false);
+        if (cy) runForceLayout(cy);
       });
     } catch (e) {
       error = `[cytoscape init failed] ${(e as Error).message}`;
@@ -539,6 +572,11 @@
     {/if}
     <div bind:this={container} class="cy-container"></div>
 
+    <!-- v1.7 悬停浮层：节点 id · 类型（定位跟随节点渲染坐标） -->
+    {#if hoverTip}
+      <div class="hover-tip" style:left="{hoverTip.x}px" style:top="{hoverTip.y}px">{hoverTip.text}</div>
+    {/if}
+
     <!-- v1.4 缩放控件（右下角）：滚轮之外的按钮式缩放 + 全局适配 + 图例开关 -->
     <div class="zoom-controls">
       <button class="zc-btn" onclick={() => cy?.zoom(cy.zoom() * 1.4)} title="放大（滚轮亦可）">+</button>
@@ -564,7 +602,7 @@
         <div class="legend-row"><span class="dot dot-dash"></span><span class="legend-label">阻塞（虚线框）</span></div>
         <div class="legend-sep"></div>
         <div class="legend-row"><span class="legend-label small">圆点大小 = 连接数（平缓）</span></div>
-        <div class="legend-row"><span class="legend-label small">点击 = 聚焦局部 · 滚轮 = 缩放</span></div>
+        <div class="legend-row"><span class="legend-label small">点击 = 聚焦局部 · 悬停 = 显示 id · 滚轮 = 缩放</span></div>
         <div class="legend-row"><span class="legend-label small">拖动节点松手 = 自动重新布局</span></div>
       </div>
     {/if}
@@ -732,6 +770,21 @@
   .cy-container {
     position: absolute;
     inset: 0;
+  }
+  /* v1.7 悬停浮层（id · 类型）：跟随节点渲染坐标，不拦截鼠标 */
+  .hover-tip {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    padding: 4px 8px;
+    font-size: 10px;
+    font-family: 'Consolas', monospace;
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(25, 25, 28, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    pointer-events: none;
+    z-index: 20;
+    white-space: nowrap;
   }
   .empty-hint {
     position: absolute;

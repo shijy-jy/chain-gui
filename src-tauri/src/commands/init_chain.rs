@@ -140,7 +140,8 @@ mod tests {
         let root = tmp.path();
         fs::create_dir_all(root.join(".chain")).unwrap();
         let guide_path = root.join(".chain").join("AI_GUIDE.md");
-        fs::write(&guide_path, "<!-- CHAIN_GUIDE_VERSION: 3 -->\n我的批注版").unwrap();
+        // 与常量同版：用 AI_GUIDE_VERSION 动态生成，版本号 bump 时测试自动跟随
+        fs::write(&guide_path, format!("<!-- CHAIN_GUIDE_VERSION: {AI_GUIDE_VERSION} -->\n我的批注版")).unwrap();
 
         let (refreshed, _) = refresh_ai_guide_if_stale(root).unwrap();
         assert!(!refreshed, "同版本不应刷新（保留用户批注）");
