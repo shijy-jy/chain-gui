@@ -48,8 +48,9 @@
     logOpen: true,
   });
 
-  // v1.9 正文显示模式：编辑（textarea）/ 预览（Markdown + LaTeX 渲染），模块级保留用户选择
-  let bodyMode = $state<'edit' | 'preview'>('edit');
+  // v1.9 正文显示模式：预览（Markdown + LaTeX 渲染，同 DeepSeek 网页版 KaTeX 观感）/
+  // 编辑（textarea），模块级保留用户选择；默认预览优先，点「编辑」才进文本框
+  let bodyMode = $state<'edit' | 'preview'>('preview');
   let bodyHtml = $derived(bodyMode === 'preview' ? renderBody(body) : '');
 
   // —— 布局拖拽：横向边界条调整上方内容区高度（VSCode 分栏手感）——
