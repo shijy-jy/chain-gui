@@ -231,6 +231,7 @@
       await openWorkspace(first);
     } else {
       clearGraph();
+      if (m === 'dev') startWaterLoop(); else stopWaterLoop();   // v2.2 水面随模式
     }
   }
 
@@ -272,20 +273,21 @@
   let ripple = $state<{ source: string; activeDepth: number; layers: RippleLayers } | null>(null);
   let rippleRaf: number | null = null;
   let rippleTimer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout> | undefined;
-  let ringCanvas: HTMLCanvasElement;
-  let ringCtx: CanvasRenderingContext2D | null = null;
+  // v2.2 水面画布（开发模式）：背景水体 + 环境波纹 + 涟漪/震动在水面上的表达
+  let waterCanvas: HTMLCanvasElement;
+  let waterCtx: CanvasRenderingContext2D | null = null;
+  let waterRaf: number | null = null;
+  let waterFrame = 0;
+  let waterGrad: CanvasGradient | null = null;
 
-  function buildAdjacency(cyRef: Core): Map<string, string[]> {
+  function buildAdjacency(snap: ChainSnapshot): Map<string, string[]> {
+    // 涟漪邻接来自数据（snapshot.edges）——开发模式不渲染连线，但联系数据仍在
     const adj = new Map<string, string[]>();
-    cyRef.nodes().forEach((n) => {
-      adj.set(n.id(), []);
-    });
-    cyRef.edges().forEach((e) => {
-      const s = e.source().id();
-      const t = e.target().id();
-      adj.get(s)?.push(t);
-      adj.get(t)?.push(s);   // 知识链接不分方向：无向传播
-    });
+    for (const n of snap.nodes) adj.set(n.id, []);
+    for (const e of snap.edges) {
+      adj.get(e.parent)?.push(e.child);
+      adj.get(e.child)?.push(e.parent);   // 知识链接不分方向：无向传播
+    }
     return adj;
   }
 
@@ -338,11 +340,109 @@
       });
     }
     ripple = null;
-    drawRippleRings(null, 0);
+  }
+
+  // ── v2.2 水面（开发模式）：水体渐变 + 环境波纹 + 涟漪环与节点震动在水面的表达 ──
+  function drawWater(cyRef: Core | null, t: number, frame: number) {
+    if (!waterCanvas) return;
+    if (!waterCtx) waterCtx = waterCanvas.getContext('2d');
+    const ctx = waterCtx;
+    if (!ctx) return;
+    const w = waterCanvas.clientWidth;
+    const h = waterCanvas.clientHeight;
+    if (w === 0 || h === 0) return;
+    if (waterCanvas.width !== w || waterCanvas.height !== h) {
+      waterCanvas.width = w;
+      waterCanvas.height = h;
+      waterGrad = null;
+    }
+    if (!waterGrad) {
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, '#0b1a26');
+      g.addColorStop(0.5, '#08131d');
+      g.addColorStop(1, '#060d15');
+      waterGrad = g;
+    }
+    ctx.fillStyle = waterGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    // 环境波纹：3 组横向漂移的正弦波带（低透明度，水面"活着"的感觉）
+    for (let b = 0; b < 3; b++) {
+      ctx.beginPath();
+      const baseY = h * (0.3 + 0.2 * b);
+      const amp = 14 + b * 8;
+      const speed = 26 + b * 11;
+      const len = 110 + b * 60;
+      for (let x = 0; x <= w; x += 8) {
+        const y = baseY + Math.sin((x + t * speed) / len) * amp + Math.sin((x * 0.4 - t * speed * 0.6) / (len * 0.7)) * amp * 0.5;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = `rgba(96, 165, 250, ${(0.05 + b * 0.02).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    if (!cyRef || !ripple) return;
+    const rip = ripple;
+    // 主节点大涟漪环（水面上向外扩散）
+    const src = cyRef.getElementById(rip.source);
+    if (!src.empty()) {
+      const pos = src.renderedPosition();
+      const maxR = Math.max(160, Math.min(w, h) * 0.2);
+      for (let i = 0; i < 3; i++) {
+        const prog = (t * 0.85 + i / 3) % 1;
+        const r = 24 + prog * maxR;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(125, 211, 252, ${((1 - prog) * 0.4).toFixed(3)})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+    // 波内节点在水面上的小涟漪：震动强度随层深衰减（与节点呼吸同源）
+    const tickMaxDepth = rip.layers.depth.size > 200 ? 3 : 6;
+    cyRef.nodes().forEach((n: any) => {
+      const d = rip.layers.depth.get(n.id());
+      if (d === undefined || d > tickMaxDepth) return;
+      const pos = n.renderedPosition();
+      const pulse = ripplePulseAmp(d) * Math.sin(t * rippleFreq(d) * Math.PI * 2);
+      const r = nodeSize(n) * 1.35 + Math.abs(pulse) * 46;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(125, 211, 252, ${(0.05 + Math.abs(pulse) * 1.6).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    });
+  }
+
+  // 水面动画循环（约 30fps，开发模式常驻）
+  function startWaterLoop() {
+    if (waterRaf !== null) return;
+    const t0 = performance.now();
+    const tick = () => {
+      waterRaf = null;
+      waterFrame += 1;
+      if (waterFrame % 2 === 0) {
+        drawWater(cy, (performance.now() - t0) / 1000, waterFrame);
+      }
+      waterRaf = requestAnimationFrame(tick);
+    };
+    waterRaf = requestAnimationFrame(tick);
+  }
+
+  function stopWaterLoop() {
+    if (waterRaf !== null) {
+      cancelAnimationFrame(waterRaf);
+      waterRaf = null;
+    }
+    if (waterCtx) {
+      waterCtx.clearRect(0, 0, waterCanvas?.width ?? 0, waterCanvas?.height ?? 0);
+    }
   }
 
   function startRipple(nodeId: string) {
-    if (!cy) return;
+    if (!cy || !snapshot) return;
     const cyRef = cy;
     // 再点同一主节点 → 快速收回（0.6s，逐层熄灭）
     if (ripple && ripple.source === nodeId) {
@@ -350,7 +450,7 @@
       return;
     }
     clearRipple();
-    const layers = computeRippleLayers(buildAdjacency(cyRef), nodeId);
+    const layers = computeRippleLayers(buildAdjacency(snapshot), nodeId);
     ripple = { source: nodeId, activeDepth: 0, layers };
     applyRippleClasses(cyRef, 0);
     // 波前逐层扩散
@@ -389,7 +489,7 @@
     step();
   }
 
-  // 呼吸脉动 + 边脉冲流动 + 涟漪环（一个 RAF 循环）
+  // 呼吸脉动 + 边脉冲流动（水面由独立 water loop 绘制；一个 RAF 循环）
   function startRippleTick(cyRef: Core) {
     stopRippleTick();
     const t0 = performance.now();
@@ -398,10 +498,7 @@
     const tickMaxDepth = waveCount > 200 ? 3 : 6;
     const tick = () => {
       rippleRaf = null;
-      if (!ripple) {
-        drawRippleRings(null, 0);
-        return;
-      }
+      if (!ripple) return;
       const t = (performance.now() - t0) / 1000;
       const rip = ripple;
       cyRef.batch(() => {
@@ -422,40 +519,9 @@
           e.style('line-dash-offset', `${-t * speed}px`);
         });
       });
-      drawRippleRings(cyRef, t);
       rippleRaf = requestAnimationFrame(tick);
     };
     rippleRaf = requestAnimationFrame(tick);
-  }
-
-  // 主节点涟漪环（overlay canvas）：2-3 圈扩散圆环循环
-  function drawRippleRings(cyRef: Core | null, t: number) {
-    if (!ringCanvas) return;
-    if (!ringCtx) ringCtx = ringCanvas.getContext('2d');
-    const ctx = ringCtx;
-    if (!ctx) return;
-    const w = ringCanvas.clientWidth;
-    const h = ringCanvas.clientHeight;
-    if (ringCanvas.width !== w || ringCanvas.height !== h) {
-      ringCanvas.width = w;
-      ringCanvas.height = h;
-    }
-    ctx.clearRect(0, 0, w, h);
-    if (!cyRef || !ripple) return;
-    const src = cyRef.getElementById(ripple.source);
-    if (src.empty()) return;
-    const pos = src.renderedPosition();
-    const ringCount = 3;
-    const maxR = Math.max(160, Math.min(w, h) * 0.2);
-    for (let i = 0; i < ringCount; i++) {
-      const prog = (t * 0.85 + i / ringCount) % 1;
-      const r = 24 + prog * maxR;
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(125, 211, 252, ${((1 - prog) * 0.35).toFixed(3)})`;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
   }
 
   let container: HTMLDivElement;
@@ -487,6 +553,13 @@
   let hoverTip = $state<{ x: number; y: number; text: string } | null>(null);
 
   const style: StylesheetJson = [
+    // v2.2 画布背景透明：分析模式由 CSS 底色覆盖，开发模式透出水面画布
+    {
+      selector: 'core',
+      style: {
+        'background-color': 'transparent',
+      } as any,
+    },
     {
       selector: 'node',
       style: {
@@ -757,7 +830,9 @@
       lastSliderSig = sliderSig;
       stopForce();
       cyRef.elements().remove();
-      cyRef.add(chainToElements(snap));
+      // v2.2 开发模式不渲染连线（联系由涟漪亮度层级表达）；水面循环随模式启停
+      cyRef.add(chainToElements(snap, { withEdges: scanMode !== 'dev' }));
+      if (scanMode === 'dev') startWaterLoop(); else stopWaterLoop();
       // v1.7 首帧视图：同步 fit 全图 + 根节点对准屏幕中央（消除"左上角堆叠→跳中央"的闪烁）
       initialView(cyRef, snap.manifest.root);
       runForceLayout(cyRef);   // v1.5 全局力导向：预散点起步，收敛后平滑适配视野
@@ -911,6 +986,7 @@
     unlisten?.();
     stopForce();
     clearRipple();   // v2.2
+    stopWaterLoop(); // v2.2
     cy?.destroy();
   });
 
@@ -1007,7 +1083,7 @@
     </div>
   {/if}
 
-  <div class="canvas-wrap">
+  <div class="canvas-wrap" class:dev-water={scanMode === 'dev'}>
     {#if !snapshot && !loading}
       <div class="empty-hint">
         <div class="empty-icon">⛓</div>
@@ -1015,10 +1091,11 @@
         <p class="sub-hint">添加时按当前页签确定模式：分析（AI 链协议）/ 开发（自由知识库）</p>
       </div>
     {/if}
-    <div bind:this={container} class="cy-container"></div>
 
-    <!-- v2.2 涟漪环 overlay 画布（开发模式，pointer-events 穿透） -->
-    <canvas bind:this={ringCanvas} class="ripple-canvas"></canvas>
+    <!-- v2.2 水面画布（开发模式）：水体 + 环境波纹 + 涟漪/震动在水面的表达，位于节点层之下 -->
+    <canvas bind:this={waterCanvas} class="water-canvas"></canvas>
+
+    <div bind:this={container} class="cy-container"></div>
 
     <!-- v1.7 悬停浮层：节点 id · 类型（定位跟随节点渲染坐标） -->
     {#if hoverTip}
@@ -1051,11 +1128,14 @@
         <div class="legend-sep"></div>
         <div class="legend-row"><span class="legend-label small">圆点大小 = 连接数（平缓）</span></div>
         <div class="legend-row"><span class="legend-label small">点击 = 聚焦局部 · 悬停 = 显示 id · 滚轮 = 缩放</span></div>
-        <div class="legend-row"><span class="legend-label small">连线渐变 = 源类型色 → 目标类型色</span></div>
+        {#if scanMode === 'analysis'}
+          <div class="legend-row"><span class="legend-label small">连线渐变 = 源类型色 → 目标类型色</span></div>
+        {/if}
         <div class="legend-row"><span class="legend-label small">拖动节点松手 = 自动重新布局</span></div>
         {#if scanMode === 'dev'}
           <div class="legend-sep"></div>
-          <div class="legend-row"><span class="legend-label small">涟漪视图：单击节点 = 波纹传播（同层同亮度·逐级衰减）</span></div>
+          <div class="legend-row"><span class="legend-label small">水面涟漪：单击节点 = 波纹传播</span></div>
+          <div class="legend-row"><span class="legend-label small">点击最亮 → 直接相关次之 → 逐级递减</span></div>
           <div class="legend-row"><span class="legend-label small">双击节点 = 编辑 · 空白/Esc = 波纹收回</span></div>
         {/if}
       </div>
@@ -1264,15 +1344,20 @@
   .cy-container {
     position: absolute;
     inset: 0;
+    z-index: 1;
+    background: #0a0a0a;
   }
-  /* v2.2 涟漪环 overlay 画布 */
-  .ripple-canvas {
+  /* v2.2 水面画布（开发模式）：节点层之下，透明背景透出 */
+  .water-canvas {
     position: absolute;
     inset: 0;
-    pointer-events: none;
-    z-index: 2;
+    z-index: 0;
     width: 100%;
     height: 100%;
+    pointer-events: none;
+  }
+  .dev-water .cy-container {
+    background: transparent;
   }
   /* v1.7 悬停浮层（id · 类型）：跟随节点渲染坐标，不拦截鼠标 */
   .hover-tip {

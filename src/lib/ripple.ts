@@ -15,10 +15,10 @@ export interface RippleLayers {
 
 export const RIPPLE_MAX_DEPTH = 6;
 
-/** 亮度（opacity）按层级指数衰减：同层同亮度，逐级降低 */
+/** 亮度（opacity）按层级单调递减：点击的节点最亮，直接相关次之，逐级降低 */
 export function rippleOpacity(depth: number): number {
-  const table = [1.0, 1.0, 0.78, 0.6, 0.47, 0.37, 0.3];
-  return depth < table.length ? table[depth] : 0.24;
+  const table = [1.0, 0.85, 0.72, 0.6, 0.5, 0.42, 0.35];
+  return depth < table.length ? table[depth] : 0.28;
 }
 
 /** 呼吸脉动幅度：层级越近越强 */

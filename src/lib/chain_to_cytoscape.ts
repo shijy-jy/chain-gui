@@ -30,7 +30,8 @@ function displayLabel(type: NodeType, title: string): string {
   return `${NODE_TYPE_LABEL[type]} · ${t}`;
 }
 
-export function chainToElements(snap: ChainSnapshot): ElementDefinition[] {
+export function chainToElements(snap: ChainSnapshot, opts?: { withEdges?: boolean }): ElementDefinition[] {
+  const withEdges = opts?.withEdges ?? true;
   const elements: ElementDefinition[] = [];
   const nodes = snap.nodes;
   const n = nodes.length;
@@ -60,6 +61,9 @@ export function chainToElements(snap: ChainSnapshot): ElementDefinition[] {
       position: { x, y },
     });
   });
+
+  // v2.2 涟漪视图：开发模式可关闭连线渲染（联系改由亮度层级+波纹表达，连接数据仍存 snapshot.edges）
+  if (!withEdges) return elements;
 
   for (const edge of snap.edges) {
     // 悬空边直接跳过（后端理论上已过滤；这里双保险——cytoscape cy.add 遇到
