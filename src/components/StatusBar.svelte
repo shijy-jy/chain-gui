@@ -1,14 +1,16 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
-  import type { ChainSnapshot, SnapshotMeta } from '../lib/types';
+  import type { ChainSnapshot, ScanMode, SnapshotMeta } from '../lib/types';
 
   let {
     snapshot,
     chainDir,
+    mode,
     onrescan,
   }: {
     snapshot: ChainSnapshot | null;
     chainDir: string | null;
+    mode: ScanMode;
     onrescan?: () => void;
   } = $props();
 
@@ -17,7 +19,7 @@
   let activeOpen = $state(false);
   let snapOpen = $state(false);
 
-  // 指南版本（v1.2）：启动时向后端取内嵌版本号
+  // 指南版本（v1.2 起；v2.1 双指南：按当前工作区模式取对应指南版本）
   let guideVersion = $state<number | null>(null);
   let logContent = $state<string>('');
   let logLoading = $state(false);
@@ -25,12 +27,11 @@
   let snapLoading = $state(false);
 
   $effect(() => {
-    // 仅取一次内嵌指南版本
-    if (guideVersion === null) {
-      invoke<number>('get_guide_version')
-        .then(v => (guideVersion = v))
-        .catch(() => {});
-    }
+    // 模式变化或首次进入时取对应指南版本
+    const _m = mode;
+    invoke<number>('get_guide_version', { mode: _m })
+      .then(v => (guideVersion = v))
+      .catch(() => {});
   });
 
   function closeOthers(keep: 'log' | 'active' | 'snap') {
@@ -179,7 +180,9 @@
       <span class="muted">未选择目录</span>
     {/if}
     {#if guideVersion !== null}
-      <span class="muted" title="本软件内嵌 AI 指南版本">指南 v{guideVersion}</span>
+      <span class="muted" title="本软件内嵌 AI 指南版本（v2.1 双指南，按工作区模式）">
+        {mode === 'dev' ? '知识库' : '协议'}指南 v{guideVersion}
+      </span>
     {/if}
   </div>
   <div class="right">

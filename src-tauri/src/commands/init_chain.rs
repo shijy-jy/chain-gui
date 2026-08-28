@@ -33,9 +33,15 @@ pub fn init_chain(dir: String, mode: Option<String>) -> Result<ChainSnapshot, St
         fs::write(&example, content).map_err(|e| format!("写示例节点失败：{e}"))?;
     }
 
-    // AI 使用指南：分析模式版本对比刷新（v1.2）；开发模式不写（v2.0）
+    // AI 使用指南：分析模式版本对比刷新（v1.2）；开发模式写知识库指南（v2.1，缺省才写、不刷新）
     if !scan_mode.is_dev() {
         refresh_ai_guide_if_stale(&root)?;
+    } else {
+        let guide = root.join(".chain").join("AI_GUIDE.md");
+        if !guide.exists() {
+            fs::write(&guide, crate::commands::ai_guide::AI_GUIDE_DEV)
+                .map_err(|e| format!("写开发模式 AI_GUIDE.md 失败：{e}"))?;
+        }
     }
 
     scan_chain_dir_mode(&root, scan_mode).map_err(|e| e.to_string())

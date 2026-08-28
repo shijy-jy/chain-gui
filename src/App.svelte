@@ -686,12 +686,13 @@
   });
 
   // M10: 复制 AI 使用指南到剪贴板（贴给任何 AI 即完成协议交底）
+  // v2.1 双指南：按当前工作区模式复制对应指南（分析=链协议 / 开发=知识库搭建）
   let guideCopied = $state(false);
   let guideCopyTimer: ReturnType<typeof setTimeout> | undefined;
 
   async function copyAiGuide() {
     try {
-      const guide = await invoke<string>('get_ai_guide');
+      const guide = await invoke<string>('get_ai_guide', { mode: scanMode });
       await navigator.clipboard.writeText(guide);
       guideCopied = true;
       clearTimeout(guideCopyTimer);
@@ -849,7 +850,7 @@
     />
   {/if}
 
-  <StatusBar snapshot={snapshot} chainDir={chainDir} onrescan={loadChain} />
+  <StatusBar snapshot={snapshot} chainDir={chainDir} mode={scanMode} onrescan={loadChain} />
   </div>
 </main>
 
