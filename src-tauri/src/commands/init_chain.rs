@@ -17,8 +17,12 @@ use crate::scanner::walker::scan_chain_dir_mode;
 pub fn init_chain(dir: String, mode: Option<String>) -> Result<ChainSnapshot, String> {
     let scan_mode = mode.as_deref().map(ScanMode::from_str).unwrap_or(ScanMode::Analysis);
     let root = PathBuf::from(&dir);
+    // v2.1 模式强绑定：已有标签且与所选模式不符 → 拒绝初始化
+    crate::commands::workspace::check_mode(&root, scan_mode)?;
     let nodes_dir = root.join(".chain").join("nodes");
     fs::create_dir_all(&nodes_dir).map_err(|e| format!("创建 .chain/nodes 失败：{e}"))?;
+    // v2.1 写模式标签（.chain/.mode），随工程走
+    crate::commands::workspace::write_mode_tag(&root, scan_mode)?;
 
     let example = nodes_dir.join("g-001.md");
     if !example.exists() {

@@ -9,7 +9,8 @@
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import CreateNodeDialog from './components/CreateNodeDialog.svelte';
-  import type { ChainSnapshot, ChainNode, NodeStatus, NodeType, ScanMode } from './lib/types';
+  import WorkspaceSidebar from './components/WorkspaceSidebar.svelte';
+  import type { ChainSnapshot, ChainNode, NodeStatus, NodeType, ScanMode, WorkspaceInfo } from './lib/types';
 
   // v1.5：cose 在链式图上会缩成团块 → 换自研全局力导向模拟（d3-force 风格）：
   //   所有节点两两斥力（库仑式）+ 边弹簧吸引 + 弱中心引力 = 神经元式全局铺开
@@ -177,25 +178,87 @@
   let error = $state<string | null>(null);
   let loading = $state(false);
   let selectedNode = $state<ChainNode | null>(null);
-  let needsInit = $state(false);
-  let initializing = $state(false);
+  let showCreate = $state(false);
 
-  // v2.0 软件模式：analysis（严格链协议）/ dev（自由知识图谱），持久化到 localStorage
+  // v2.1 多工作区：左侧栏管理；每个文件夹绑定自己的模式（.chain/.mode 标签）
+  let workspaces = $state<WorkspaceInfo[]>([]);
+  let wsBusy = $state(false);
+  let wsError = $state<string | null>(null);
+
+  // v2.1 当前模式：由左侧栏页签决定，持久化（重启后回到上次模式层）
   let scanMode = $state<ScanMode>(
     (localStorage.getItem('chain-gui-mode') as ScanMode) ?? 'analysis'
   );
-  let showCreate = $state(false);
 
-  function switchMode(m: ScanMode) {
+  function refreshWorkspaces() {
+    invoke<WorkspaceInfo[]>('list_workspaces')
+      .then((ws) => (workspaces = ws))
+      .catch((e) => (wsError = String(e)));
+  }
+
+  function clearGraph() {
+    chainDir = null;
+    snapshot = null;
+    selectedNode = null;
+    hoverTip = null;
+    lastDir = null;
+    lastIdsSig = '';
+    lastDataSig = '';
+    lastSliderSig = '';
+    stopForce();
+    cy?.elements().remove();
+    cy?.elements().removeClass('focus-dim focus-lit edge-hover');
+  }
+
+  // v2.1 打开一个工作区（模式由标签决定，后端强校验）
+  async function openWorkspace(ws: WorkspaceInfo) {
+    chainDir = ws.path;
+    scanMode = ws.mode === 'dev' ? 'dev' : 'analysis';
+    localStorage.setItem('chain-gui-mode', scanMode);
+    localStorage.setItem('chain-gui-last-dir', ws.path);
+    await loadChain();
+  }
+
+  // v2.1 切换模式页签：默认打开该层第一个工作区；该层为空则清空画布
+  async function handleSwitchMode(m: ScanMode) {
     if (m === scanMode) return;
     scanMode = m;
     localStorage.setItem('chain-gui-mode', m);
-    // 通知后端（watcher 后续文件变化按新模式重扫），有目录时拿新快照刷新视图
-    invoke<ChainSnapshot | null>('set_mode', { mode: m })
-      .then((snap) => {
-        if (snap) snapshot = snap;
-      })
-      .catch((e) => (error = `切换模式失败：${String(e)}`));
+    const first = workspaces.find((w) => w.mode === m);
+    if (first) {
+      await openWorkspace(first);
+    } else {
+      clearGraph();
+    }
+  }
+
+  // v2.1 添加工作区：选目录 → 后端按当前页签模式初始化/补签标签 → 归层 → 自动打开
+  async function handleAddWorkspace() {
+    if (wsBusy) return;
+    const selected = await open({ directory: true, multiple: false });
+    if (typeof selected !== 'string') return;
+    wsBusy = true;
+    wsError = null;
+    try {
+      const list = await invoke<WorkspaceInfo[]>('add_workspace', { dir: selected, mode: scanMode });
+      workspaces = list;
+      const added = list.find((w) => w.path.toLowerCase() === selected.toLowerCase());
+      if (added) await openWorkspace(added);
+    } catch (e) {
+      wsError = String(e);
+    } finally {
+      wsBusy = false;
+    }
+  }
+
+  // v2.1 移除工作区：仅移出列表；若移除的是当前打开的，清空画布
+  async function handleRemoveWorkspace(dir: string) {
+    try {
+      workspaces = await invoke<WorkspaceInfo[]>('remove_workspace', { dir });
+      if (chainDir === dir) clearGraph();
+    } catch (e) {
+      wsError = String(e);
+    }
   }
 
   let container: HTMLDivElement;
@@ -317,14 +380,6 @@
     { selector: 'edge.focus-lit', style: { 'opacity': 1, 'width': 2.2 } },
   ];
 
-  async function pickChainDir() {
-    const selected = await open({ directory: true, multiple: false });
-    if (typeof selected === 'string') {
-      chainDir = selected;
-      await loadChain();
-    }
-  }
-
   async function loadChain() {
     if (!chainDir) return;
     // v2.0 修复：切换目录时清空旧图 + 重置三签名——
@@ -343,35 +398,19 @@
     }
     loading = true;
     error = null;
-    needsInit = false;
     try {
       snapshot = await invoke<ChainSnapshot>('scan_chain', { dir: chainDir, mode: scanMode });
     } catch (e) {
       const msg = String(e);
       if (msg.includes('不存在 .chain')) {
-        snapshot = null;   // 新目录无效：清掉旧快照，让初始化提示干净显示
-        needsInit = true;
+        // v2.1 添加工作区时后端已自动初始化；这里只可能是文件被外部删除
+        snapshot = null;
+        error = '该目录的 .chain 已被移除，请在工作区栏移除后重新添加';
       } else {
         error = msg;
       }
     } finally {
       loading = false;
-    }
-  }
-
-  async function handleInit() {
-    if (!chainDir || initializing) return;
-    initializing = true;
-    error = null;
-    try {
-      await invoke<ChainSnapshot>('init_chain', { dir: chainDir, mode: scanMode });
-      // init_chain 不启动文件监听；这里补一次 scan_chain 让 watcher 生效（改文件自动刷新）
-      snapshot = await invoke<ChainSnapshot>('scan_chain', { dir: chainDir, mode: scanMode });
-      needsInit = false;
-    } catch (e) {
-      error = String(e);
-    } finally {
-      initializing = false;
     }
   }
 
@@ -625,6 +664,21 @@
     };
   });
 
+  // v2.1 启动：加载工作区列表 → 恢复到上次打开的工作区（无则打开当前模式层第一个）
+  onMount(() => {
+    invoke<WorkspaceInfo[]>('list_workspaces')
+      .then(async (ws) => {
+        workspaces = ws;
+        const last = localStorage.getItem('chain-gui-last-dir');
+        const target =
+          ws.find((w) => w.path === last) ??
+          ws.find((w) => w.mode === scanMode) ??
+          ws[0];
+        if (target) await openWorkspace(target);
+      })
+      .catch((e) => (wsError = String(e)));
+  });
+
   onDestroy(() => {
     unlisten?.();
     stopForce();
@@ -653,18 +707,27 @@
 </script>
 
 <main>
+  <!-- v2.1 左侧工作区栏：两层（分析/开发）+ 列表 + 添加/移除 + 一键切换图谱 -->
+  <WorkspaceSidebar
+    workspaces={workspaces}
+    mode={scanMode}
+    currentDir={chainDir}
+    busy={wsBusy}
+    error={wsError}
+    onSwitchMode={handleSwitchMode}
+    onOpen={openWorkspace}
+    onAdd={handleAddWorkspace}
+    onRemove={handleRemoveWorkspace}
+  />
+
+  <div class="app-col">
   <header class="toolbar">
     <span class="logo">⛓ chain-gui</span>
-    <button class="pick" onclick={pickChainDir} disabled={loading}>
-      {loading ? '加载中…' : chainDir ? '换目录' : '选目录'}
-    </button>
     {#if shortDir}
       <span class="dir" title={chainDir ?? ''}>{shortDir}</span>
     {/if}
-    <!-- v2.0 模式切换：分析=严格链协议校验；开发=自由知识图谱（字段宽松、任意增删节点与链接） -->
-    <span class="mode-switch" title="分析模式：严格 chain 协议校验（AI 协作图谱）&#10;开发模式：自由搭建知识库——字段无必填、可自由增删节点与链接">
-      <button class="pick mode-btn" class:active={scanMode === 'analysis'} onclick={() => switchMode('analysis')}>分析</button>
-      <button class="pick mode-btn" class:active={scanMode === 'dev'} onclick={() => switchMode('dev')}>开发</button>
+    <span class="mode-chip" class:dev={scanMode === 'dev'} title={scanMode === 'dev' ? '开发模式：自由知识图谱' : '分析模式：严格链协议'}>
+      {scanMode === 'dev' ? '开发' : '分析'}
     </span>
     <span class="spacer"></span>
     {#if snapshot}
@@ -715,19 +778,11 @@
   {/if}
 
   <div class="canvas-wrap">
-    {#if needsInit}
+    {#if !snapshot && !loading}
       <div class="empty-hint">
         <div class="empty-icon">⛓</div>
-        <p>该目录还不是 chain 工程</p>
-        <p class="sub-hint">初始化将创建 .chain/nodes/ 并生成一个示例节点</p>
-        <button class="init-btn" onclick={handleInit} disabled={initializing}>
-          {initializing ? '初始化中…' : '初始化 chain'}
-        </button>
-      </div>
-    {:else if !snapshot && !loading}
-      <div class="empty-hint">
-        <div class="empty-icon">⛓</div>
-        <p>点左上角「选目录」选择 .chain 父目录</p>
+        <p>在左侧工作区栏添加或选择一个文件夹</p>
+        <p class="sub-hint">添加时按当前页签确定模式：分析（AI 链协议）/ 开发（自由知识库）</p>
       </div>
     {/if}
     <div bind:this={container} class="cy-container"></div>
@@ -795,15 +850,37 @@
   {/if}
 
   <StatusBar snapshot={snapshot} chainDir={chainDir} onrescan={loadChain} />
+  </div>
 </main>
 
 <style>
   main {
     display: flex;
-    flex-direction: column;
     height: 100vh;
     background: #0a0a0a;
     color: rgba(255, 255, 255, 0.85);
+  }
+  .app-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  /* v2.1 工具栏模式徽标（只读展示，切换在左侧栏） */
+  .mode-chip {
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    color: #a78bfa;
+    background: rgba(167, 139, 250, 0.1);
+    border: 1px solid rgba(167, 139, 250, 0.3);
+    letter-spacing: 1px;
+  }
+  .mode-chip.dev {
+    color: #34d399;
+    background: rgba(52, 211, 153, 0.1);
+    border-color: rgba(52, 211, 153, 0.3);
   }
   .toolbar {
     display: flex;
@@ -889,27 +966,6 @@
     background: rgba(255, 255, 255, 0.95);
   }
   .spacer { flex: 1; }
-  /* v2.0 模式切换 */
-  .mode-switch {
-    display: inline-flex;
-    gap: 0;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 999px;
-    overflow: hidden;
-  }
-  .mode-btn {
-    border: none;
-    border-radius: 0;
-    padding: 6px 14px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 12px;
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
-  }
-  .mode-btn + .mode-btn { border-left: 1px solid rgba(255, 255, 255, 0.12); }
-  .mode-btn:hover { color: rgba(255, 255, 255, 0.9); }
-  .mode-btn.active { background: rgba(255, 255, 255, 0.14); color: #fff; }
   .create-btn {
     background: rgba(52, 211, 153, 0.12);
     border: 1px dashed rgba(52, 211, 153, 0.4);
@@ -1000,24 +1056,6 @@
   .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
   .empty-hint p { font-size: 13px; margin: 0; letter-spacing: 0.5px; }
   .sub-hint { font-size: 11px !important; color: rgba(255, 255, 255, 0.2); margin-top: 6px !important; }
-  .init-btn {
-    margin-top: 16px;
-    font-size: 12px;
-    padding: 8px 24px;
-    background: rgba(255, 255, 255, 0.95);
-    color: #0a0a0a;
-    border: none;
-    border-radius: 999px;
-    cursor: pointer;
-    font-weight: 500;
-    letter-spacing: 0.5px;
-    transition: all 0.15s ease;
-    /* v2.0 修复：父容器 .empty-hint 有 pointer-events:none（防挡画布），
-       pointer-events 会被子元素继承导致按钮点不到——必须显式恢复 */
-    pointer-events: auto;
-  }
-  .init-btn:hover:not(:disabled) { background: #fff; box-shadow: 0 0 12px rgba(255, 255, 255, 0.15); }
-  .init-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* v1.4 缩放控件（右下角） */
   .zoom-controls {

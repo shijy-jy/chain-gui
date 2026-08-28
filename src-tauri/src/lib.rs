@@ -39,7 +39,9 @@ pub fn run() {
         commands::graph_edit::create_node,
         commands::graph_edit::delete_node,
         commands::graph_edit::set_parent,
-        commands::graph_edit::set_mode,
+        commands::workspace::list_workspaces,
+        commands::workspace::add_workspace,
+        commands::workspace::remove_workspace,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

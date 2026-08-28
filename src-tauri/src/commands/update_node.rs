@@ -17,6 +17,8 @@ pub fn update_node(
 ) -> Result<ChainSnapshot, String> {
     let scan_mode = mode.as_deref().map(ScanMode::from_str).unwrap_or(ScanMode::Analysis);
     let dir = Path::new(&dir);
+    // v2.1 模式强绑定
+    crate::commands::workspace::check_mode(dir, scan_mode)?;
     let node_path = dir
         .join(".chain")
         .join("nodes")

@@ -1,4 +1,4 @@
-//! 开发模式自由图谱编辑命令（v2.0）：
+﻿//! 开发模式自由图谱编辑命令（v2.0）：
 //! - `create_node`：新建节点文件（id 可省略自动生成）
 //! - `delete_node`：删除节点文件（孤立化其子节点——自由图谱不校验悬空）
 //! - `set_parent`：建立/断开链接（改写子节点 frontmatter 的 parent）
@@ -78,6 +78,8 @@ pub fn create_node(dir: String, input: CreateNodeInput, mode: Option<String>) ->
         return Err("仅开发模式可自由新建节点（分析模式的链由 AI 按协议维护）".into());
     }
     let root = PathBuf::from(&dir);
+    // v2.1 模式强绑定
+    crate::commands::workspace::check_mode(&root, scan_mode)?;
     let nodes_dir = root.join(".chain").join("nodes");
     if !nodes_dir.is_dir() {
         return Err("nodes 目录不存在，请先初始化".into());
@@ -121,6 +123,8 @@ pub fn delete_node(dir: String, node_id: String, mode: Option<String>) -> Result
         return Err("仅开发模式可自由删除节点（分析模式的链由 AI 按协议维护）".into());
     }
     let root = PathBuf::from(&dir);
+    // v2.1 模式强绑定
+    crate::commands::workspace::check_mode(&root, scan_mode)?;
     let nodes_dir = root.join(".chain").join("nodes");
     if !is_safe_id(&node_id) {
         return Err("节点 id 非法".into());
@@ -146,6 +150,8 @@ pub fn set_parent(
         return Err("仅开发模式可自由编辑链接（分析模式的链由 AI 按协议维护）".into());
     }
     let root = PathBuf::from(&dir);
+    // v2.1 模式强绑定
+    crate::commands::workspace::check_mode(&root, scan_mode)?;
     let nodes_dir = root.join(".chain").join("nodes");
     if !is_safe_id(&node_id) {
         return Err("节点 id 非法".into());
@@ -200,28 +206,6 @@ pub fn set_parent(
     std::fs::write(&file, new_content).map_err(|e| format!("写回失败：{e}"))?;
 
     scan_chain_dir_mode(&root, scan_mode).map_err(|e| format!("重扫失败：{e}"))
-}
-
-/// 切换扫描模式并返回当前监听目录按新模式的快照（无目录时为 null）。
-/// 之后 watcher 的文件变化重扫都用新模式（状态存于 WatchState）。
-#[command]
-pub fn set_mode(
-    mode: String,
-    state: tauri::State<'_, crate::watcher::WatchState>,
-) -> Result<Option<ChainSnapshot>, String> {
-    let scan_mode = ScanMode::from_str(&mode);
-    {
-        let mut mode_guard = state.mode.lock().map_err(|e| e.to_string())?;
-        *mode_guard = scan_mode;
-    }
-    let dir = state.dir.lock().map_err(|e| e.to_string())?.clone();
-    match dir {
-        Some(d) => {
-            let snap = scan_chain_dir_mode(&d, scan_mode).map_err(|e| e.to_string())?;
-            Ok(Some(snap))
-        }
-        None => Ok(None),
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -4,6 +4,13 @@ export type NodeStatus = 'pending' | 'in_progress' | 'success' | 'failed' | 'blo
 // v2.0 软件工作模式：分析（严格 chain 协议）/ 开发（自由知识图谱）
 export type ScanMode = 'analysis' | 'dev';
 
+// v2.1 工作区条目：path=文件夹路径、mode=该文件夹绑定的模式（.chain/.mode 标签）、name=显示名
+export interface WorkspaceInfo {
+  path: string;
+  mode: ScanMode;
+  name: string;
+}
+
 export interface FoldedInfo {
   original_nodes: string[];
   folded_at: string;

@@ -24,6 +24,8 @@ pub fn fold_chain(dir: String, node_id: String, mode: Option<String>) -> Result<
         return Err("开发模式不支持折叠：自由图谱可成环、多根，没有「子链」语义（折叠是分析模式的链协议功能）".into());
     }
     let root = PathBuf::from(&dir);
+    // v2.1 模式强绑定
+    crate::commands::workspace::check_mode(&root, scan_mode)?;
     let chain_dir = root.join(".chain");
     let nodes_dir = chain_dir.join("nodes");
 
