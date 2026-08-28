@@ -5,7 +5,7 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import cytoscape from 'cytoscape';
   import type { StylesheetJson, Core } from 'cytoscape';
-  import { chainToElements, NODE_TYPE_LABEL } from './lib/chain_to_cytoscape';
+  import { chainToElements, NODE_TYPE_LABEL, NODE_TYPE_COLOR } from './lib/chain_to_cytoscape';
   import { computeRippleLayers, rippleFreq, ripplePulseAmp, type RippleLayers } from './lib/ripple';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
@@ -273,6 +273,9 @@
   let ripple = $state<{ source: string; activeDepth: number; layers: RippleLayers } | null>(null);
   let rippleRaf: number | null = null;
   let rippleTimer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout> | undefined;
+  // v2.2 水面淡入/淡出时间戳（涟漪环与光晕平滑过渡，不突现突灭）
+  let rippleStartAt = 0;
+  let rippleFadeUntil = 0;
   // v2.2 水面画布（开发模式）：背景水体 + 环境波纹 + 涟漪/震动在水面上的表达
   let waterCanvas: HTMLCanvasElement;
   let waterCtx: CanvasRenderingContext2D | null = null;
@@ -301,15 +304,8 @@
         if (d !== undefined && d <= activeDepth) n.addClass(`rip-d${d}`);
         else n.addClass('rip-dim');   // 波外或波前未达：压暗等待
       });
-      cyRef.edges().forEach((e) => {
-        const s = e.source().id();
-        const t = e.target().id();
-        const key = s < t ? `${s}->${t}` : `${t}->${s}`;
-        e.removeClass('rip-edge rip-dim');
-        const shallow = rip.layers.edges.get(key);
-        if (shallow !== undefined && shallow < activeDepth) e.addClass('rip-edge');
-        else e.addClass('rip-dim');
-      });
+      // v2.2 涟漪期间连线整体淡出（transition 0.2s 平滑），联系改由亮度层级+波纹表达
+      cyRef.edges().addClass('rip-hide');
     });
   }
 
@@ -331,7 +327,7 @@
     if (cyRef) {
       cyRef.batch(() => {
         cyRef.nodes().removeClass('rip-dim rip-d0 rip-d1 rip-d2 rip-d3 rip-d4 rip-d5 rip-d6');
-        cyRef.edges().removeClass('rip-edge rip-dim');
+        cyRef.edges().removeClass('rip-hide');   // v2.2 淡线恢复（transition 平滑过渡回初始）
         cyRef.nodes().forEach((n: any) => {
           n.removeStyle('width');
           n.removeStyle('height');
@@ -342,7 +338,8 @@
     ripple = null;
   }
 
-  // ── v2.2 水面（开发模式）：水体渐变 + 环境波纹 + 涟漪环与节点震动在水面的表达 ──
+  // ── v2.2 水面（开发模式）：技术美术式水体——多层正弦叠加 + 加色混合 +
+  //    径向渐变柔和涟漪环（非描边圆环）+ 节点下方类型色光晕（水面被震动"照亮"）──
   function drawWater(cyRef: Core | null, t: number, frame: number) {
     if (!waterCanvas) return;
     if (!waterCtx) waterCtx = waterCanvas.getContext('2d');
@@ -358,61 +355,97 @@
     }
     if (!waterGrad) {
       const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, '#0b1a26');
-      g.addColorStop(0.5, '#08131d');
-      g.addColorStop(1, '#060d15');
+      g.addColorStop(0, '#0d2233');
+      g.addColorStop(0.35, '#0a1a29');
+      g.addColorStop(0.7, '#071420');
+      g.addColorStop(1, '#050d14');
       waterGrad = g;
     }
+    ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = waterGrad;
     ctx.fillRect(0, 0, w, h);
 
-    // 环境波纹：3 组横向漂移的正弦波带（低透明度，水面"活着"的感觉）
-    for (let b = 0; b < 3; b++) {
-      ctx.beginPath();
-      const baseY = h * (0.3 + 0.2 * b);
-      const amp = 14 + b * 8;
-      const speed = 26 + b * 11;
-      const len = 110 + b * 60;
-      for (let x = 0; x <= w; x += 8) {
-        const y = baseY + Math.sin((x + t * speed) / len) * amp + Math.sin((x * 0.4 - t * speed * 0.6) / (len * 0.7)) * amp * 0.5;
-        if (x === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.strokeStyle = `rgba(96, 165, 250, ${(0.05 + b * 0.02).toFixed(3)})`;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-
-    if (!cyRef || !ripple) return;
-    const rip = ripple;
-    // 主节点大涟漪环（水面上向外扩散）
-    const src = cyRef.getElementById(rip.source);
-    if (!src.empty()) {
-      const pos = src.renderedPosition();
-      const maxR = Math.max(160, Math.min(w, h) * 0.2);
-      for (let i = 0; i < 3; i++) {
-        const prog = (t * 0.85 + i / 3) % 1;
-        const r = 24 + prog * maxR;
+    // 多层环境波纹：不同波长/速度/相位叠加，加色混合营造水面波光
+    ctx.globalCompositeOperation = 'lighter';
+    const layers = [
+      { n: 3, amp: 10, speed: 18, len: 210, alpha: 0.045, y: 0.32, color: '96, 165, 250' },
+      { n: 4, amp: 16, speed: 26, len: 130, alpha: 0.05, y: 0.5, color: '56, 189, 248' },
+      { n: 5, amp: 22, speed: 34, len: 90, alpha: 0.055, y: 0.68, color: '94, 234, 212' },
+      { n: 6, amp: 9, speed: 13, len: 300, alpha: 0.04, y: 0.2, color: '125, 211, 252' },
+    ];
+    for (const L of layers) {
+      for (let b = 0; b < L.n; b++) {
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(125, 211, 252, ${((1 - prog) * 0.4).toFixed(3)})`;
-        ctx.lineWidth = 2;
+        const baseY = h * L.y + b * 26 - 30;
+        for (let x = 0; x <= w; x += 6) {
+          const y =
+            baseY +
+            Math.sin((x + t * L.speed + b * 90) / L.len) * L.amp +
+            Math.sin((x * 0.45 - t * L.speed * 0.7 + b * 55) / (L.len * 0.6)) * L.amp * 0.6;
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = `rgba(${L.color}, ${L.alpha.toFixed(3)})`;
+        ctx.lineWidth = 1;
         ctx.stroke();
       }
     }
-    // 波内节点在水面上的小涟漪：震动强度随层深衰减（与节点呼吸同源）
-    const tickMaxDepth = rip.layers.depth.size > 200 ? 3 : 6;
+
+    if (!cyRef) return;
+
+    // 涟漪的淡入/淡出（平滑过渡，不突现突灭）
+    const nowMs = performance.now();
+    const fadeIn = ripple ? Math.min(1, (nowMs - rippleStartAt) / 450) : 0;
+    const fadeOut = nowMs < rippleFadeUntil ? Math.max(0, (rippleFadeUntil - nowMs) / 600) : 0;
+    const envelope = Math.max(fadeIn, fadeOut);
+    if (envelope <= 0.01) return;
+    const rip = ripple;
+
+    // 主节点涟漪：每波 3 圈径向渐变环（内亮外虚），双波错相
+    const src = rip ? cyRef.getElementById(rip.source) : cyRef.collection();
+    if (rip && !src.empty()) {
+      const pos = src.renderedPosition();
+      const maxR = Math.max(170, Math.min(w, h) * 0.22);
+      for (let wave = 0; wave < 2; wave++) {
+        const phase = (t * 0.8 + wave * 0.5) % 1;
+        for (let ring = 0; ring < 3; ring++) {
+          const r = 22 + (phase + ring * 0.33) % 1 * maxR;
+          const ringAlpha = Math.max(0, 1 - ((phase + ring * 0.33) % 1)) * 0.5 * envelope;
+          if (ringAlpha <= 0.01) continue;
+          const grad = ctx.createRadialGradient(pos.x, pos.y, r - 10, pos.x, pos.y, r + 12);
+          grad.addColorStop(0, `rgba(125, 211, 252, ${ringAlpha.toFixed(3)})`);
+          grad.addColorStop(1, 'rgba(125, 211, 252, 0)');
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = 5;
+          ctx.stroke();
+        }
+      }
+    }
+
+    // 波内节点：类型色光晕（水面被震动"照亮"，幅度随层深衰减）
+    const tickMaxDepth = rip && rip.layers.depth.size > 200 ? 3 : 6;
     cyRef.nodes().forEach((n: any) => {
+      if (!rip) return;
       const d = rip.layers.depth.get(n.id());
       if (d === undefined || d > tickMaxDepth) return;
       const pos = n.renderedPosition();
       const pulse = ripplePulseAmp(d) * Math.sin(t * rippleFreq(d) * Math.PI * 2);
-      const r = nodeSize(n) * 1.35 + Math.abs(pulse) * 46;
+      const haloR = nodeSize(n) * 1.2 + Math.abs(pulse) * 70 + 8;
+      const haloA = (0.05 + Math.abs(pulse) * 0.9) * envelope;
+      if (haloA <= 0.01) return;
+      const color = NODE_TYPE_COLOR[n.data('nodeType') as NodeType] ?? '#94a3b8';
+      const r = parseInt(color.slice(1, 3), 16);
+      const g = parseInt(color.slice(3, 5), 16);
+      const b = parseInt(color.slice(5, 7), 16);
+      const grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, haloR);
+      grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${haloA.toFixed(3)})`);
+      grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
       ctx.beginPath();
-      ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(125, 211, 252, ${(0.05 + Math.abs(pulse) * 1.6).toFixed(3)})`;
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      ctx.arc(pos.x, pos.y, haloR, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
     });
   }
 
@@ -452,6 +485,7 @@
     clearRipple();
     const layers = computeRippleLayers(buildAdjacency(snapshot), nodeId);
     ripple = { source: nodeId, activeDepth: 0, layers };
+    rippleStartAt = performance.now();
     applyRippleClasses(cyRef, 0);
     // 波前逐层扩散
     rippleTimer = setInterval(() => {
@@ -467,26 +501,12 @@
     startRippleTick(cyRef);
   }
 
-  function dismissRipple(animated: boolean) {
+  function dismissRipple(_animated: boolean) {
+    // v2.2 平滑过渡停止：立即移除层级类——节点/连线自带的 opacity transition（0.2-0.25s）
+    // 会把亮度平滑带回初始状态；水面涟漪由 water 循环按 rippleFadeUntil 在 0.6s 内淡出。
     if (!cy) return;
-    const cyRef = cy;
-    if (!animated || !ripple) {
-      clearRipple();
-      return;
-    }
-    // 快速收回：从当前最深激活层逐层熄灭（100ms/层 ≈ 0.6s）
-    let d = ripple.activeDepth;
-    const step = () => {
-      if (!ripple || d < 0) {
-        clearRipple();
-        return;
-      }
-      ripple.activeDepth = d;
-      applyRippleClasses(cyRef, d);
-      d -= 1;
-      rippleTimer = setTimeout(step, 100);
-    };
-    step();
+    rippleFadeUntil = performance.now() + 600;
+    clearRipple();
   }
 
   // 呼吸脉动 + 边脉冲流动（水面由独立 water loop 绘制；一个 RAF 循环）
@@ -504,7 +524,7 @@
       cyRef.batch(() => {
         cyRef.nodes().forEach((n: any) => {
           const d = rip.layers.depth.get(n.id());
-          if (d === undefined || d > tickMaxDepth) return;
+          if (d === undefined || d > tickMaxDepth || d === 0) return;   // d0 主节点不呼吸（由涟漪环强调）
           const base = nodeSize(n);
           const scale = 1 + ripplePulseAmp(d) * Math.sin(t * rippleFreq(d) * Math.PI * 2);
           n.style('width', `${base * scale}px`);
@@ -582,7 +602,8 @@
         'shadow-offset-x': 0,
         'shadow-offset-y': 0,
         // v1.4 点击聚焦的淡入淡出过渡
-        'transition-property': 'opacity, background-opacity, line-color, width',
+        // v2.2 去掉 width：呼吸脉动逐帧写 width 旁路，宽度过渡会让脉动"拖泥带水"
+        'transition-property': 'opacity, background-opacity, line-color',
         'transition-duration': '0.25s',
       } as any,
     },
@@ -649,18 +670,18 @@
     { selector: 'node.focus-lit', style: { 'opacity': 1, 'text-opacity': 1 } },
     { selector: 'edge.focus-lit', style: { 'opacity': 1, 'width': 2.2 } },
     // v2.2 涟漪视图（开发模式）：波外压暗
-    { selector: 'node.rip-dim', style: { 'opacity': 0.12, 'text-opacity': 0.1 } },
-    { selector: 'edge.rip-dim', style: { 'opacity': 0.05 } },
-    // 同层同亮度、逐级指数衰减（d0=主节点、d1=直接相关最亮）
+    { selector: 'node.rip-dim', style: { 'opacity': 0.06, 'text-opacity': 0.05 } },
+    // 同层同亮度、逐级大幅递减（d0=点击节点最亮、d1=直接相关次之）
     { selector: 'node.rip-d0', style: { 'opacity': 1, 'text-opacity': 1 } },
-    { selector: 'node.rip-d1', style: { 'opacity': 1, 'text-opacity': 1 } },
-    { selector: 'node.rip-d2', style: { 'opacity': 0.78, 'text-opacity': 0.78 } },
-    { selector: 'node.rip-d3', style: { 'opacity': 0.6, 'text-opacity': 0.6 } },
-    { selector: 'node.rip-d4', style: { 'opacity': 0.47, 'text-opacity': 0.47 } },
-    { selector: 'node.rip-d5', style: { 'opacity': 0.37, 'text-opacity': 0.37 } },
-    { selector: 'node.rip-d6', style: { 'opacity': 0.3, 'text-opacity': 0.3 } },
-    // 波前边：虚线流动脉冲（offset 由 RAF 驱动，方向从主节点向外）
-    { selector: 'edge.rip-edge', style: { 'line-style': 'dashed', 'line-dash-pattern': [7, 6], 'opacity': 0.9 } },
+    { selector: 'node.rip-d1', style: { 'opacity': 0.8, 'text-opacity': 0.85 } },
+    { selector: 'node.rip-d2', style: { 'opacity': 0.58, 'text-opacity': 0.62 } },
+    { selector: 'node.rip-d3', style: { 'opacity': 0.4, 'text-opacity': 0.44 } },
+    { selector: 'node.rip-d4', style: { 'opacity': 0.27, 'text-opacity': 0.3 } },
+    { selector: 'node.rip-d5', style: { 'opacity': 0.18, 'text-opacity': 0.2 } },
+    { selector: 'node.rip-d6', style: { 'opacity': 0.12, 'text-opacity': 0.14 } },
+    // v2.2 空闲时的"若有若无"淡线（开发模式）；涟漪中整组淡出隐藏
+    { selector: 'edge.ghost', style: { 'opacity': 0.13 } },
+    { selector: 'edge.rip-hide', style: { 'opacity': 0 } },
   ];
 
   async function loadChain() {
@@ -830,9 +851,15 @@
       lastSliderSig = sliderSig;
       stopForce();
       cyRef.elements().remove();
-      // v2.2 开发模式不渲染连线（联系由涟漪亮度层级表达）；水面循环随模式启停
-      cyRef.add(chainToElements(snap, { withEdges: scanMode !== 'dev' }));
-      if (scanMode === 'dev') startWaterLoop(); else stopWaterLoop();
+      // v2.2 开发模式：连线渲染为"若有若无"的淡线（.ghost），点击后整组淡出改由涟漪表达；
+      // 水面循环随模式启停
+      cyRef.add(chainToElements(snap, { withEdges: true }));
+      if (scanMode === 'dev') {
+        cyRef.edges().addClass('ghost');
+        startWaterLoop();
+      } else {
+        stopWaterLoop();
+      }
       // v1.7 首帧视图：同步 fit 全图 + 根节点对准屏幕中央（消除"左上角堆叠→跳中央"的闪烁）
       initialView(cyRef, snap.manifest.root);
       runForceLayout(cyRef);   // v1.5 全局力导向：预散点起步，收敛后平滑适配视野
