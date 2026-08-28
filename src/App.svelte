@@ -343,12 +343,16 @@
   // ── v2.3 Gerstner 波场水面（开发模式）───────────────────────────────────
   // 初始平静水面（半透明）；点击节点 = 生成波源，持续向所有方向传播（渐入过渡）；
   // 再点同一节点 = 逐渐停止（渐出过渡）；期间点击其它节点 = 次级波源（能量弱于主波源）。
-  // 每个波源贡献 Gerstner 式谐波：cos(k·r − ω·t)·距离衰减（主谐波 + 二次谐波），
-  // 解析场确定性、干净无网格感。亮度分层仍由主波源 BFS 层深驱动。
-  const GER_K1 = (Math.PI * 2) / 16;   // 主谐波波长 16 格（≈190px）
-  const GER_OM1 = 0.38;                // 主谐波角频率/帧（≈1.8Hz @30fps）
-  const GER_K2 = (Math.PI * 2) / 8;    // 二次谐波波长 8 格
-  const GER_OM2 = 0.6;
+  // 每个波源贡献 Gerstner 式谐波：cos(k·r − ω·t)·距离衰减（主谐波 + 二次谐波）。
+  // 波场为有界圆形域（波源圆心 → 最远节点中心为半径），圆外平静。
+  // 动画参数由用户调节（测试面板）：能量/周期/波长/衰减。
+  const waveParams = $state({
+    energy: 0.55,      // 主波源幅度（能量由用户分配；次级波源 = ×0.55）
+    period: 1.2,       // 周期（秒/圈）
+    wavelength: 16,    // 主谐波波长（网格单元 ≈ ×12px）
+    falloff: 160,      // 距离衰减基准（px，越大传得越远）
+  });
+  let wavePanelOpen = $state(true);
 
   function ensureWaterGrid(w: number, h: number) {
     const gw = Math.min(220, Math.max(80, Math.round(w / 12)));
@@ -374,8 +378,13 @@
 
   /** 某网格点（或节点位置）的波高：各波源 Gerstner 谐波叠加。
    *  场边界：以波源为圆心、radPx 为半径的圆形域——圆外零贡献；
-   *  半径内 80% 处开始平滑衰减（cos 锥形），避免硬边。 */
+   *  半径内 80% 处开始平滑衰减（cos 锥形），避免硬边。
+   *  注意：ω 用 rad/s（t 为秒），周期/波长/能量由 waveParams 用户调节。 */
   function waveHeightAt(x: number, y: number, t: number, sources: typeof waveSources, pxPerCell: number): number {
+    const K1 = (Math.PI * 2) / Math.max(4, waveParams.wavelength);
+    const OM1 = (Math.PI * 2) / Math.max(0.2, waveParams.period);
+    const K2 = K1 * 2;
+    const OM2 = OM1 * 1.6;
     let hv = 0;
     for (const s of sources) {
       const dx = (x - s.gx) * pxPerCell;
@@ -384,10 +393,10 @@
       if (r >= s.radPx) continue;   // 圆外平静
       const ratio = r / s.radPx;
       const taper = ratio <= 0.8 ? 1 : Math.cos(((ratio - 0.8) / 0.2) * (Math.PI / 2));
-      const amp = (s.main ? 0.55 : 0.3) * s.level * taper;
-      const att = 1 / Math.sqrt(1 + r / 160);
-      hv += amp * Math.cos(GER_K1 * (r / pxPerCell) - GER_OM1 * t) * att;
-      hv += amp * 0.45 * Math.cos(GER_K2 * (r / pxPerCell) - GER_OM2 * t + s.phase) * att * att;
+      const amp = (s.main ? 1 : 0.55) * waveParams.energy * s.level * taper;
+      const att = 1 / Math.sqrt(1 + r / Math.max(40, waveParams.falloff));
+      hv += amp * Math.cos(K1 * (r / pxPerCell) - OM1 * t) * att;
+      hv += amp * 0.45 * Math.cos(K2 * (r / pxPerCell) - OM2 * t + s.phase) * att * att;
     }
     return hv;
   }
@@ -1189,6 +1198,40 @@
       <div class="hover-tip" style:left="{hoverTip.x}px" style:top="{hoverTip.y}px">{hoverTip.text}</div>
     {/if}
 
+    <!-- v2.3 波纹参数测试面板（开发模式）：能量/周期/波长/衰减由用户调节 -->
+    {#if scanMode === 'dev'}
+      <div class="wave-params">
+        <button type="button" class="wp-head" onclick={() => (wavePanelOpen = !wavePanelOpen)}>
+          <span class="chev">{wavePanelOpen ? '▾' : '▸'}</span> 波纹参数（测试）
+        </button>
+        {#if wavePanelOpen}
+          <div class="wp-body">
+            <label class="wp-row" title="波源能量：主波源幅度（次级波源自动为其 55%）">能量
+              <span class="wp-val">{waveParams.energy.toFixed(2)}</span>
+              <input type="range" min="0.1" max="1.4" step="0.05" value={waveParams.energy}
+                     onchange={(e) => (waveParams.energy = +(e.target as HTMLInputElement).value)} />
+            </label>
+            <label class="wp-row" title="波动周期：一圈波所需秒数（越小抖动越快）">周期
+              <span class="wp-val">{waveParams.period.toFixed(1)}s</span>
+              <input type="range" min="0.3" max="4" step="0.1" value={waveParams.period}
+                     onchange={(e) => (waveParams.period = +(e.target as HTMLInputElement).value)} />
+            </label>
+            <label class="wp-row" title="主谐波波长（网格单元，≈×12px）">波长
+              <span class="wp-val">{waveParams.wavelength}</span>
+              <input type="range" min="8" max="40" step="2" value={waveParams.wavelength}
+                     onchange={(e) => (waveParams.wavelength = +(e.target as HTMLInputElement).value)} />
+            </label>
+            <label class="wp-row" title="距离衰减基准：越大波传得越远">衰减
+              <span class="wp-val">{waveParams.falloff}</span>
+              <input type="range" min="80" max="400" step="20" value={waveParams.falloff}
+                     onchange={(e) => (waveParams.falloff = +(e.target as HTMLInputElement).value)} />
+            </label>
+            <div class="wp-derived">波速 ≈ {Math.round((waveParams.wavelength * 12) / waveParams.period)} px/s（波长 ÷ 周期）</div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <!-- v1.4 缩放控件（右下角）：滚轮之外的按钮式缩放 + 全局适配 + 图例开关 -->
     <div class="zoom-controls">
       <button class="zc-btn" onclick={() => cy?.zoom(cy.zoom() * 1.4)} title="放大（滚轮亦可）">+</button>
@@ -1476,6 +1519,74 @@
   .empty-hint p { font-size: 13px; margin: 0; letter-spacing: 0.5px; }
   .sub-hint { font-size: 11px !important; color: rgba(255, 255, 255, 0.2); margin-top: 6px !important; }
 
+  /* v2.3 波纹参数测试面板（开发模式，右上角） */
+  .wave-params {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    z-index: 10;
+    width: 218px;
+    background: rgba(15, 15, 17, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 8px 12px;
+  }
+  .wp-head {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 11px;
+    font-family: inherit;
+    letter-spacing: 1px;
+    cursor: pointer;
+    padding: 2px 0;
+  }
+  .wp-head:hover { color: rgba(255, 255, 255, 0.9); }
+  .wp-body { margin-top: 6px; }
+  .wp-row {
+    display: grid;
+    grid-template-columns: 34px 46px 1fr;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+  }
+  .wp-val {
+    font-family: 'Consolas', monospace;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    text-align: right;
+  }
+  .wp-row input[type="range"] {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  .wp-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: rgba(125, 211, 252, 0.85);
+    cursor: pointer;
+  }
+  .wp-derived {
+    margin-top: 4px;
+    font-size: 10px;
+    font-family: 'Consolas', monospace;
+    color: rgba(255, 255, 255, 0.35);
+  }
   /* v1.4 缩放控件（右下角） */
   .zoom-controls {
     position: absolute;
