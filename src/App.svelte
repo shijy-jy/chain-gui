@@ -278,8 +278,8 @@
   let waveSources = $state<{ id: string; main: boolean; level: number; target: number; gx: number; gy: number; radPx: number }[]>([]);
   // 点击瞬间的"沉水"动画（主节点先轻轻沉一下再起波）
   let dips = $state<{ id: string; t0: number }[]>([]);
-  // 节点振动偏移的原始位置（波停止时恢复，避免布局漂移）
-  let nodeOrigins = new Map<string, { x: number; y: number }>();
+  // 当前被涟漪缩放动画覆盖的节点（停止时清理样式旁路，防残留）
+  let rippleScaled = new Set<string>();
   let dragging = false;
   // v2.3 水面画布（开发模式）：深海军蓝基底 + 细线同心涟漪环（无波峰波谷着色）
   let waterCanvas: HTMLCanvasElement;
@@ -334,15 +334,17 @@
       cyRef.batch(() => {
         cyRef.nodes().removeClass('rip-dim rip-d0 rip-d1 rip-d2 rip-d3 rip-d4 rip-d5 rip-d6');
         cyRef.edges().removeClass('rip-hide');   // v2.2 淡线恢复（transition 平滑过渡回初始）
-        // v2.3 恢复振动前的原始位置（防布局漂移）
-        const origs = nodeOrigins;
-        cyRef.nodes().forEach((n: any) => {
-          const o = origs.get(n.id());
-          if (o) n.position({ x: o.x, y: o.y });
-        });
+        // v2.3 清理缩放动画样式旁路（所有节点恢复原始尺寸）
+        for (const id of rippleScaled) {
+          const ele = cyRef.getElementById(id);
+          if (!ele.empty()) {
+            ele.removeStyle('width');
+            ele.removeStyle('height');
+          }
+        }
+        rippleScaled = new Set();
       });
     }
-    nodeOrigins = new Map();
     ripple = null;
     waveSources = [];   // v2.3 切工作区/模式时全部波源立即停（点按停止走 level 渐变）
   }
@@ -447,17 +449,19 @@
       });
     }
 
-    // ── 节点运动：源节点慢节奏起伏（大波）；其它节点上下轻颤（相位随层深滞后）+ 点击瞬间沉水 ──
+    // ── 节点运动（俯视语义）：一切"浮沉"都是缩放——源节点慢速深呼吸（向水里沉进浮出），
+    //    受影响节点快而小的缩放脉冲（礁石式小涟漪）；点击瞬间沉水 = 额外缩小 ──
     if (!cyRef) return;
+    const scaledNow = new Set<string>();
     cyRef.batch(() => {
       cyRef.nodes().forEach((n: any) => {
         const id = n.id();
-        const orig = nodeOrigins.get(id);
-        if (!orig) return;
         let strength = 0;
+        let slowSrc = false;
         const src = active.find((s) => s.id === id);
         if (src) {
           strength = src.main ? 1.0 : 0.55;
+          slowSrc = true;
         } else if (rip) {
           const d = rip.layers.depth.get(id);
           if (d === undefined || d > 6) return;
@@ -465,32 +469,34 @@
         } else {
           return;
         }
-        let oy: number;
-        if (src) {
-          // 源节点：震动稍慢（1.6 倍波周期），主源幅度更大
-          oy = Math.sin((t / (period * 1.6)) * Math.PI * 2) * 3.0 * strength * energyK;
+        let scale: number;
+        if (slowSrc) {
+          scale = 1 + Math.sin((t / (period * 1.6)) * Math.PI * 2) * 0.13 * strength * energyK;
         } else {
-          oy = Math.sin((t / period) * Math.PI * 2 - (rip?.layers.depth.get(id) ?? 0) * 0.5) * 2.2 * strength * energyK;
+          scale = 1 + Math.sin((t / period) * Math.PI * 2 - (rip?.layers.depth.get(id) ?? 0) * 0.5) * 0.1 * strength * energyK;
         }
-        // v2.3 沉水动画：俯视水面，"沉进水里"= 节点缩小再浮回（不是屏幕位移）
         const dip = dips.find((dd) => dd.id === id);
         if (dip) {
           const dt = (nowMs - dip.t0) / 620;
-          if (dt < 1) {
-            const scale = 1 - Math.sin(Math.PI * dt) * 0.35;   // 最深缩至 0.65
-            const base = nodeSize(n);
-            n.style('width', `${base * scale}px`);
-            n.style('height', `${base * scale}px`);
-          } else {
-            n.removeStyle('width');
-            n.removeStyle('height');
-          }
+          if (dt < 1) scale *= 1 - Math.sin(Math.PI * dt) * 0.35;   // 沉水：再缩小至 0.65
         }
-        if (!dragging) {
-          n.position({ x: orig.x, y: orig.y + oy });
-        }
+        const base = nodeSize(n);
+        n.style('width', `${base * scale}px`);
+        n.style('height', `${base * scale}px`);
+        scaledNow.add(id);
       });
     });
+    // 清理上一帧仍在缩放、本帧已不再参与涟漪的节点
+    for (const id of rippleScaled) {
+      if (!scaledNow.has(id)) {
+        const ele = cyRef.getElementById(id);
+        if (!ele.empty()) {
+          ele.removeStyle('width');
+          ele.removeStyle('height');
+        }
+      }
+    }
+    rippleScaled = scaledNow;
   }
 
   // 水面动画循环（约 30fps，开发模式常驻）
@@ -566,8 +572,6 @@
     if (isMain) {
       const layers = computeRippleLayers(buildAdjacency(snapshot), nodeId);
       ripple = { source: nodeId, activeDepth: 0, layers };
-      // 记录原始位置（节点振动由波高驱动，停止时恢复防布局漂移）
-      nodeOrigins = new Map(cyRef.nodes().map((n: any) => [n.id(), { x: n.position('x'), y: n.position('y') }] as const));
       applyRippleClasses(cyRef, 0);
       // 波前逐层扩散（亮度）
       rippleTimer = setInterval(() => {
