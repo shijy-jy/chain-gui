@@ -387,7 +387,7 @@
     }
     const nowMs = performance.now();
     if (dips.length > 0) {
-      dips = dips.filter((d) => nowMs - d.t0 < 600);
+      dips = dips.filter((d) => nowMs - d.t0 < 750);
     }
     if (cyRef) {
       for (const s of active) {
@@ -423,20 +423,21 @@
       }
     }
 
-    // ── 节点局部涟漪：波传到哪、哪泛起小环（相位随层深滞后）──
+    // ── 节点局部涟漪：像波浪拍打礁石——小、快、碎（时钟为主波周期的 0.4 倍）──
     const rip = ripple;
     if (cyRef && rip) {
       const mainSrc = active.find((s) => s.main);
       const mainLevel = mainSrc ? mainSrc.level : 0;
+      const nodePeriod = Math.max(0.25, period * 0.4);
       cyRef.nodes().forEach((n: any) => {
         const d = rip.layers.depth.get(n.id());
         if (d === undefined || d === 0 || d > 6) return;
         const strength = ripplePulseAmp(d) / 0.1;
         const p = n.renderedPosition();
         for (let k = 0; k < 2; k++) {
-          const ph = ((t / period) + d * 0.22 + k * 0.5) % 1;
-          const r = ph * (46 + strength * 34);
-          const alpha = Math.pow(1 - ph, fadePow) * 0.34 * strength * mainLevel * energyK;
+          const ph = ((t / nodePeriod) + d * 0.18 + k * 0.5) % 1;
+          const r = ph * (18 + strength * 20);
+          const alpha = Math.pow(1 - ph, fadePow) * 0.4 * strength * mainLevel * energyK;
           if (alpha <= 0.01) continue;
           ctx.beginPath();
           ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
@@ -446,7 +447,7 @@
       });
     }
 
-    // ── 节点运动：只上下轻颤（相位随层深滞后）+ 点击瞬间沉水 ──
+    // ── 节点运动：源节点慢节奏起伏（大波）；其它节点上下轻颤（相位随层深滞后）+ 点击瞬间沉水 ──
     if (!cyRef) return;
     cyRef.batch(() => {
       cyRef.nodes().forEach((n: any) => {
@@ -464,11 +465,17 @@
         } else {
           return;
         }
-        let oy = Math.sin((t / period) * Math.PI * 2 - (rip?.layers.depth.get(id) ?? 0) * 0.5) * 2.2 * strength * energyK;
+        let oy: number;
+        if (src) {
+          // 源节点：震动稍慢（1.6 倍波周期），主源幅度更大
+          oy = Math.sin((t / (period * 1.6)) * Math.PI * 2) * 3.0 * strength * energyK;
+        } else {
+          oy = Math.sin((t / period) * Math.PI * 2 - (rip?.layers.depth.get(id) ?? 0) * 0.5) * 2.2 * strength * energyK;
+        }
         const dip = dips.find((dd) => dd.id === id);
         if (dip) {
-          const dt = (nowMs - dip.t0) / 500;
-          if (dt < 1) oy += Math.sin(Math.PI * dt) * 7;   // 沉水（屏坐标向下）
+          const dt = (nowMs - dip.t0) / 620;
+          if (dt < 1) oy += Math.sin(Math.PI * dt) * 12;   // 沉水更明显（屏坐标向下）
         }
         if (!dragging) {
           n.position({ x: orig.x, y: orig.y + oy });
