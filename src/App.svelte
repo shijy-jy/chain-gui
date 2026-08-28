@@ -271,17 +271,26 @@
   // 技术：BFS 分层（src/lib/ripple.ts 纯逻辑已无头测试）+ 类样式 +
   //       RAF（呼吸缩放 + line-dash-offset 流动 + overlay canvas 涟漪环）。
   let ripple = $state<{ source: string; activeDepth: number; layers: RippleLayers } | null>(null);
-  let rippleRaf: number | null = null;
   let rippleTimer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout> | undefined;
   // v2.2 水面淡入/淡出时间戳（涟漪环与光晕平滑过渡，不突现突灭）
   let rippleStartAt = 0;
   let rippleFadeUntil = 0;
+  // v2.3 浅水方程（SWE）水面场：粗网格高度场 + 垂直速度，物理传播/衰减/反射
+  let sweH: Float32Array | null = null;
+  let sweU: Float32Array | null = null;
+  let sweW = 0;
+  let sweHgt = 0;
+  let sweCanvas: HTMLCanvasElement | null = null;
+  let sweCtx: CanvasRenderingContext2D | null = null;
+  let sweImage: ImageData | null = null;
+  // 节点振动偏移的原始位置（波纹停止时恢复，避免布局漂移）
+  let nodeOrigins = new Map<string, { x: number; y: number }>();
+  let dragging = false;
   // v2.2 水面画布（开发模式）：背景水体 + 环境波纹 + 涟漪/震动在水面上的表达
   let waterCanvas: HTMLCanvasElement;
   let waterCtx: CanvasRenderingContext2D | null = null;
   let waterRaf: number | null = null;
   let waterFrame = 0;
-  let waterGrad: CanvasGradient | null = null;
 
   function buildAdjacency(snap: ChainSnapshot): Map<string, string[]> {
     // 涟漪邻接来自数据（snapshot.edges）——开发模式不渲染连线，但联系数据仍在
@@ -309,37 +318,90 @@
     });
   }
 
-  function stopRippleTick() {
-    if (rippleRaf !== null) {
-      cancelAnimationFrame(rippleRaf);
-      rippleRaf = null;
-    }
-  }
-
   function clearRipple() {
     if (rippleTimer !== undefined) {
       clearInterval(rippleTimer as any);
       clearTimeout(rippleTimer as any);
       rippleTimer = undefined;
     }
-    stopRippleTick();
     const cyRef = cy;
     if (cyRef) {
       cyRef.batch(() => {
         cyRef.nodes().removeClass('rip-dim rip-d0 rip-d1 rip-d2 rip-d3 rip-d4 rip-d5 rip-d6');
         cyRef.edges().removeClass('rip-hide');   // v2.2 淡线恢复（transition 平滑过渡回初始）
+        // v2.3 恢复振动前的原始位置（防布局漂移）
+        const origs = nodeOrigins;
         cyRef.nodes().forEach((n: any) => {
-          n.removeStyle('width');
-          n.removeStyle('height');
+          const o = origs.get(n.id());
+          if (o) n.position({ x: o.x, y: o.y });
         });
-        cyRef.edges().forEach((e: any) => e.removeStyle('line-dash-offset'));
       });
     }
+    nodeOrigins = new Map();
     ripple = null;
   }
 
-  // ── v2.2 水面（开发模式）：技术美术式水体——多层正弦叠加 + 加色混合 +
-  //    径向渐变柔和涟漪环（非描边圆环）+ 节点下方类型色光晕（水面被震动"照亮"）──
+  // ── v2.3 浅水方程水面（开发模式）───────────────────────────────────────
+  // 真实物理波场：主节点 = 持续扰动源；波内节点 = Huygens 次波源（把接收到的波再辐射，
+  // 强度随层深衰减 → 次级波纹自然涌现）；节点振动 = 所在位置水面高度（波到了自然颤，
+  // 联系强弱由波场物理衰减决定，不再人工呼吸）；光晕由水面高度驱动。
+  // 粗网格（约 12px/格）+ ImageData 渲染上采样（柔和水面感）。
+  const SWE_G = 0.55;       // 重力
+  const SWE_DT = 0.16;      // 子步时间步长
+  const SWE_DAMP = 0.975;   // 每子步速度阻尼（波自然衰减）
+  const SWE_VISC = 0.03;    // 数值粘性（拉普拉斯扩散，防爆炸）
+
+  function ensureSwe(w: number, h: number) {
+    const gw = Math.min(220, Math.max(80, Math.round(w / 12)));
+    const gh = Math.min(130, Math.max(45, Math.round(h / 12)));
+    if (sweW === gw && sweHgt === gh && sweH) return;
+    sweW = gw;
+    sweHgt = gh;
+    sweH = new Float32Array(gw * gh);
+    sweU = new Float32Array(gw * gh);
+    for (let i = 0; i < sweH.length; i++) sweH[i] = (Math.random() - 0.5) * 0.02;
+    if (!sweCanvas) {
+      sweCanvas = document.createElement('canvas');
+      sweCtx = sweCanvas.getContext('2d');
+    }
+    sweCanvas.width = gw;
+    sweCanvas.height = gh;
+    sweImage = sweCtx!.createImageData(gw, gh);
+  }
+
+  function sweStep() {
+    const hh = sweH!;
+    const u = sweU!;
+    const ww = sweW;
+    const ht = sweHgt;
+    for (let y = 0; y < ht; y++) {
+      for (let x = 0; x < ww; x++) {
+        const i = y * ww + x;
+        const xl = x > 0 ? x - 1 : x;
+        const xr = x < ww - 1 ? x + 1 : x;
+        const yu = y > 0 ? y - 1 : y;
+        const yd = y < ht - 1 ? y + 1 : y;
+        const lap = hh[yu * ww + x] + hh[yd * ww + x] + hh[y * ww + xl] + hh[y * ww + xr] - 4 * hh[i];
+        u[i] = (u[i] + SWE_G * lap * SWE_DT) * SWE_DAMP;
+        hh[i] += u[i] * SWE_DT + SWE_VISC * lap;
+        hh[i] *= 0.9995;
+        if (!Number.isFinite(hh[i])) hh[i] = 0;
+        if (!Number.isFinite(u[i])) u[i] = 0;
+      }
+    }
+  }
+
+  function sweepos(x: number, y: number) {
+    return {
+      gx: Math.min(sweW - 2, Math.max(0, Math.floor(x / (waterCanvas.clientWidth / sweW)))),
+      gy: Math.min(sweHgt - 2, Math.max(0, Math.floor(y / (waterCanvas.clientHeight / sweHgt)))),
+    };
+  }
+
+  function sweAt(gx: number, gy: number) {
+    return sweH![gy * sweW + gx];
+  }
+
   function drawWater(cyRef: Core | null, t: number, frame: number) {
     if (!waterCanvas) return;
     if (!waterCtx) waterCtx = waterCanvas.getContext('2d');
@@ -351,101 +413,115 @@
     if (waterCanvas.width !== w || waterCanvas.height !== h) {
       waterCanvas.width = w;
       waterCanvas.height = h;
-      waterGrad = null;
     }
-    if (!waterGrad) {
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, '#0d2233');
-      g.addColorStop(0.35, '#0a1a29');
-      g.addColorStop(0.7, '#071420');
-      g.addColorStop(1, '#050d14');
-      waterGrad = g;
-    }
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = waterGrad;
-    ctx.fillRect(0, 0, w, h);
+    ensureSwe(w, h);
 
-    // 多层环境波纹：不同波长/速度/相位叠加，加色混合营造水面波光
-    ctx.globalCompositeOperation = 'lighter';
-    const layers = [
-      { n: 3, amp: 10, speed: 18, len: 210, alpha: 0.045, y: 0.32, color: '96, 165, 250' },
-      { n: 4, amp: 16, speed: 26, len: 130, alpha: 0.05, y: 0.5, color: '56, 189, 248' },
-      { n: 5, amp: 22, speed: 34, len: 90, alpha: 0.055, y: 0.68, color: '94, 234, 212' },
-      { n: 6, amp: 9, speed: 13, len: 300, alpha: 0.04, y: 0.2, color: '125, 211, 252' },
-    ];
-    for (const L of layers) {
-      for (let b = 0; b < L.n; b++) {
-        ctx.beginPath();
-        const baseY = h * L.y + b * 26 - 30;
-        for (let x = 0; x <= w; x += 6) {
-          const y =
-            baseY +
-            Math.sin((x + t * L.speed + b * 90) / L.len) * L.amp +
-            Math.sin((x * 0.45 - t * L.speed * 0.7 + b * 55) / (L.len * 0.6)) * L.amp * 0.6;
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = `rgba(${L.color}, ${L.alpha.toFixed(3)})`;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-    }
-
-    if (!cyRef) return;
-
-    // 涟漪的淡入/淡出（平滑过渡，不突现突灭）
+    // 淡入/淡出包络（平滑过渡）
     const nowMs = performance.now();
     const fadeIn = ripple ? Math.min(1, (nowMs - rippleStartAt) / 450) : 0;
     const fadeOut = nowMs < rippleFadeUntil ? Math.max(0, (rippleFadeUntil - nowMs) / 600) : 0;
     const envelope = Math.max(fadeIn, fadeOut);
-    if (envelope <= 0.01) return;
     const rip = ripple;
 
-    // 主节点涟漪：每波 3 圈径向渐变环（内亮外虚），双波错相
-    const src = rip ? cyRef.getElementById(rip.source) : cyRef.collection();
-    if (rip && !src.empty()) {
-      const pos = src.renderedPosition();
-      const maxR = Math.max(170, Math.min(w, h) * 0.22);
-      for (let wave = 0; wave < 2; wave++) {
-        const phase = (t * 0.8 + wave * 0.5) % 1;
-        for (let ring = 0; ring < 3; ring++) {
-          const r = 22 + (phase + ring * 0.33) % 1 * maxR;
-          const ringAlpha = Math.max(0, 1 - ((phase + ring * 0.33) % 1)) * 0.5 * envelope;
-          if (ringAlpha <= 0.01) continue;
-          const grad = ctx.createRadialGradient(pos.x, pos.y, r - 10, pos.x, pos.y, r + 12);
-          grad.addColorStop(0, `rgba(125, 211, 252, ${ringAlpha.toFixed(3)})`);
-          grad.addColorStop(1, 'rgba(125, 211, 252, 0)');
-          ctx.beginPath();
-          ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-          ctx.strokeStyle = grad;
-          ctx.lineWidth = 5;
-          ctx.stroke();
-        }
+    // ── 扰动源 ──
+    const hh = sweH!;
+    // 环境：缓慢移动的微风源（无涟漪时水面也轻微活着）
+    {
+      const gx = Math.floor((Math.sin(t * 0.13) * 0.5 + 0.5) * (sweW - 1));
+      const gy = Math.floor((Math.cos(t * 0.1) * 0.5 + 0.5) * (sweHgt - 1));
+      hh[gy * sweW + gx] += 0.012;
+    }
+    if (rip && cyRef) {
+      // 主节点：持续扰动源（正弦推水，产生连续波列）
+      const src = cyRef.getElementById(rip.source);
+      if (!src.empty()) {
+        const p = src.renderedPosition();
+        const g = sweepos(p.x, p.y);
+        hh[g.gy * sweW + g.gx] += Math.sin(t * Math.PI * 2 * 1.05) * 0.5 * envelope;
       }
+      // 波内节点：Huygens 次波源——把接收到的波再辐射（强度随层深衰减）
+      const tickMaxDepth = rip.layers.depth.size > 200 ? 3 : 6;
+      cyRef.nodes().forEach((n: any) => {
+        const d = rip.layers.depth.get(n.id());
+        if (d === undefined || d === 0 || d > tickMaxDepth) return;
+        const p = n.renderedPosition();
+        const g = sweepos(p.x, p.y);
+        const idx = g.gy * sweW + g.gx;
+        const reEmit = ripplePulseAmp(d) * 0.9;   // 次级波纹强度 = 联系强度（层深）
+        hh[idx] += hh[idx] * reEmit;
+      });
     }
 
-    // 波内节点：类型色光晕（水面被震动"照亮"，幅度随层深衰减）
-    const tickMaxDepth = rip && rip.layers.depth.size > 200 ? 3 : 6;
-    cyRef.nodes().forEach((n: any) => {
-      if (!rip) return;
-      const d = rip.layers.depth.get(n.id());
-      if (d === undefined || d > tickMaxDepth) return;
-      const pos = n.renderedPosition();
-      const pulse = ripplePulseAmp(d) * Math.sin(t * rippleFreq(d) * Math.PI * 2);
-      const haloR = nodeSize(n) * 1.2 + Math.abs(pulse) * 70 + 8;
-      const haloA = (0.05 + Math.abs(pulse) * 0.9) * envelope;
-      if (haloA <= 0.01) return;
-      const color = NODE_TYPE_COLOR[n.data('nodeType') as NodeType] ?? '#94a3b8';
-      const r = parseInt(color.slice(1, 3), 16);
-      const g = parseInt(color.slice(3, 5), 16);
-      const b = parseInt(color.slice(5, 7), 16);
-      const grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, haloR);
-      grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${haloA.toFixed(3)})`);
-      grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, haloR, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
-      ctx.fill();
+    // ── 物理步进（每帧 2 子步）──
+    sweStep();
+    sweStep();
+
+    // ── 渲染高度场：亮度 = 高度 + 斜率；低清网格上采样出柔和水面 ──
+    {
+      const img = sweImage!;
+      const data = img.data;
+      for (let y = 0; y < sweHgt; y++) {
+        for (let x = 0; x < sweW; x++) {
+          const i = y * sweW + x;
+          const v = hh[i];
+          const xr = Math.min(sweW - 1, x + 1);
+          const yd = Math.min(sweHgt - 1, y + 1);
+          const slope = Math.abs(hh[i] - hh[y * sweW + xr]) + Math.abs(hh[i] - hh[yd * sweW + x]);
+          let lum = v * 2.4 + slope * 2.0;
+          if (lum > 1.2) lum = 1.2;
+          if (lum < -0.5) lum = -0.5;
+          const j = i * 4;
+          const baseR = 9 + y * 0.006, baseG = 20 + y * 0.008, baseB = 33 + y * 0.01;
+          const hiR = 96, hiG = 165, hiB = 250;
+          if (lum >= 0) {
+            data[j] = baseR + (hiR - baseR) * Math.min(1, lum);
+            data[j + 1] = baseG + (hiG - baseG) * Math.min(1, lum);
+            data[j + 2] = baseB + (hiB - baseB) * Math.min(1, lum);
+          } else {
+            const k = Math.min(1, -lum);
+            data[j] = baseR * (1 - k * 0.7);
+            data[j + 1] = baseG * (1 - k * 0.7);
+            data[j + 2] = baseB * (1 - k * 0.7);
+          }
+          data[j + 3] = 255;
+        }
+      }
+      sweCtx!.putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(sweCanvas!, 0, 0, w, h);
+    }
+
+    if (!cyRef || !rip || envelope <= 0.01) return;
+
+    // ── 节点振动 = 所在位置水面高度（波到了自然颤）+ 光晕由 |水面高度| 驱动 ──
+    const vibMaxDepth = rip.layers.depth.size > 200 ? 3 : 6;
+    cyRef.batch(() => {
+      cyRef.nodes().forEach((n: any) => {
+        const d = rip.layers.depth.get(n.id());
+        if (d === undefined || d > vibMaxDepth) return;
+        const p = n.renderedPosition();
+        const g = sweepos(p.x, p.y);
+        const hLocal = sweAt(g.gx, g.gy);
+        const orig = nodeOrigins.get(n.id());
+        if (orig && !dragging) {
+          const amp = Math.max(-3.2, Math.min(3.2, hLocal * 46));
+          n.position({ x: orig.x + amp * 0.6, y: orig.y + amp * 0.8 });
+        }
+        const haloA = Math.min(0.55, Math.abs(hLocal) * 2.4) * envelope;
+        if (haloA <= 0.012) return;
+        const haloR = nodeSize(n) * 1.2 + Math.abs(hLocal) * 60 + 8;
+        const color = NODE_TYPE_COLOR[n.data('nodeType') as NodeType] ?? '#94a3b8';
+        const r = parseInt(color.slice(1, 3), 16);
+        const gc = parseInt(color.slice(3, 5), 16);
+        const b = parseInt(color.slice(5, 7), 16);
+        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
+        grad.addColorStop(0, `rgba(${r}, ${gc}, ${b}, ${haloA.toFixed(3)})`);
+        grad.addColorStop(1, `rgba(${r}, ${gc}, ${b}, 0)`);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, haloR, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+      });
     });
   }
 
@@ -486,6 +562,8 @@
     const layers = computeRippleLayers(buildAdjacency(snapshot), nodeId);
     ripple = { source: nodeId, activeDepth: 0, layers };
     rippleStartAt = performance.now();
+    // v2.3 记录原始位置（节点振动由水面高度驱动，停止时恢复防布局漂移）
+    nodeOrigins = new Map(cyRef.nodes().map((n: any) => [n.id(), { x: n.position('x'), y: n.position('y') }] as const));
     applyRippleClasses(cyRef, 0);
     // 波前逐层扩散
     rippleTimer = setInterval(() => {
@@ -498,50 +576,14 @@
       }
       applyRippleClasses(cyRef, ripple.activeDepth);
     }, 350);
-    startRippleTick(cyRef);
   }
 
   function dismissRipple(_animated: boolean) {
     // v2.2 平滑过渡停止：立即移除层级类——节点/连线自带的 opacity transition（0.2-0.25s）
-    // 会把亮度平滑带回初始状态；水面涟漪由 water 循环按 rippleFadeUntil 在 0.6s 内淡出。
+    // 会把亮度平滑带回初始状态；水面波场按 rippleFadeUntil 在 0.6s 内淡出（扰动源衰减）。
     if (!cy) return;
     rippleFadeUntil = performance.now() + 600;
     clearRipple();
-  }
-
-  // 呼吸脉动 + 边脉冲流动（水面由独立 water loop 绘制；一个 RAF 循环）
-  function startRippleTick(cyRef: Core) {
-    stopRippleTick();
-    const t0 = performance.now();
-    // 大图护栏：波内节点过多时只对近层做脉动（亮度分层不受影响）
-    const waveCount = ripple?.layers.depth.size ?? 0;
-    const tickMaxDepth = waveCount > 200 ? 3 : 6;
-    const tick = () => {
-      rippleRaf = null;
-      if (!ripple) return;
-      const t = (performance.now() - t0) / 1000;
-      const rip = ripple;
-      cyRef.batch(() => {
-        cyRef.nodes().forEach((n: any) => {
-          const d = rip.layers.depth.get(n.id());
-          if (d === undefined || d > tickMaxDepth || d === 0) return;   // d0 主节点不呼吸（由涟漪环强调）
-          const base = nodeSize(n);
-          const scale = 1 + ripplePulseAmp(d) * Math.sin(t * rippleFreq(d) * Math.PI * 2);
-          n.style('width', `${base * scale}px`);
-          n.style('height', `${base * scale}px`);
-        });
-        cyRef.edges().forEach((e: any) => {
-          if (!e.hasClass('rip-edge')) return;
-          const ds = rip.layers.depth.get(e.source().id()) ?? 0;
-          const dt = rip.layers.depth.get(e.target().id()) ?? 0;
-          const shallow = Math.min(ds, dt);
-          const speed = 14 + rippleFreq(shallow) * 10;   // 强联系（近层）脉冲更快
-          e.style('line-dash-offset', `${-t * speed}px`);
-        });
-      });
-      rippleRaf = requestAnimationFrame(tick);
-    };
-    rippleRaf = requestAnimationFrame(tick);
   }
 
   let container: HTMLDivElement;
@@ -953,12 +995,13 @@
       // v1.5 拖动节点：按住时暂停模拟，松开后从当前位置续排（Obsidian 手感）
       cy.on('grab', () => {
         hoverTip = null;
+        dragging = true;   // v2.3 拖拽时暂停水面振动偏移
         stopForce();
-        stopRippleTick();   // v2.2 拖拽时暂停涟漪动画，避免抢镜头
       });
       cy.on('free', () => {
+        dragging = false;
+        if (ripple) return;   // v2.3 涟漪中不重排（位置由水面驱动，布局已稳定）
         if (cy) runForceLayout(cy);
-        if (ripple && cy) startRippleTick(cy);   // v2.2 松开后恢复涟漪动画
       });
     } catch (e) {
       error = `[cytoscape init failed] ${(e as Error).message}`;
