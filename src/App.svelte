@@ -231,7 +231,7 @@
       await openWorkspace(first);
     } else {
       clearGraph();
-      if (m === 'dev') startWaterLoop(); else stopWaterLoop();   // v2.2 水面随模式
+      startWaterLoop();   // v2.4 两模式统一水面
     }
   }
 
@@ -899,15 +899,10 @@
       lastSliderSig = sliderSig;
       stopForce();
       cyRef.elements().remove();
-      // v2.2 开发模式：连线渲染为"若有若无"的淡线（.ghost），点击后整组淡出改由涟漪表达；
-      // 水面循环随模式启停
+      // v2.4 两模式统一：连线渲染为"若有若无"的淡线（.ghost），点击后整组淡出改由涟漪表达
       cyRef.add(chainToElements(snap, { withEdges: true }));
-      if (scanMode === 'dev') {
-        cyRef.edges().addClass('ghost');
-        startWaterLoop();
-      } else {
-        stopWaterLoop();
-      }
+      cyRef.edges().addClass('ghost');
+      startWaterLoop();
       // v1.7 首帧视图：同步 fit 全图 + 根节点对准屏幕中央（消除"左上角堆叠→跳中央"的闪烁）
       initialView(cyRef, snap.manifest.root);
       runForceLayout(cyRef);   // v1.5 全局力导向：预散点起步，收敛后平滑适配视野
@@ -950,28 +945,11 @@
       cy.on('tap', 'node', (evt) => {
         const n = evt.target;
         hoverTip = null;
-        if (scanMode === 'dev') {
-          // v2.3 涟漪波场（开发模式）：点击节点 = 波源开关（再点停止）；编辑改双击
-          toggleWaveSource(n.id());
-          return;
-        }
-        stopForce();   // v1.5 点击聚焦时暂停力模拟，避免与镜头动画抢位置
-        // v1.4 Obsidian 式点击动态: 全图淡出 → 点亮节点+邻居 → 平滑缩放聚焦
-        const nbh = n.closedNeighborhood();
-        cy?.elements().addClass('focus-dim');
-        nbh.removeClass('focus-dim').addClass('focus-lit');
-        cy?.animate({
-          fit: { eles: nbh, padding: 110 },
-          duration: 450,
-          easing: 'ease-in-out',
-        });
-        const nodeId = n.id();
-        const nodeData = snapshot?.nodes.find(x => x.id === nodeId);
-        if (nodeData) selectedNode = nodeData;
+        // v2.4 两模式统一：点击节点 = 波源开关（再点停止），波纹表达关系；编辑改双击
+        toggleWaveSource(n.id());
       });
-      // v2.2 开发模式：双击节点 = 打开编辑侧栏（单击已被涟漪交互占用）
+      // v2.4 两模式统一：双击节点 = 打开编辑侧栏（单击已被涟漪交互占用）
       cy.on('dbltap', 'node', (evt) => {
-        if (scanMode !== 'dev') return;
         const n = evt.target;
         stopForce();
         const nodeData = snapshot?.nodes.find(x => x.id === n.id());
@@ -1159,7 +1137,7 @@
     </div>
   {/if}
 
-  <div class="canvas-wrap" class:dev-water={scanMode === 'dev'}>
+  <div class="canvas-wrap">
     {#if !snapshot && !loading}
       <div class="empty-hint">
         <div class="empty-icon">⛓</div>
@@ -1178,9 +1156,8 @@
       <div class="hover-tip" style:left="{hoverTip.x}px" style:top="{hoverTip.y}px">{hoverTip.text}</div>
     {/if}
 
-    <!-- v2.3 波纹参数测试面板（开发模式）：能量/周期/波长/衰减由用户调节 -->
-    {#if scanMode === 'dev'}
-      <div class="wave-params">
+    <!-- v2.3 波纹参数测试面板：能量/周期/粗细/衰减由用户调节（测试期两模式通用） -->
+    <div class="wave-params">
         <button type="button" class="wp-head" onclick={() => (wavePanelOpen = !wavePanelOpen)}>
           <span class="chev">{wavePanelOpen ? '▾' : '▸'}</span> 波纹参数（测试）
         </button>
@@ -1209,7 +1186,6 @@
           </div>
         {/if}
       </div>
-    {/if}
 
     <!-- v1.4 缩放控件（右下角）：滚轮之外的按钮式缩放 + 全局适配 + 图例开关 -->
     <div class="zoom-controls">
@@ -1236,7 +1212,9 @@
         <div class="legend-row"><span class="dot dot-dash"></span><span class="legend-label">阻塞（虚线框）</span></div>
         <div class="legend-sep"></div>
         <div class="legend-row"><span class="legend-label small">圆点大小 = 连接数（平缓）</span></div>
-        <div class="legend-row"><span class="legend-label small">点击 = 聚焦局部 · 悬停 = 显示 id · 滚轮 = 缩放</span></div>
+        <div class="legend-row"><span class="legend-label small">单击节点 = 波纹传播 · 双击 = 编辑 · 再点波源 = 停止</span></div>
+        <div class="legend-row"><span class="legend-label small">点击最亮 → 直接相关次之 → 逐级递减（只有相关节点受波震动）</span></div>
+        <div class="legend-row"><span class="legend-label small">悬停 = 显示 id · 滚轮 = 缩放</span></div>
         {#if scanMode === 'analysis'}
           <div class="legend-row"><span class="legend-label small">连线渐变 = 源类型色 → 目标类型色</span></div>
         {/if}
@@ -1458,7 +1436,7 @@
     position: absolute;
     inset: 0;
     z-index: 1;
-    background: #0a0a0a;
+    background: transparent;   /* v2.4 两模式统一：透出水面画布 */
   }
   /* v2.2 水面画布（开发模式）：节点层之下，透明背景透出 */
   .water-canvas {
@@ -1468,9 +1446,6 @@
     width: 100%;
     height: 100%;
     pointer-events: none;
-  }
-  .dev-water .cy-container {
-    background: transparent;
   }
   /* v1.7 悬停浮层（id · 类型）：跟随节点渲染坐标，不拦截鼠标 */
   .hover-tip {
