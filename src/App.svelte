@@ -289,6 +289,7 @@
   let waterGridCanvas: HTMLCanvasElement | null = null;
   let waterGridCtx: CanvasRenderingContext2D | null = null;
   let waterGridImg: ImageData | null = null;
+  let waterHeights: Float32Array | null = null;
 
   function buildAdjacency(snap: ChainSnapshot): Map<string, string[]> {
     // 涟漪邻接来自数据（snapshot.edges）——开发模式不渲染连线，但联系数据仍在
@@ -349,14 +350,16 @@
   const waveParams = $state({
     energy: 0.55,      // 主波源幅度（能量由用户分配；次级波源 = ×0.55）
     period: 1.2,       // 周期（秒/圈）
-    wavelength: 16,    // 主谐波波长（网格单元 ≈ ×12px）
+    wavelength: 16,    // 主谐波波长（网格单元 ≈ ×5px）
     falloff: 160,      // 距离衰减基准（px，越大传得越远）
+    crisp: 1.0,        // 波峰锐度（粗细）：>1 波峰更细更亮，<1 更圆润（0.3–1.8）
   });
   let wavePanelOpen = $state(true);
 
   function ensureWaterGrid(w: number, h: number) {
-    const gw = Math.min(220, Math.max(80, Math.round(w / 12)));
-    const gh = Math.min(130, Math.max(45, Math.round(h / 12)));
+    // v2.3 5px 网格（原 12px 太粗）+ 上采样柔化 → 细波纹
+    const gw = Math.min(320, Math.max(120, Math.round(w / 5)));
+    const gh = Math.min(190, Math.max(70, Math.round(h / 5)));
     if (waterGridW === gw && waterGridH === gh && waterGridImg) return;
     waterGridW = gw;
     waterGridH = gh;
@@ -367,6 +370,7 @@
     waterGridCanvas.width = gw;
     waterGridCanvas.height = gh;
     waterGridImg = waterGridCtx!.createImageData(gw, gh);
+    waterHeights = new Float32Array(gw * gh);
   }
 
   function gridPosOf(px: number, py: number, w: number, h: number) {
@@ -439,37 +443,66 @@
       }
     }
 
-    // ── 渲染（水面半透明）──
-    ctx.globalAlpha = 0.82;
+    // ── 渲染（液态玻璃式配色：深海军蓝底 + 低饱和蓝白波峰 + 冷白镜面光）──
+    ctx.globalAlpha = 0.86;
     const img = waterGridImg!;
     const data = img.data;
     const gw = waterGridW;
     const gh = waterGridH;
     const pxPerCell = w / gw;
+    const heights = waterHeights!;
+    // 第一遍：高度场（每格只算一次，斜率从邻格读取，性能稳定）
+    for (let i = 0; i < gw * gh; i++) {
+      const x = i % gw;
+      const y = (i / gw) | 0;
+      heights[i] = active.length > 0 ? waveHeightAt(x, y, t, active, pxPerCell) : 0;
+    }
+    // 第二遍：着色（波峰锐度 crisp = 粗细调节）
+    const crisp = Math.max(0.3, Math.min(1.8, waveParams.crisp));
     for (let y = 0; y < gh; y++) {
       for (let x = 0; x < gw; x++) {
         const i = y * gw + x;
-        const v = active.length > 0 ? waveHeightAt(x, y, t, active, pxPerCell) : 0;
+        const v = heights[i];
         const xr = Math.min(gw - 1, x + 1);
         const yd = Math.min(gh - 1, y + 1);
-        const slope = Math.abs(v - (active.length > 0 ? waveHeightAt(xr, y, t, active, pxPerCell) : 0)) +
-                      Math.abs(v - (active.length > 0 ? waveHeightAt(x, yd, t, active, pxPerCell) : 0));
-        let lum = v * 2.2 + slope * 1.6;
-        if (lum > 1.2) lum = 1.2;
-        if (lum < -0.5) lum = -0.5;
-        const j = i * 4;
-        const baseR = 9 + y * 0.006, baseG = 20 + y * 0.008, baseB = 33 + y * 0.01;
-        const hiR = 96, hiG = 165, hiB = 250;
-        if (lum >= 0) {
-          data[j] = baseR + (hiR - baseR) * Math.min(1, lum);
-          data[j + 1] = baseG + (hiG - baseG) * Math.min(1, lum);
-          data[j + 2] = baseB + (hiB - baseB) * Math.min(1, lum);
+        const slope = Math.abs(v - heights[y * gw + xr]) + Math.abs(v - heights[yd * gw + x]);
+        // 波峰：锐度曲线（>1 更细更亮）；波谷：轻微压深
+        let crest = v * 2.0;
+        if (crest > 0) {
+          crest = Math.min(1.15, Math.pow(crest, crisp));
         } else {
-          const k = Math.min(1, -lum);
-          data[j] = baseR * (1 - k * 0.7);
-          data[j + 1] = baseG * (1 - k * 0.7);
-          data[j + 2] = baseB * (1 - k * 0.7);
+          crest = Math.max(-0.5, crest);
         }
+        const spec = Math.min(0.55, slope * 0.5);
+        const j = i * 4;
+        // 深海军蓝渐变基底（近黑 → 深蓝）
+        const rowT = y / gh;
+        const baseR = 6 + rowT * 4;
+        const baseG = 11 + rowT * 9;
+        const baseB = 20 + rowT * 16;
+        // 低饱和蓝白波峰色（#93c5fd 系）+ 冷白镜面（#dbeafe 系）
+        const crR = 147, crG = 197, crB = 253;
+        const spR = 219, spG = 234, spB = 254;
+        let r = baseR;
+        let g = baseG;
+        let b = baseB;
+        if (crest >= 0) {
+          r += (crR - baseR) * crest;
+          g += (crG - baseG) * crest;
+          b += (crB - baseB) * crest;
+        } else {
+          const k = Math.min(1, -crest);
+          r *= 1 - k * 0.5;
+          g *= 1 - k * 0.5;
+          b *= 1 - k * 0.5;
+        }
+        // 镜面光：只在坡度处加冷白（液态玻璃质感）
+        r += (spR - r) * spec * 0.55;
+        g += (spG - g) * spec * 0.55;
+        b += (spB - b) * spec * 0.55;
+        data[j] = Math.max(0, Math.min(255, r));
+        data[j + 1] = Math.max(0, Math.min(255, g));
+        data[j + 2] = Math.max(0, Math.min(255, b));
         data[j + 3] = 255;
       }
     }
@@ -1220,6 +1253,11 @@
               <span class="wp-val">{waveParams.wavelength}</span>
               <input type="range" min="8" max="40" step="2" value={waveParams.wavelength}
                      onchange={(e) => (waveParams.wavelength = +(e.target as HTMLInputElement).value)} />
+            </label>
+            <label class="wp-row" title="波峰锐度（波纹粗细）：>1 波峰更细更亮，<1 更圆润柔和">粗细
+              <span class="wp-val">{waveParams.crisp.toFixed(1)}</span>
+              <input type="range" min="0.3" max="1.8" step="0.1" value={waveParams.crisp}
+                     onchange={(e) => (waveParams.crisp = +(e.target as HTMLInputElement).value)} />
             </label>
             <label class="wp-row" title="距离衰减基准：越大波传得越远">衰减
               <span class="wp-val">{waveParams.falloff}</span>
