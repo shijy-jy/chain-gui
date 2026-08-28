@@ -432,14 +432,27 @@
       hh[gy * sweW + gx] += 0.012;
     }
     if (rip && cyRef) {
-      // 主节点：持续扰动源（正弦推水，产生连续波列）
+      // v2.3 全域波动场：点击主节点即释放——两条全域行波叠加，整个水面开始涌动，
+      // 所有波内节点都浸在这个场里（联系强弱决定振动幅度，见下方节点振动段）
+      const A = 0.055 * envelope;
+      const kx = (Math.PI * 2) / sweW;
+      const ky = (Math.PI * 2) / sweHgt;
+      const w1 = Math.sin(t * Math.PI * 2 * 0.7);
+      const w2 = Math.sin(t * Math.PI * 2 * 0.45 + 1.7);
+      for (let y = 0; y < sweHgt; y++) {
+        for (let x = 0; x < sweW; x++) {
+          const i = y * sweW + x;
+          hh[i] += (Math.sin(x * kx + y * ky * 0.6 - t * 1.2) * w1 * 0.6 + Math.sin(x * kx * 0.5 - y * ky * 0.8 + t * 0.9) * w2 * 0.4) * A * 0.5;
+        }
+      }
+      // 主节点：持续扰动源（波列从源头向外物理扩散，叠加在全域场之上）
       const src = cyRef.getElementById(rip.source);
       if (!src.empty()) {
         const p = src.renderedPosition();
         const g = sweepos(p.x, p.y);
         hh[g.gy * sweW + g.gx] += Math.sin(t * Math.PI * 2 * 1.05) * 0.5 * envelope;
       }
-      // 波内节点：Huygens 次波源——把接收到的波再辐射（强度随层深衰减）
+      // 波内节点：Huygens 次波源——把接收到的波再辐射（次级波纹，强度随层深衰减）
       const tickMaxDepth = rip.layers.depth.size > 200 ? 3 : 6;
       cyRef.nodes().forEach((n: any) => {
         const d = rip.layers.depth.get(n.id());
@@ -493,7 +506,7 @@
 
     if (!cyRef || !rip || envelope <= 0.01) return;
 
-    // ── 节点振动 = 所在位置水面高度（波到了自然颤）+ 光晕由 |水面高度| 驱动 ──
+    // ── 节点振动 = 全域场强度 × 联系强度（层深）：场影响所有节点，强弱表达联系 ──
     const vibMaxDepth = rip.layers.depth.size > 200 ? 3 : 6;
     cyRef.batch(() => {
       cyRef.nodes().forEach((n: any) => {
@@ -502,12 +515,13 @@
         const p = n.renderedPosition();
         const g = sweepos(p.x, p.y);
         const hLocal = sweAt(g.gx, g.gy);
+        const strength = ripplePulseAmp(d) / 0.1;   // 1.0（直接相关）→ 0.15（最远层）
         const orig = nodeOrigins.get(n.id());
         if (orig && !dragging) {
-          const amp = Math.max(-3.2, Math.min(3.2, hLocal * 46));
-          n.position({ x: orig.x + amp * 0.6, y: orig.y + amp * 0.8 });
+          const px = Math.max(-2.4, Math.min(2.4, hLocal * 30));
+          n.position({ x: orig.x + px * strength * 0.6, y: orig.y + px * strength * 0.8 });
         }
-        const haloA = Math.min(0.55, Math.abs(hLocal) * 2.4) * envelope;
+        const haloA = Math.min(0.55, Math.abs(hLocal) * 2.4) * envelope * Math.max(0.25, strength * 0.5);
         if (haloA <= 0.012) return;
         const haloR = nodeSize(n) * 1.2 + Math.abs(hLocal) * 60 + 8;
         const color = NODE_TYPE_COLOR[n.data('nodeType') as NodeType] ?? '#94a3b8';
