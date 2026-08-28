@@ -6,7 +6,7 @@
   import cytoscape from 'cytoscape';
   import type { StylesheetJson, Core } from 'cytoscape';
   import { chainToElements, NODE_TYPE_LABEL, NODE_TYPE_COLOR } from './lib/chain_to_cytoscape';
-  import { computeRippleLayers, rippleFreq, ripplePulseAmp, type RippleLayers } from './lib/ripple';
+  import { computeRippleLayers, ripplePulseAmp, RIPPLE_MAX_DEPTH, type RippleLayers } from './lib/ripple';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import CreateNodeDialog from './components/CreateNodeDialog.svelte';
@@ -264,13 +264,17 @@
     }
   }
 
-  // ── v2.2 涟漪视图（开发模式专属）──────────────────────────────────────
+  // ── v2.2 涟漪视图 ────────────────────────────────────────────────────
   // 设计：点击主节点 → 波前沿链接逐层扩散（350ms/层，上限 6 层）；
   //       同层同亮度、逐级指数衰减；层越近呼吸脉动越强、边脉冲越快；
-  //       主节点持续发射 2-3 圈扩散涟漪环；再点/空白/Esc 快速收回。
+  //       主节点持续发射 2-3 圈扩散涟漪环；再点停止（点空白/Esc 不停）。
+  // v2.4 两模式差异：分析模式 maxDepth=1 —— 波环照常扩满全场，但只有
+  //       点击节点(d0)与直接相连(d1)点亮并震动，更远节点保持压暗
+  //       （严格"只有有关系的节点受影响"，避免图被整片点亮）；
+  //       开发模式 maxDepth=6 —— 亮度与震动随波前逐层铺开（自由图谱语义）。
   // 技术：BFS 分层（src/lib/ripple.ts 纯逻辑已无头测试）+ 类样式 +
-  //       RAF（呼吸缩放 + line-dash-offset 流动 + overlay canvas 涟漪环）。
-  let ripple = $state<{ source: string; activeDepth: number; layers: RippleLayers } | null>(null);
+  //       RAF（呼吸缩放 + overlay canvas 涟漪环）。
+  let ripple = $state<{ source: string; activeDepth: number; layers: RippleLayers; maxDepth: number } | null>(null);
   let rippleTimer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout> | undefined;
   // v2.3 波源列表（细环涟漪）：main=主波源（亮度分层按它计算）；
   // level 逐帧渐入渐出（点击=生成源、再点=逐渐停止，均有过渡）；
@@ -315,8 +319,9 @@
       cyRef.nodes().forEach((n) => {
         const d = rip.layers.depth.get(n.id());
         n.removeClass('rip-dim rip-d0 rip-d1 rip-d2 rip-d3 rip-d4 rip-d5 rip-d6');
-        if (d !== undefined && d <= activeDepth) n.addClass(`rip-d${d}`);
-        else n.addClass('rip-dim');   // 波外或波前未达：压暗等待
+        // v2.4 分析模式 maxDepth=1：波前虽扩满全场，超过直接相连层的节点永不点亮
+        if (d !== undefined && d <= activeDepth && d <= rip.maxDepth) n.addClass(`rip-d${d}`);
+        else n.addClass('rip-dim');   // 波外、波前未达或超出响应层：压暗等待
       });
       // v2.2 涟漪期间连线整体淡出（transition 0.2s 平滑），联系改由亮度层级+波纹表达
       cyRef.edges().addClass('rip-hide');
@@ -433,7 +438,7 @@
       const nodePeriod = Math.max(0.25, period * 0.4);
       cyRef.nodes().forEach((n: any) => {
         const d = rip.layers.depth.get(n.id());
-        if (d === undefined || d === 0 || d > 6) return;
+        if (d === undefined || d === 0 || d > rip.maxDepth) return;
         const strength = ripplePulseAmp(d) / 0.1;
         const p = n.renderedPosition();
         for (let k = 0; k < 2; k++) {
@@ -464,7 +469,7 @@
           slowSrc = true;
         } else if (rip) {
           const d = rip.layers.depth.get(id);
-          if (d === undefined || d > 6) return;
+          if (d === undefined || d > rip.maxDepth) return;
           strength = ripplePulseAmp(d) / 0.1;
         } else {
           return;
@@ -526,6 +531,7 @@
 
   // v2.3 点击节点 = 波源开关：新节点 → 生成波源（首个=主波源，带亮度分层；后续=次级波源，能量弱）；
   // 再点同一节点 → level 渐变归零（逐渐停止，有过渡）。亮度分层仅由主波源驱动。
+  // v2.4 分析模式：亮度/震动只到 d1（直接相连），更远节点保持压暗——"只有有关系的节点受影响"。
   function toggleWaveSource(nodeId: string) {
     if (!cy || !snapshot) return;
     const cyRef = cy;
@@ -571,18 +577,21 @@
     dips = [...dips, { id: nodeId, t0: performance.now() }];
     if (isMain) {
       const layers = computeRippleLayers(buildAdjacency(snapshot), nodeId);
-      ripple = { source: nodeId, activeDepth: 0, layers };
+      // v2.4 分析模式只让"有关系的节点"（d0 点击 + d1 直接相连）点亮与震动；
+      //     开发模式保留全层扩散（上限 RIPPLE_MAX_DEPTH）
+      const maxDepth = scanMode === 'analysis' ? 1 : RIPPLE_MAX_DEPTH;
+      ripple = { source: nodeId, activeDepth: 0, layers, maxDepth };
       applyRippleClasses(cyRef, 0);
-      // 波前逐层扩散（亮度）
+      // 波前逐层扩散（亮度/震动只到 maxDepth；波环本身由水面循环持续扩散）
       rippleTimer = setInterval(() => {
         if (!ripple) return;
         ripple.activeDepth += 1;
-        if (ripple.activeDepth >= ripple.layers.byDepth.length) {
+        applyRippleClasses(cyRef, ripple.activeDepth);
+        if (ripple.activeDepth >= ripple.maxDepth || ripple.activeDepth >= ripple.layers.byDepth.length - 1) {
           clearInterval(rippleTimer as any);
           rippleTimer = undefined;
           return;
         }
-        applyRippleClasses(cyRef, ripple.activeDepth);
       }, 350);
     }
   }
