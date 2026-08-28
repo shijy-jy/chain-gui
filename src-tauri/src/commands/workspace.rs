@@ -126,7 +126,11 @@ pub fn add_workspace(dir: String, mode: String, app: AppHandle) -> Result<Vec<Wo
 
     let p = config_path(&app)?;
     let mut list = read_workspaces(&p);
-    let path_str = canonical.to_string_lossy().into_owned();
+    let mut path_str = canonical.to_string_lossy().into_owned();
+    // canonicalize 在 Windows 返回 `\\?\` verbatim 前缀：剥掉，保证列表路径与用户所见一致
+    if let Some(stripped) = path_str.strip_prefix(r"\\?\") {
+        path_str = stripped.to_string();
+    }
     if !list.iter().any(|w| w.path == path_str) {
         let name = canonical
             .file_name()
