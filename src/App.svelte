@@ -272,25 +272,23 @@
   //       RAF（呼吸缩放 + line-dash-offset 流动 + overlay canvas 涟漪环）。
   let ripple = $state<{ source: string; activeDepth: number; layers: RippleLayers } | null>(null);
   let rippleTimer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout> | undefined;
-  // v2.2 水面淡入/淡出时间戳（涟漪环与光晕平滑过渡，不突现突灭）
-  let rippleStartAt = 0;
-  let rippleFadeUntil = 0;
-  // v2.3 浅水方程（SWE）水面场：粗网格高度场 + 垂直速度，物理传播/衰减/反射
-  let sweH: Float32Array | null = null;
-  let sweU: Float32Array | null = null;
-  let sweW = 0;
-  let sweHgt = 0;
-  let sweCanvas: HTMLCanvasElement | null = null;
-  let sweCtx: CanvasRenderingContext2D | null = null;
-  let sweImage: ImageData | null = null;
-  // 节点振动偏移的原始位置（波纹停止时恢复，避免布局漂移）
+  // v2.3 波源列表（Gerstner 波场）：main=主波源（亮度分层按它计算）；
+  // level 逐帧渐入渐出（点击=生成源、再点=逐渐停止，均有过渡）；
+  // radPx = 场半径（以该波源为圆心、到最远节点中心的距离，圆外平静）
+  let waveSources = $state<{ id: string; main: boolean; level: number; target: number; phase: number; gx: number; gy: number; radPx: number }[]>([]);
+  // 节点振动偏移的原始位置（波停止时恢复，避免布局漂移）
   let nodeOrigins = new Map<string, { x: number; y: number }>();
   let dragging = false;
-  // v2.2 水面画布（开发模式）：背景水体 + 环境波纹 + 涟漪/震动在水面上的表达
+  // v2.2 水面画布（开发模式）：半透明 Gerstner 波场渲染（低清网格上采样）
   let waterCanvas: HTMLCanvasElement;
   let waterCtx: CanvasRenderingContext2D | null = null;
   let waterRaf: number | null = null;
   let waterFrame = 0;
+  let waterGridW = 0;
+  let waterGridH = 0;
+  let waterGridCanvas: HTMLCanvasElement | null = null;
+  let waterGridCtx: CanvasRenderingContext2D | null = null;
+  let waterGridImg: ImageData | null = null;
 
   function buildAdjacency(snap: ChainSnapshot): Map<string, string[]> {
     // 涟漪邻接来自数据（snapshot.edges）——开发模式不渲染连线，但联系数据仍在
@@ -339,67 +337,59 @@
     }
     nodeOrigins = new Map();
     ripple = null;
+    waveSources = [];   // v2.3 切工作区/模式时全部波源立即停（点按停止走 level 渐变）
   }
 
-  // ── v2.3 浅水方程水面（开发模式）───────────────────────────────────────
-  // 真实物理波场：主节点 = 持续扰动源；波内节点 = Huygens 次波源（把接收到的波再辐射，
-  // 强度随层深衰减 → 次级波纹自然涌现）；节点振动 = 所在位置水面高度（波到了自然颤，
-  // 联系强弱由波场物理衰减决定，不再人工呼吸）；光晕由水面高度驱动。
-  // 粗网格（约 12px/格）+ ImageData 渲染上采样（柔和水面感）。
-  const SWE_G = 0.55;       // 重力
-  const SWE_DT = 0.16;      // 子步时间步长
-  const SWE_DAMP = 0.975;   // 每子步速度阻尼（波自然衰减）
-  const SWE_VISC = 0.03;    // 数值粘性（拉普拉斯扩散，防爆炸）
+  // ── v2.3 Gerstner 波场水面（开发模式）───────────────────────────────────
+  // 初始平静水面（半透明）；点击节点 = 生成波源，持续向所有方向传播（渐入过渡）；
+  // 再点同一节点 = 逐渐停止（渐出过渡）；期间点击其它节点 = 次级波源（能量弱于主波源）。
+  // 每个波源贡献 Gerstner 式谐波：cos(k·r − ω·t)·距离衰减（主谐波 + 二次谐波），
+  // 解析场确定性、干净无网格感。亮度分层仍由主波源 BFS 层深驱动。
+  const GER_K1 = (Math.PI * 2) / 16;   // 主谐波波长 16 格（≈190px）
+  const GER_OM1 = 0.38;                // 主谐波角频率/帧（≈1.8Hz @30fps）
+  const GER_K2 = (Math.PI * 2) / 8;    // 二次谐波波长 8 格
+  const GER_OM2 = 0.6;
 
-  function ensureSwe(w: number, h: number) {
+  function ensureWaterGrid(w: number, h: number) {
     const gw = Math.min(220, Math.max(80, Math.round(w / 12)));
     const gh = Math.min(130, Math.max(45, Math.round(h / 12)));
-    if (sweW === gw && sweHgt === gh && sweH) return;
-    sweW = gw;
-    sweHgt = gh;
-    sweH = new Float32Array(gw * gh);
-    sweU = new Float32Array(gw * gh);
-    for (let i = 0; i < sweH.length; i++) sweH[i] = (Math.random() - 0.5) * 0.02;
-    if (!sweCanvas) {
-      sweCanvas = document.createElement('canvas');
-      sweCtx = sweCanvas.getContext('2d');
+    if (waterGridW === gw && waterGridH === gh && waterGridImg) return;
+    waterGridW = gw;
+    waterGridH = gh;
+    if (!waterGridCanvas) {
+      waterGridCanvas = document.createElement('canvas');
+      waterGridCtx = waterGridCanvas.getContext('2d');
     }
-    sweCanvas.width = gw;
-    sweCanvas.height = gh;
-    sweImage = sweCtx!.createImageData(gw, gh);
+    waterGridCanvas.width = gw;
+    waterGridCanvas.height = gh;
+    waterGridImg = waterGridCtx!.createImageData(gw, gh);
   }
 
-  function sweStep() {
-    const hh = sweH!;
-    const u = sweU!;
-    const ww = sweW;
-    const ht = sweHgt;
-    for (let y = 0; y < ht; y++) {
-      for (let x = 0; x < ww; x++) {
-        const i = y * ww + x;
-        const xl = x > 0 ? x - 1 : x;
-        const xr = x < ww - 1 ? x + 1 : x;
-        const yu = y > 0 ? y - 1 : y;
-        const yd = y < ht - 1 ? y + 1 : y;
-        const lap = hh[yu * ww + x] + hh[yd * ww + x] + hh[y * ww + xl] + hh[y * ww + xr] - 4 * hh[i];
-        u[i] = (u[i] + SWE_G * lap * SWE_DT) * SWE_DAMP;
-        hh[i] += u[i] * SWE_DT + SWE_VISC * lap;
-        hh[i] *= 0.9995;
-        if (!Number.isFinite(hh[i])) hh[i] = 0;
-        if (!Number.isFinite(u[i])) u[i] = 0;
-      }
-    }
-  }
-
-  function sweepos(x: number, y: number) {
+  function gridPosOf(px: number, py: number, w: number, h: number) {
     return {
-      gx: Math.min(sweW - 2, Math.max(0, Math.floor(x / (waterCanvas.clientWidth / sweW)))),
-      gy: Math.min(sweHgt - 2, Math.max(0, Math.floor(y / (waterCanvas.clientHeight / sweHgt)))),
+      gx: Math.min(waterGridW - 1, Math.max(0, Math.floor(px / (w / waterGridW)))),
+      gy: Math.min(waterGridH - 1, Math.max(0, Math.floor(py / (h / waterGridH)))),
     };
   }
 
-  function sweAt(gx: number, gy: number) {
-    return sweH![gy * sweW + gx];
+  /** 某网格点（或节点位置）的波高：各波源 Gerstner 谐波叠加。
+   *  场边界：以波源为圆心、radPx 为半径的圆形域——圆外零贡献；
+   *  半径内 80% 处开始平滑衰减（cos 锥形），避免硬边。 */
+  function waveHeightAt(x: number, y: number, t: number, sources: typeof waveSources, pxPerCell: number): number {
+    let hv = 0;
+    for (const s of sources) {
+      const dx = (x - s.gx) * pxPerCell;
+      const dy = (y - s.gy) * pxPerCell;
+      const r = Math.hypot(dx, dy);
+      if (r >= s.radPx) continue;   // 圆外平静
+      const ratio = r / s.radPx;
+      const taper = ratio <= 0.8 ? 1 : Math.cos(((ratio - 0.8) / 0.2) * (Math.PI / 2));
+      const amp = (s.main ? 0.55 : 0.3) * s.level * taper;
+      const att = 1 / Math.sqrt(1 + r / 160);
+      hv += amp * Math.cos(GER_K1 * (r / pxPerCell) - GER_OM1 * t) * att;
+      hv += amp * 0.45 * Math.cos(GER_K2 * (r / pxPerCell) - GER_OM2 * t + s.phase) * att * att;
+    }
+    return hv;
   }
 
   function drawWater(cyRef: Core | null, t: number, frame: number) {
@@ -414,114 +404,98 @@
       waterCanvas.width = w;
       waterCanvas.height = h;
     }
-    ensureSwe(w, h);
+    ensureWaterGrid(w, h);
 
-    // 淡入/淡出包络（平滑过渡）
-    const nowMs = performance.now();
-    const fadeIn = ripple ? Math.min(1, (nowMs - rippleStartAt) / 450) : 0;
-    const fadeOut = nowMs < rippleFadeUntil ? Math.max(0, (rippleFadeUntil - nowMs) / 600) : 0;
-    const envelope = Math.max(fadeIn, fadeOut);
+    // ── 波源生命周期：level 渐入/渐出（点击生成/再点逐渐停止）──
+    const active: typeof waveSources = [];
+    for (const s of waveSources) {
+      s.level += (s.target - s.level) * 0.055;   // 过渡缓动
+      if (s.level < 0.012 && s.target === 0) continue;   // 已淡出 → 移除
+      active.push(s);
+    }
+    if (active.length !== waveSources.length) {
+      waveSources = active.filter((s) => s.level >= 0.012 || s.target > 0);
+    }
+
+    // 更新各波源网格坐标（跟随节点渲染位置）
+    if (cyRef) {
+      for (const s of active) {
+        const ele = cyRef.getElementById(s.id);
+        if (!ele.empty()) {
+          const p = ele.renderedPosition();
+          const g = gridPosOf(p.x, p.y, w, h);
+          s.gx = g.gx;
+          s.gy = g.gy;
+        }
+      }
+    }
+
+    // ── 渲染（水面半透明）──
+    ctx.globalAlpha = 0.82;
+    const img = waterGridImg!;
+    const data = img.data;
+    const gw = waterGridW;
+    const gh = waterGridH;
+    const pxPerCell = w / gw;
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const i = y * gw + x;
+        const v = active.length > 0 ? waveHeightAt(x, y, t, active, pxPerCell) : 0;
+        const xr = Math.min(gw - 1, x + 1);
+        const yd = Math.min(gh - 1, y + 1);
+        const slope = Math.abs(v - (active.length > 0 ? waveHeightAt(xr, y, t, active, pxPerCell) : 0)) +
+                      Math.abs(v - (active.length > 0 ? waveHeightAt(x, yd, t, active, pxPerCell) : 0));
+        let lum = v * 2.2 + slope * 1.6;
+        if (lum > 1.2) lum = 1.2;
+        if (lum < -0.5) lum = -0.5;
+        const j = i * 4;
+        const baseR = 9 + y * 0.006, baseG = 20 + y * 0.008, baseB = 33 + y * 0.01;
+        const hiR = 96, hiG = 165, hiB = 250;
+        if (lum >= 0) {
+          data[j] = baseR + (hiR - baseR) * Math.min(1, lum);
+          data[j + 1] = baseG + (hiG - baseG) * Math.min(1, lum);
+          data[j + 2] = baseB + (hiB - baseB) * Math.min(1, lum);
+        } else {
+          const k = Math.min(1, -lum);
+          data[j] = baseR * (1 - k * 0.7);
+          data[j + 1] = baseG * (1 - k * 0.7);
+          data[j + 2] = baseB * (1 - k * 0.7);
+        }
+        data[j + 3] = 255;
+      }
+    }
+    waterGridCtx!.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(waterGridCanvas!, 0, 0, w, h);
+    ctx.globalAlpha = 1;
+
+    if (!cyRef || active.length === 0) return;
+
+    // ── 节点振动：波高 × 联系强度（主波源 BFS 层深）；波源自身也随波微颤 ──
     const rip = ripple;
-
-    // ── 扰动源 ──
-    const hh = sweH!;
-    // 环境：缓慢移动的微风源（无涟漪时水面也轻微活着）
-    {
-      const gx = Math.floor((Math.sin(t * 0.13) * 0.5 + 0.5) * (sweW - 1));
-      const gy = Math.floor((Math.cos(t * 0.1) * 0.5 + 0.5) * (sweHgt - 1));
-      hh[gy * sweW + gx] += 0.012;
-    }
-    if (rip && cyRef) {
-      // v2.3 全域波动场：点击主节点即释放——两条全域行波叠加，整个水面开始涌动，
-      // 所有波内节点都浸在这个场里（联系强弱决定振动幅度，见下方节点振动段）
-      const A = 0.055 * envelope;
-      const kx = (Math.PI * 2) / sweW;
-      const ky = (Math.PI * 2) / sweHgt;
-      const w1 = Math.sin(t * Math.PI * 2 * 0.7);
-      const w2 = Math.sin(t * Math.PI * 2 * 0.45 + 1.7);
-      for (let y = 0; y < sweHgt; y++) {
-        for (let x = 0; x < sweW; x++) {
-          const i = y * sweW + x;
-          hh[i] += (Math.sin(x * kx + y * ky * 0.6 - t * 1.2) * w1 * 0.6 + Math.sin(x * kx * 0.5 - y * ky * 0.8 + t * 0.9) * w2 * 0.4) * A * 0.5;
-        }
-      }
-      // 主节点：持续扰动源（波列从源头向外物理扩散，叠加在全域场之上）
-      const src = cyRef.getElementById(rip.source);
-      if (!src.empty()) {
-        const p = src.renderedPosition();
-        const g = sweepos(p.x, p.y);
-        hh[g.gy * sweW + g.gx] += Math.sin(t * Math.PI * 2 * 1.05) * 0.5 * envelope;
-      }
-      // 波内节点：Huygens 次波源——把接收到的波再辐射（次级波纹，强度随层深衰减）
-      const tickMaxDepth = rip.layers.depth.size > 200 ? 3 : 6;
-      cyRef.nodes().forEach((n: any) => {
-        const d = rip.layers.depth.get(n.id());
-        if (d === undefined || d === 0 || d > tickMaxDepth) return;
-        const p = n.renderedPosition();
-        const g = sweepos(p.x, p.y);
-        const idx = g.gy * sweW + g.gx;
-        const reEmit = ripplePulseAmp(d) * 0.9;   // 次级波纹强度 = 联系强度（层深）
-        hh[idx] += hh[idx] * reEmit;
-      });
-    }
-
-    // ── 物理步进（每帧 2 子步）──
-    sweStep();
-    sweStep();
-
-    // ── 渲染高度场：亮度 = 高度 + 斜率；低清网格上采样出柔和水面 ──
-    {
-      const img = sweImage!;
-      const data = img.data;
-      for (let y = 0; y < sweHgt; y++) {
-        for (let x = 0; x < sweW; x++) {
-          const i = y * sweW + x;
-          const v = hh[i];
-          const xr = Math.min(sweW - 1, x + 1);
-          const yd = Math.min(sweHgt - 1, y + 1);
-          const slope = Math.abs(hh[i] - hh[y * sweW + xr]) + Math.abs(hh[i] - hh[yd * sweW + x]);
-          let lum = v * 2.4 + slope * 2.0;
-          if (lum > 1.2) lum = 1.2;
-          if (lum < -0.5) lum = -0.5;
-          const j = i * 4;
-          const baseR = 9 + y * 0.006, baseG = 20 + y * 0.008, baseB = 33 + y * 0.01;
-          const hiR = 96, hiG = 165, hiB = 250;
-          if (lum >= 0) {
-            data[j] = baseR + (hiR - baseR) * Math.min(1, lum);
-            data[j + 1] = baseG + (hiG - baseG) * Math.min(1, lum);
-            data[j + 2] = baseB + (hiB - baseB) * Math.min(1, lum);
-          } else {
-            const k = Math.min(1, -lum);
-            data[j] = baseR * (1 - k * 0.7);
-            data[j + 1] = baseG * (1 - k * 0.7);
-            data[j + 2] = baseB * (1 - k * 0.7);
-          }
-          data[j + 3] = 255;
-        }
-      }
-      sweCtx!.putImageData(img, 0, 0);
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(sweCanvas!, 0, 0, w, h);
-    }
-
-    if (!cyRef || !rip || envelope <= 0.01) return;
-
-    // ── 节点振动 = 全域场强度 × 联系强度（层深）：场影响所有节点，强弱表达联系 ──
-    const vibMaxDepth = rip.layers.depth.size > 200 ? 3 : 6;
     cyRef.batch(() => {
       cyRef.nodes().forEach((n: any) => {
-        const d = rip.layers.depth.get(n.id());
-        if (d === undefined || d > vibMaxDepth) return;
+        const id = n.id();
+        let strength = 0;
+        const isSource = active.some((s) => s.id === id);
+        if (isSource) {
+          strength = active.find((s) => s.id === id)!.main ? 1.0 : 0.55;
+        } else if (rip) {
+          const d = rip.layers.depth.get(id);
+          if (d === undefined || d > 6) return;
+          strength = ripplePulseAmp(d) / 0.1;   // 1.0（直接相关）→ 0.15（最远层）
+        } else {
+          return;
+        }
         const p = n.renderedPosition();
-        const g = sweepos(p.x, p.y);
-        const hLocal = sweAt(g.gx, g.gy);
-        const strength = ripplePulseAmp(d) / 0.1;   // 1.0（直接相关）→ 0.15（最远层）
-        const orig = nodeOrigins.get(n.id());
+        const g = gridPosOf(p.x, p.y, w, h);
+        const hLocal = waveHeightAt(g.gx, g.gy, t, active, w / gw);
+        const orig = nodeOrigins.get(id);
         if (orig && !dragging) {
           const px = Math.max(-2.4, Math.min(2.4, hLocal * 30));
           n.position({ x: orig.x + px * strength * 0.6, y: orig.y + px * strength * 0.8 });
         }
-        const haloA = Math.min(0.55, Math.abs(hLocal) * 2.4) * envelope * Math.max(0.25, strength * 0.5);
+        const haloA = Math.min(0.55, Math.abs(hLocal) * 2.4) * Math.max(0.25, strength * 0.5);
         if (haloA <= 0.012) return;
         const haloR = nodeSize(n) * 1.2 + Math.abs(hLocal) * 60 + 8;
         const color = NODE_TYPE_COLOR[n.data('nodeType') as NodeType] ?? '#94a3b8';
@@ -564,40 +538,69 @@
     }
   }
 
-  function startRipple(nodeId: string) {
+  // v2.3 点击节点 = 波源开关：新节点 → 生成波源（首个=主波源，带亮度分层；后续=次级波源，能量弱）；
+  // 再点同一节点 → level 渐变归零（逐渐停止，有过渡）。亮度分层仅由主波源驱动。
+  function toggleWaveSource(nodeId: string) {
     if (!cy || !snapshot) return;
     const cyRef = cy;
-    // 再点同一主节点 → 快速收回（0.6s，逐层熄灭）
-    if (ripple && ripple.source === nodeId) {
-      dismissRipple(true);
+    const existing = waveSources.find((s) => s.id === nodeId);
+    if (existing) {
+      // 再点同一节点：逐渐停止（level 缓动归零，渲染循环中淡出后移除）
+      existing.target = 0;
+      if (existing.main) {
+        // 主波源停止：亮度层级类立即移除（opacity transition 平滑带回初始）
+        if (rippleTimer !== undefined) {
+          clearInterval(rippleTimer as any);
+          clearTimeout(rippleTimer as any);
+          rippleTimer = undefined;
+        }
+        ripple = null;
+        cyRef.nodes().removeClass('rip-dim rip-d0 rip-d1 rip-d2 rip-d3 rip-d4 rip-d5 rip-d6');
+        cyRef.edges().removeClass('rip-hide');
+      }
       return;
     }
-    clearRipple();
-    const layers = computeRippleLayers(buildAdjacency(snapshot), nodeId);
-    ripple = { source: nodeId, activeDepth: 0, layers };
-    rippleStartAt = performance.now();
-    // v2.3 记录原始位置（节点振动由水面高度驱动，停止时恢复防布局漂移）
-    nodeOrigins = new Map(cyRef.nodes().map((n: any) => [n.id(), { x: n.position('x'), y: n.position('y') }] as const));
-    applyRippleClasses(cyRef, 0);
-    // 波前逐层扩散
-    rippleTimer = setInterval(() => {
-      if (!ripple) return;
-      ripple.activeDepth += 1;
-      if (ripple.activeDepth >= ripple.layers.byDepth.length) {
-        clearInterval(rippleTimer as any);
-        rippleTimer = undefined;
-        return;
-      }
-      applyRippleClasses(cyRef, ripple.activeDepth);
-    }, 350);
-  }
 
-  function dismissRipple(_animated: boolean) {
-    // v2.2 平滑过渡停止：立即移除层级类——节点/连线自带的 opacity transition（0.2-0.25s）
-    // 会把亮度平滑带回初始状态；水面波场按 rippleFadeUntil 在 0.6s 内淡出（扰动源衰减）。
-    if (!cy) return;
-    rippleFadeUntil = performance.now() + 600;
-    clearRipple();
+    // 新波源
+    const isMain = !waveSources.some((s) => s.main);
+    const phase = [...nodeId].reduce((a, c) => a + c.charCodeAt(0), 0) % 6;
+    const srcEl = cyRef.getElementById(nodeId);
+    const srcPos = srcEl.renderedPosition();
+    // v2.3 场半径：以本波源为圆心、到最远节点中心的距离（圆外平静；单节点取最小值）
+    let radPx = 140;
+    cyRef.nodes().forEach((n: any) => {
+      const p = n.renderedPosition();
+      const d = Math.hypot(p.x - srcPos.x, p.y - srcPos.y);
+      if (d > radPx) radPx = d;
+    });
+    waveSources.push({
+      id: nodeId,
+      main: isMain,
+      level: 0,
+      target: isMain ? 1 : 0.55,
+      phase,
+      gx: 0,
+      gy: 0,
+      radPx,
+    });
+    if (isMain) {
+      const layers = computeRippleLayers(buildAdjacency(snapshot), nodeId);
+      ripple = { source: nodeId, activeDepth: 0, layers };
+      // 记录原始位置（节点振动由波高驱动，停止时恢复防布局漂移）
+      nodeOrigins = new Map(cyRef.nodes().map((n: any) => [n.id(), { x: n.position('x'), y: n.position('y') }] as const));
+      applyRippleClasses(cyRef, 0);
+      // 波前逐层扩散（亮度）
+      rippleTimer = setInterval(() => {
+        if (!ripple) return;
+        ripple.activeDepth += 1;
+        if (ripple.activeDepth >= ripple.layers.byDepth.length) {
+          clearInterval(rippleTimer as any);
+          rippleTimer = undefined;
+          return;
+        }
+        applyRippleClasses(cyRef, ripple.activeDepth);
+      }, 350);
+    }
   }
 
   let container: HTMLDivElement;
@@ -959,8 +962,8 @@
         const n = evt.target;
         hoverTip = null;
         if (scanMode === 'dev') {
-          // v2.2 涟漪视图（开发模式）：点击主节点 = 水波纹传播；编辑改双击
-          startRipple(n.id());
+          // v2.3 涟漪波场（开发模式）：点击节点 = 波源开关（再点停止）；编辑改双击
+          toggleWaveSource(n.id());
           return;
         }
         stopForce();   // v1.5 点击聚焦时暂停力模拟，避免与镜头动画抢位置
@@ -989,7 +992,7 @@
         if (evt.target === cy) {
           selectedNode = null;  // 点空白处关侧栏
           clearFocus();
-          if (ripple) dismissRipple(true);   // v2.2 空白处涟漪快速收回
+          // v2.3 波源只由"再点同一节点"关闭（点空白不停止波场）
         }
       });
       // v1.7 悬停浮层：id · 类型（id 已从画布标签移除，悬停即可追溯）
@@ -1028,7 +1031,7 @@
       if (e.key === 'Escape') {
         selectedNode = null;
         cy?.elements().removeClass('focus-dim focus-lit');
-        if (ripple) dismissRipple(true);   // v2.2 Esc 涟漪快速收回
+        // v2.3 波源只由"再点同一节点"关闭（Esc 不停止波场）
       }
     };
     window.addEventListener('keydown', onKeydown);
@@ -1218,9 +1221,9 @@
         <div class="legend-row"><span class="legend-label small">拖动节点松手 = 自动重新布局</span></div>
         {#if scanMode === 'dev'}
           <div class="legend-sep"></div>
-          <div class="legend-row"><span class="legend-label small">水面涟漪：单击节点 = 波纹传播</span></div>
-          <div class="legend-row"><span class="legend-label small">点击最亮 → 直接相关次之 → 逐级递减</span></div>
-          <div class="legend-row"><span class="legend-label small">双击节点 = 编辑 · 空白/Esc = 波纹收回</span></div>
+          <div class="legend-row"><span class="legend-label small">水面波场：单击节点 = 生成波源（持续向四周传播）</span></div>
+          <div class="legend-row"><span class="legend-label small">再点同一节点 = 逐渐停止 · 点其它节点 = 次级波源（能量较弱）</span></div>
+          <div class="legend-row"><span class="legend-label small">点击最亮 → 直接相关次之 → 逐级递减 · 双击 = 编辑</span></div>
         {/if}
       </div>
     {/if}
