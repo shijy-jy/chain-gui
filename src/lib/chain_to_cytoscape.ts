@@ -81,6 +81,8 @@ export function chainToElements(snap: ChainSnapshot, opts?: { withEdges?: boolea
         id: `${edge.parent}->${edge.child}`,
         source: edge.parent,
         target: edge.child,
+        // v2.4 递进关系类型（驱动边线型选择器：contains 实线 / solves 虚线 / alternative 点线）
+        rel: edge.rel ?? 'contains',
       },
       style: {
         'line-gradient-stop-colors': [srcColor, tgtColor],

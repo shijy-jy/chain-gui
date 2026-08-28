@@ -97,6 +97,8 @@ pub fn scan_chain_dir_mode(root: &Path, mode: ScanMode) -> Result<ChainSnapshot>
                     edges.push(Edge {
                         parent: parent_id.clone(),
                         child: node.id.clone(),
+                        // v2.4 递进关系类型（子节点的 rel 字段，缺省 contains）
+                        rel: node.rel.clone().unwrap_or_else(|| "contains".to_string()),
                     });
                 }
             }
@@ -156,6 +158,7 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
                 node_type: NodeType::Note,
                 title: first_title_or(stem, content),
                 parent: None,
+                rel: None,
                 status: NodeStatus::None,
                 created: now_iso8601(),
                 updated: now_iso8601(),
@@ -198,6 +201,11 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
         Some(YamlValue::String(p)) if !p.trim().is_empty() => Some(p),
         _ => None,
     };
+    // v2.4 递进关系类型：contains（默认）/ solves / alternative，非法值回落 contains
+    let rel = match get("rel").and_then(|v| v.as_str().map(|s| s.to_string())) {
+        Some(s) if matches!(s.as_str(), "contains" | "solves" | "alternative") => Some(s),
+        _ => None,
+    };
     let created = get("created").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(now_iso8601);
     let updated = get("updated").and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(now_iso8601);
     let revision = get("revision")
@@ -220,6 +228,7 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
         node_type: type_val,
         title,
         parent,
+        rel,
         status,
         created,
         updated,

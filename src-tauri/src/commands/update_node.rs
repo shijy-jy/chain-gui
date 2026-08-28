@@ -1,4 +1,4 @@
-use std::path::Path;
+﻿use std::path::Path;
 use tauri::command;
 use crate::model::ScanMode;
 use crate::model::chain::ChainSnapshot;
@@ -117,6 +117,7 @@ mod tests {
             tags: None,
             evidence: None,
             parent: None,
+            rel: None,
         };
         let snap = update_node(dir, "g-001".into(), fields, None).unwrap();
 
@@ -141,6 +142,7 @@ mod tests {
             tags: None,
             evidence: None,
             parent: None,
+            rel: None,
         };
         let snap = update_node(dir, "g-001".into(), fields, None).unwrap();
 
@@ -163,6 +165,7 @@ mod tests {
             tags: Some(vec!["new1".into(), "new2".into()]),
             evidence: None,
             parent: None,
+            rel: None,
         };
         let snap = update_node(dir, "d-001".into(), fields, None).unwrap();
 
@@ -186,6 +189,7 @@ mod tests {
             tags: None,
             evidence: None,
             parent: None,
+            rel: None,
         };
         let result = update_node(dir, "nonexistent".into(), fields, None);
         assert!(result.is_err());
@@ -204,6 +208,7 @@ mod tests {
             tags: None,
             evidence: None,
             parent: None,
+            rel: None,
         };
         let result = update_node(dir, "g-001".into(), fields, None);
         assert!(result.is_err());
@@ -222,6 +227,7 @@ mod tests {
             tags: None,
             evidence: Some(vec!["artifacts/d-001/架构图.png".into()]),
             parent: None,
+            rel: None,
         };
         let snap = update_node(dir, "d-001".into(), fields, None).unwrap();
 
@@ -246,6 +252,7 @@ mod tests {
             tags: None,
             evidence: None,
             parent: None,
+            rel: None,
         };
         update_node(dir, "g-001".into(), fields, None).unwrap();
 

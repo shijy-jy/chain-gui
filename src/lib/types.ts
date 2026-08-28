@@ -22,6 +22,8 @@ export interface ChainNode {
   type: NodeType;
   title: string;
   parent: string | null;
+  /** v2.4 递进关系类型（开发模式）：contains / solves / alternative */
+  rel?: string;
   status: NodeStatus;
   created: string;
   updated: string;
@@ -35,6 +37,8 @@ export interface ChainNode {
 export interface ChainEdge {
   parent: string;
   child: string;
+  /** v2.4 关系类型：contains（默认）/ solves / alternative */
+  rel: string;
 }
 
 export interface ChainHealth {

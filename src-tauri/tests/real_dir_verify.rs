@@ -1,4 +1,4 @@
-//! 真实目录验证（v1.2）：针对 G:\deepseek\test 的实际链工程做端到端验证。
+﻿//! 真实目录验证（v1.2）：针对 G:\deepseek\test 的实际链工程做端到端验证。
 //! 常规 cargo test 跳过；显式运行：cargo test --test real_dir_verify -- --ignored
 use app_lib::commands::init_chain::{init_chain, refresh_ai_guide_if_stale};
 use app_lib::commands::ai_guide::{parse_guide_version, AI_GUIDE, AI_GUIDE_VERSION};
@@ -39,6 +39,7 @@ fn test_full_flow_on_real_dir() {
         tags: Some(vec!["验证".into()]),
         evidence: Some(vec!["artifacts/g-001/验证截图.png".into()]),
         parent: None,
+            rel: None,
     };
     let snap3 = update_node(root.to_str().unwrap().into(), "g-001".into(), fields, None).unwrap();
     let g = snap3.nodes.iter().find(|n| n.id == "g-001").unwrap();

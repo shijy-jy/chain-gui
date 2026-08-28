@@ -725,6 +725,9 @@
     // v2.2 空闲时的"若有若无"淡线（开发模式）；涟漪中整组淡出隐藏
     { selector: 'edge.ghost', style: { 'opacity': 0.13 } },
     { selector: 'edge.rip-hide', style: { 'opacity': 0 } },
+    // v2.4 递进关系线型：solves=虚线（解决局限的递进主线）、alternative=点线（备选方案）
+    { selector: 'edge[rel = "solves"]', style: { 'line-style': 'dashed', 'line-dash-pattern': [7, 5] } },
+    { selector: 'edge[rel = "alternative"]', style: { 'line-style': 'dotted', 'line-dash-pattern': [2, 5] } },
   ];
 
   async function loadChain() {
@@ -777,8 +780,8 @@
     cy?.elements().removeClass('focus-dim focus-lit');   // v1.4 关闭侧栏同时解除聚焦
   }
 
-  // v2.0 开发模式：新建节点（id 留空 = 后端自动生成；类型/状态一律中性 note/none）
-  async function handleCreateNode(input: { id: string; title: string; parent: string | null }) {
+  // v2.0 开发模式：新建节点（id 留空 = 后端自动生成；类型/状态一律中性 note/none；v2.4 rel 递进关系）
+  async function handleCreateNode(input: { id: string; title: string; parent: string | null; rel: string }) {
     if (!chainDir) return;
     const newSnapshot = await invoke<ChainSnapshot>('create_node', {
       dir: chainDir,
@@ -786,6 +789,7 @@
         id: input.id || null,
         title: input.title,
         parent: input.parent,
+        rel: input.rel,
       },
       mode: scanMode,
     });
@@ -806,13 +810,14 @@
     cy?.elements().removeClass('focus-dim focus-lit');
   }
 
-  // v2.0 开发模式：建立/断开链接
-  async function handleSetParent(nodeId: string, parent: string | null) {
+  // v2.0 开发模式：建立/断开链接（v2.4 rel 递进关系类型）
+  async function handleSetParent(nodeId: string, parent: string | null, rel: string) {
     if (!chainDir) return;
     const newSnapshot = await invoke<ChainSnapshot>('set_parent', {
       dir: chainDir,
       nodeId,
       parent,
+      rel,
       mode: scanMode,
     });
     snapshot = newSnapshot;
@@ -1238,6 +1243,10 @@
         <div class="legend-row"><span class="legend-label small">拖动节点松手 = 自动重新布局</span></div>
         {#if scanMode === 'dev'}
           <div class="legend-sep"></div>
+          <div class="legend-row"><span class="rel-sample rel-solid"></span><span class="legend-label small">实线 = 包含（从属）</span></div>
+          <div class="legend-row"><span class="rel-sample rel-dashed"></span><span class="legend-label small">虚线 = 解决局限（递进主线）</span></div>
+          <div class="legend-row"><span class="rel-sample rel-dotted"></span><span class="legend-label small">点线 = 备选替代</span></div>
+          <div class="legend-sep"></div>
           <div class="legend-row"><span class="legend-label small">水面波场：单击节点 = 生成波源（持续向四周传播）</span></div>
           <div class="legend-row"><span class="legend-label small">再点同一节点 = 逐渐停止 · 点其它节点 = 次级波源（能量较弱）</span></div>
           <div class="legend-row"><span class="legend-label small">点击最亮 → 直接相关次之 → 逐级递减 · 双击 = 编辑</span></div>
@@ -1606,6 +1615,16 @@
   }
   .legend-label { font-size: 11px; color: rgba(255, 255, 255, 0.72); white-space: nowrap; }
   .legend-label.small { font-size: 10px; color: rgba(255, 255, 255, 0.4); }
+  /* v2.4 递进关系线型样例 */
+  .rel-sample {
+    display: inline-block;
+    width: 18px;
+    height: 0;
+    border-top: 1px solid rgba(165, 210, 255, 0.7);
+    flex-shrink: 0;
+  }
+  .rel-dashed { border-top-style: dashed; }
+  .rel-dotted { border-top-style: dotted; }
   .dot {
     width: 10px;
     height: 10px;

@@ -15,7 +15,7 @@ pub const AI_GUIDE_DEV: &str = include_str!("../../../resources/AI_GUIDE_DEV.md"
 pub const AI_GUIDE_VERSION: u32 = 7;
 
 /// 开发模式指南版本号（与 resources/AI_GUIDE_DEV.md 首行 CHAIN_GUIDE_DEV_VERSION 标记一致）
-pub const AI_GUIDE_DEV_VERSION: u32 = 1;
+pub const AI_GUIDE_DEV_VERSION: u32 = 2;
 
 /// 从指南文本解析版本标记（首行 `<!-- CHAIN_GUIDE_VERSION: N -->` 或 `<!-- CHAIN_GUIDE_DEV_VERSION: N -->`）。
 /// 返回 None = 无标记（旧版指南或人工编辑过）。
@@ -84,6 +84,10 @@ mod tests {
         assert!(AI_GUIDE_DEV.contains(".chain/.mode = dev"), "应含模式标签说明");
         assert!(AI_GUIDE_DEV.contains("Zettelkasten"), "应含优秀实践参考（卡片盒）");
         assert!(AI_GUIDE_DEV.contains("不可混用"), "应含两模式不可混用规则");
+        // v2：递进关系建模（rel 字段）
+        assert!(AI_GUIDE_DEV.contains("递进关系建模"), "应含 v2 递进关系建模章节");
+        assert!(AI_GUIDE_DEV.contains("rel"), "应含 rel 关系类型字段说明");
+        assert!(AI_GUIDE_DEV.contains("solves"), "应含 solves 关系类型");
     }
 
     #[test]

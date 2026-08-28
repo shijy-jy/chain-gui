@@ -41,6 +41,10 @@ pub struct Node {
     pub node_type: NodeType,
     pub title: String,
     pub parent: Option<String>,
+    /// v2.4 递进关系类型（开发模式）：contains（默认，父包含子）/
+    /// solves（子解决父的局限，递进主链）/ alternative（子是父的备选方案）
+    #[serde(default)]
+    pub rel: Option<String>,
     pub status: NodeStatus,
     pub created: String,
     pub updated: String,
@@ -114,6 +118,10 @@ pub fn apply_update(
             None => YamlValue::Null,
         };
         fm.insert(YamlValue::String("parent".into()), value);
+    }
+    // v2.4：递进关系类型（contains/solves/alternative）
+    if let Some(rel) = &fields.rel {
+        fm.insert(YamlValue::String("rel".into()), YamlValue::String(rel.clone()));
     }
 
     // 自增 revision

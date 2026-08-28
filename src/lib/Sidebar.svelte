@@ -13,7 +13,7 @@
     onCancel: () => void;
     onFold?: () => Promise<void>;
     onDelete?: (nodeId: string) => Promise<void>;
-    onSetParent?: (nodeId: string, parent: string | null) => Promise<void>;
+    onSetParent?: (nodeId: string, parent: string | null, rel: string) => Promise<void>;
   } = $props();
 
   let isDev = $derived(mode === 'dev');
@@ -40,11 +40,18 @@
 
   // v2.0 开发模式：链接编辑 + 删除节点（两段式确认）
   let parentSel = $state<string | null>(null);
+  let relSel = $state<string>('contains');   // v2.4 递进关系类型
   let parentBusy = $state(false);
   let parentMessage = $state<string | null>(null);
   let delArmed = $state(false);
   let delBusy = $state(false);
   let delMessage = $state<string | null>(null);
+
+  const relLabels: Record<string, string> = {
+    contains: '包含（从属）',
+    solves: '解决局限（递进）',
+    alternative: '备选替代',
+  };
 
   // 证据（v1.8）：文件名列表 + 点击打开 + 文件选择器添加
   let evBusy = $state(false);
@@ -217,20 +224,22 @@
     tagsText = node.tags.join(', ');
     evidence = [...node.evidence];
     parentSel = node.parent;
+    relSel = node.rel ?? 'contains';   // v2.4
     error = null;
   });
 
-  // v2.0 开发模式：改链接（父节点）
+  // v2.0 开发模式：改链接（父节点 + v2.4 递进关系类型）
   async function handleChangeParent() {
-    if (!onSetParent || parentBusy || parentSel === node.parent) return;
+    if (!onSetParent || parentBusy || (parentSel === node.parent && relSel === (node.rel ?? 'contains'))) return;
     parentBusy = true;
     parentMessage = null;
     try {
-      await onSetParent(node.id, parentSel);
-      parentMessage = parentSel ? `链接已指向 ${parentSel}` : '已断开链接（独立节点）';
+      await onSetParent(node.id, parentSel, relSel);
+      parentMessage = parentSel ? `链接已指向 ${parentSel}（${relLabels[relSel]}）` : '已断开链接（独立节点）';
     } catch (e) {
       parentMessage = String(e);
       parentSel = node.parent;
+      relSel = node.rel ?? 'contains';
     } finally {
       parentBusy = false;
     }
@@ -334,7 +343,7 @@
       <input id="tags" type="text" bind:value={tagsText} disabled={saving} />
     </div>
     {#if isDev}
-      <!-- v2.0 开发模式：自由编辑链接（父节点） -->
+      <!-- v2.0 开发模式：自由编辑链接（父节点 + v2.4 递进关系） -->
       <div class="field">
         <label for="parent-sel">父节点（链接）</label>
         <div class="parent-row">
@@ -344,10 +353,21 @@
               <option value={n.id}>{n.title} · {n.id}</option>
             {/each}
           </select>
-          <button class="parent-apply" onclick={handleChangeParent} disabled={parentBusy || saving || parentSel === node.parent}>
+          <button class="parent-apply" onclick={handleChangeParent}
+                  disabled={parentBusy || saving || (parentSel === node.parent && relSel === (node.rel ?? 'contains'))}>
             {parentBusy ? '…' : '改链接'}
           </button>
         </div>
+        {#if parentSel}
+          <div class="parent-row rel-row">
+            <label for="rel-sel">关系（对父节点）</label>
+            <select id="rel-sel" bind:value={relSel} disabled={parentBusy || saving}>
+              <option value="contains">包含（从属）</option>
+              <option value="solves">解决局限（递进主线）</option>
+              <option value="alternative">备选替代</option>
+            </select>
+          </div>
+        {/if}
         {#if parentMessage}
           <p class="parent-msg">{parentMessage}</p>
         {/if}
@@ -935,6 +955,19 @@
   /* v2.0 开发模式：链接编辑 + 删除按钮 */
   .parent-row { display: flex; gap: 8px; }
   .parent-row select { flex: 1; }
+  .rel-row {
+    margin-top: 6px;
+    align-items: center;
+  }
+  .rel-row label {
+    margin: 0;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    text-transform: none;
+    color: rgba(255, 255, 255, 0.4);
+    white-space: nowrap;
+  }
+  .rel-row select { flex: 1; }
   .parent-apply {
     flex-shrink: 0;
     font-size: 11px;

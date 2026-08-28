@@ -38,4 +38,7 @@ pub struct UpdateFields {
     /// v2.0：Some(Some(id)) = 设置父节点；Some(None) = 断开链接（parent: null）
     #[serde(default)]
     pub parent: Option<Option<String>>,
+    /// v2.4：递进关系类型（contains/solves/alternative）
+    #[serde(default)]
+    pub rel: Option<String>,
 }

@@ -7,7 +7,7 @@
     onCancel,
   }: {
     nodes: ChainNode[];
-    onCreate: (input: { id: string; title: string; parent: string | null }) => Promise<void>;
+    onCreate: (input: { id: string; title: string; parent: string | null; rel: string }) => Promise<void>;
     onCancel: () => void;
   } = $props();
 
@@ -15,6 +15,8 @@
   let id = $state('');           // 留空 = 自动生成
   let title = $state('');
   let parent = $state<string | null>(null);
+  // v2.4 递进关系类型（有父节点时生效）
+  let rel = $state<string>('contains');
   let busy = $state(false);
   let error = $state<string | null>(null);
 
@@ -31,6 +33,7 @@
         id: id.trim() || '',
         title: title.trim(),
         parent,
+        rel,
       });
     } catch (e) {
       error = String(e);
@@ -66,6 +69,17 @@
         {/each}
       </select>
     </div>
+
+    {#if parent}
+      <div class="field">
+        <label for="new-rel" title="v2.4 递进关系：实线=包含；虚线=本节点解决父节点的局限（递进主线）；点线=本节点是父节点的备选方案">关系（对父节点）</label>
+        <select id="new-rel" bind:value={rel} disabled={busy}>
+          <option value="contains">包含（从属）</option>
+          <option value="solves">解决局限（递进主线）</option>
+          <option value="alternative">备选替代</option>
+        </select>
+      </div>
+    {/if}
 
     <div class="field">
       <label for="new-id">id（留空自动生成 node-N）</label>

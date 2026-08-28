@@ -27,6 +27,17 @@ pub struct CreateNodeInput {
     /// 可选父节点 id（建立链接）；缺省 = 独立节点
     #[serde(default)]
     pub parent: Option<String>,
+    /// v2.4 递进关系类型：contains（默认）/ solves / alternative
+    #[serde(default)]
+    pub rel: Option<String>,
+}
+
+fn normalize_rel(r: &Option<String>) -> &str {
+    match r.as_deref() {
+        Some("solves") => "solves",
+        Some("alternative") => "alternative",
+        _ => "contains",
+    }
 }
 
 /// id 安全校验：只允许字母数字连字符下划线（防路径穿越/非法文件名）
@@ -107,9 +118,10 @@ pub fn create_node(dir: String, input: CreateNodeInput, mode: Option<String>) ->
         Some(p) if !p.trim().is_empty() => p.trim().to_string(),
         _ => "null".to_string(),
     };
+    let rel = normalize_rel(&input.rel);
 
     let content = format!(
-        "---\nid: {id}\ntype: {node_type}\ntitle: {title}\nparent: {parent_line}\nstatus: {status}\ncreated: {now}\nupdated: {now}\nrevision: 1\ntags: []\n---\n\n# {title}\n"
+        "---\nid: {id}\ntype: {node_type}\ntitle: {title}\nparent: {parent_line}\nrel: {rel}\nstatus: {status}\ncreated: {now}\nupdated: {now}\nrevision: 1\ntags: []\n---\n\n# {title}\n"
     );
     std::fs::write(&file, content).map_err(|e| format!("写节点文件失败：{e}"))?;
 
@@ -144,6 +156,7 @@ pub fn set_parent(
     node_id: String,
     parent: Option<String>,
     mode: Option<String>,
+    rel: Option<String>,
 ) -> Result<ChainSnapshot, String> {
     let scan_mode = mode.as_deref().map(ScanMode::from_str).unwrap_or(ScanMode::Analysis);
     if !scan_mode.is_dev() {
@@ -171,6 +184,8 @@ pub fn set_parent(
         }
         _ => None,
     };
+    // v2.4 递进关系类型
+    let rel = normalize_rel(&rel).to_string();
 
     let raw = std::fs::read_to_string(&file).map_err(|e| format!("读取失败：{e}"))?;
     // 开发模式宽松解析：无 frontmatter 时先补最小 frontmatter
@@ -199,6 +214,7 @@ pub fn set_parent(
         tags: None,
         evidence: None,
         parent: Some(parent),
+        rel: Some(rel),
     };
     crate::model::node::apply_update(&mut fm, &fields).map_err(|e| format!("应用更新失败：{e}"))?;
     let new_content = crate::scanner::frontmatter::serialize(&fm, &body)
@@ -232,6 +248,7 @@ mod tests {
             node_type: None,
             status: None,
             parent: None,
+            rel: None,
         }
     }
 
@@ -299,15 +316,15 @@ mod tests {
         create_node(dir.clone(), input("B"), Some("dev".into())).unwrap();
 
         // 建立链接 B → A
-        let snap = set_parent(dir.clone(), "node-2".into(), Some("node-1".into()), Some("dev".into())).unwrap();
+        let snap = set_parent(dir.clone(), "node-2".into(), Some("node-1".into()), Some("dev".into()), None).unwrap();
         assert_eq!(snap.edges.len(), 1);
         assert_eq!(snap.edges[0].child, "node-2");
 
         // 断开链接
-        let snap = set_parent(dir.clone(), "node-2".into(), None, Some("dev".into())).unwrap();
+        let snap = set_parent(dir.clone(), "node-2".into(), None, Some("dev".into()), None).unwrap();
         assert_eq!(snap.edges.len(), 0);
 
         // 指向不存在的父节点应报错
-        assert!(set_parent(dir, "node-2".into(), Some("ghost".into()), Some("dev".into())).is_err());
+        assert!(set_parent(dir, "node-2".into(), Some("ghost".into()), Some("dev".into()), None).is_err());
     }
 }

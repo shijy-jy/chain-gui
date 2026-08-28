@@ -39,6 +39,13 @@ pub struct Manifest {
 pub struct Edge {
     pub parent: String,
     pub child: String,
+    /// v2.4 关系类型：contains（默认）/ solves / alternative
+    #[serde(default = "default_edge_rel")]
+    pub rel: String,
+}
+
+fn default_edge_rel() -> String {
+    "contains".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
