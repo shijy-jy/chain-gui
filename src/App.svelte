@@ -272,24 +272,30 @@
   //       RAF（呼吸缩放 + line-dash-offset 流动 + overlay canvas 涟漪环）。
   let ripple = $state<{ source: string; activeDepth: number; layers: RippleLayers } | null>(null);
   let rippleTimer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout> | undefined;
-  // v2.3 波源列表（Gerstner 波场）：main=主波源（亮度分层按它计算）；
+  // v2.3 波源列表（细环涟漪）：main=主波源（亮度分层按它计算）；
   // level 逐帧渐入渐出（点击=生成源、再点=逐渐停止，均有过渡）；
-  // radPx = 场半径（以该波源为圆心、到最远节点中心的距离，圆外平静）
-  let waveSources = $state<{ id: string; main: boolean; level: number; target: number; phase: number; gx: number; gy: number; radPx: number }[]>([]);
+  // radPx = 场半径（以该波源为圆心、到最远节点中心的距离，圆外无涟漪）
+  let waveSources = $state<{ id: string; main: boolean; level: number; target: number; gx: number; gy: number; radPx: number }[]>([]);
+  // 点击瞬间的"沉水"动画（主节点先轻轻沉一下再起波）
+  let dips = $state<{ id: string; t0: number }[]>([]);
   // 节点振动偏移的原始位置（波停止时恢复，避免布局漂移）
   let nodeOrigins = new Map<string, { x: number; y: number }>();
   let dragging = false;
-  // v2.2 水面画布（开发模式）：半透明 Gerstner 波场渲染（低清网格上采样）
+  // v2.3 水面画布（开发模式）：深海军蓝基底 + 细线同心涟漪环（无波峰波谷着色）
   let waterCanvas: HTMLCanvasElement;
   let waterCtx: CanvasRenderingContext2D | null = null;
   let waterRaf: number | null = null;
   let waterFrame = 0;
-  let waterGridW = 0;
-  let waterGridH = 0;
-  let waterGridCanvas: HTMLCanvasElement | null = null;
-  let waterGridCtx: CanvasRenderingContext2D | null = null;
-  let waterGridImg: ImageData | null = null;
-  let waterHeights: Float32Array | null = null;
+  let waterBaseGrad: CanvasGradient | null = null;
+
+  // ── v2.3 涟漪参数（测试面板，用户可调）──
+  const waveParams = $state({
+    energy: 0.55,      // 能量：环透明度与振动幅度
+    period: 1.6,       // 周期（秒/圈，环从中心扩到边界的时间）
+    lineWidth: 1.0,    // 粗细：环线宽（px，0.5–2.5）
+    fade: 1.2,         // 衰减：环扩张过程中的透明度衰减速度（0.3–2.5，越大淡得越快）
+  });
+  let wavePanelOpen = $state(true);
 
   function buildAdjacency(snap: ChainSnapshot): Map<string, string[]> {
     // 涟漪邻接来自数据（snapshot.edges）——开发模式不渲染连线，但联系数据仍在
@@ -341,70 +347,10 @@
     waveSources = [];   // v2.3 切工作区/模式时全部波源立即停（点按停止走 level 渐变）
   }
 
-  // ── v2.3 Gerstner 波场水面（开发模式）───────────────────────────────────
-  // 初始平静水面（半透明）；点击节点 = 生成波源，持续向所有方向传播（渐入过渡）；
-  // 再点同一节点 = 逐渐停止（渐出过渡）；期间点击其它节点 = 次级波源（能量弱于主波源）。
-  // 每个波源贡献 Gerstner 式谐波：cos(k·r − ω·t)·距离衰减（主谐波 + 二次谐波）。
-  // 波场为有界圆形域（波源圆心 → 最远节点中心为半径），圆外平静。
-  // 动画参数由用户调节（测试面板）：能量/周期/波长/衰减。
-  const waveParams = $state({
-    energy: 0.55,      // 主波源幅度（能量由用户分配；次级波源 = ×0.55）
-    period: 1.2,       // 周期（秒/圈）
-    wavelength: 16,    // 主谐波波长（网格单元 ≈ ×5px）
-    falloff: 160,      // 距离衰减基准（px，越大传得越远）
-    crisp: 1.0,        // 波峰锐度（粗细）：>1 波峰更细更亮，<1 更圆润（0.3–1.8）
-  });
-  let wavePanelOpen = $state(true);
-
-  function ensureWaterGrid(w: number, h: number) {
-    // v2.3 5px 网格（原 12px 太粗）+ 上采样柔化 → 细波纹
-    const gw = Math.min(320, Math.max(120, Math.round(w / 5)));
-    const gh = Math.min(190, Math.max(70, Math.round(h / 5)));
-    if (waterGridW === gw && waterGridH === gh && waterGridImg) return;
-    waterGridW = gw;
-    waterGridH = gh;
-    if (!waterGridCanvas) {
-      waterGridCanvas = document.createElement('canvas');
-      waterGridCtx = waterGridCanvas.getContext('2d');
-    }
-    waterGridCanvas.width = gw;
-    waterGridCanvas.height = gh;
-    waterGridImg = waterGridCtx!.createImageData(gw, gh);
-    waterHeights = new Float32Array(gw * gh);
-  }
-
-  function gridPosOf(px: number, py: number, w: number, h: number) {
-    return {
-      gx: Math.min(waterGridW - 1, Math.max(0, Math.floor(px / (w / waterGridW)))),
-      gy: Math.min(waterGridH - 1, Math.max(0, Math.floor(py / (h / waterGridH)))),
-    };
-  }
-
-  /** 某网格点（或节点位置）的波高：各波源 Gerstner 谐波叠加。
-   *  场边界：以波源为圆心、radPx 为半径的圆形域——圆外零贡献；
-   *  半径内 80% 处开始平滑衰减（cos 锥形），避免硬边。
-   *  注意：ω 用 rad/s（t 为秒），周期/波长/能量由 waveParams 用户调节。 */
-  function waveHeightAt(x: number, y: number, t: number, sources: typeof waveSources, pxPerCell: number): number {
-    const K1 = (Math.PI * 2) / Math.max(4, waveParams.wavelength);
-    const OM1 = (Math.PI * 2) / Math.max(0.2, waveParams.period);
-    const K2 = K1 * 2;
-    const OM2 = OM1 * 1.6;
-    let hv = 0;
-    for (const s of sources) {
-      const dx = (x - s.gx) * pxPerCell;
-      const dy = (y - s.gy) * pxPerCell;
-      const r = Math.hypot(dx, dy);
-      if (r >= s.radPx) continue;   // 圆外平静
-      const ratio = r / s.radPx;
-      const taper = ratio <= 0.8 ? 1 : Math.cos(((ratio - 0.8) / 0.2) * (Math.PI / 2));
-      const amp = (s.main ? 1 : 0.55) * waveParams.energy * s.level * taper;
-      const att = 1 / Math.sqrt(1 + r / Math.max(40, waveParams.falloff));
-      hv += amp * Math.cos(K1 * (r / pxPerCell) - OM1 * t) * att;
-      hv += amp * 0.45 * Math.cos(K2 * (r / pxPerCell) - OM2 * t + s.phase) * att * att;
-    }
-    return hv;
-  }
-
+  // ── v2.3 细环涟漪水面（开发模式）：深海军蓝基底，无波峰波谷着色 ──
+  // 点击节点 = 波源（先"沉一下水"再起波），细线同心圆环持续向四周扩散（周期可调）；
+  // 环只在以波源为圆心、到最远节点为半径的圆形域内；波传到哪个节点，哪个节点
+  // 周围泛起局部小涟漪（相位随层级滞后）；节点只上下轻颤（不斜向）。
   function drawWater(cyRef: Core | null, t: number, frame: number) {
     if (!waterCanvas) return;
     if (!waterCtx) waterCtx = waterCanvas.getContext('2d');
@@ -416,141 +362,117 @@
     if (waterCanvas.width !== w || waterCanvas.height !== h) {
       waterCanvas.width = w;
       waterCanvas.height = h;
+      waterBaseGrad = null;
     }
-    ensureWaterGrid(w, h);
+    if (!waterBaseGrad) {
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, '#070d18');
+      g.addColorStop(0.55, '#0a1524');
+      g.addColorStop(1, '#060b13');
+      waterBaseGrad = g;
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = waterBaseGrad;
+    ctx.fillRect(0, 0, w, h);
 
-    // ── 波源生命周期：level 渐入/渐出（点击生成/再点逐渐停止）──
+    // ── 波源生命周期 ──
     const active: typeof waveSources = [];
     for (const s of waveSources) {
-      s.level += (s.target - s.level) * 0.055;   // 过渡缓动
-      if (s.level < 0.012 && s.target === 0) continue;   // 已淡出 → 移除
+      s.level += (s.target - s.level) * 0.08;
+      if (s.level < 0.01 && s.target === 0) continue;
       active.push(s);
     }
     if (active.length !== waveSources.length) {
-      waveSources = active.filter((s) => s.level >= 0.012 || s.target > 0);
+      waveSources = active.filter((s) => s.level >= 0.01 || s.target > 0);
     }
-
-    // 更新各波源网格坐标（跟随节点渲染位置）
+    const nowMs = performance.now();
+    if (dips.length > 0) {
+      dips = dips.filter((d) => nowMs - d.t0 < 600);
+    }
     if (cyRef) {
       for (const s of active) {
         const ele = cyRef.getElementById(s.id);
         if (!ele.empty()) {
           const p = ele.renderedPosition();
-          const g = gridPosOf(p.x, p.y, w, h);
-          s.gx = g.gx;
-          s.gy = g.gy;
+          s.gx = p.x;
+          s.gy = p.y;
         }
       }
     }
 
-    // ── 渲染（液态玻璃式配色：深海军蓝底 + 低饱和蓝白波峰 + 冷白镜面光）──
-    ctx.globalAlpha = 0.86;
-    const img = waterGridImg!;
-    const data = img.data;
-    const gw = waterGridW;
-    const gh = waterGridH;
-    const pxPerCell = w / gw;
-    const heights = waterHeights!;
-    // 第一遍：高度场（每格只算一次，斜率从邻格读取，性能稳定）
-    for (let i = 0; i < gw * gh; i++) {
-      const x = i % gw;
-      const y = (i / gw) | 0;
-      heights[i] = active.length > 0 ? waveHeightAt(x, y, t, active, pxPerCell) : 0;
-    }
-    // 第二遍：着色（波峰锐度 crisp = 粗细调节）
-    const crisp = Math.max(0.3, Math.min(1.8, waveParams.crisp));
-    for (let y = 0; y < gh; y++) {
-      for (let x = 0; x < gw; x++) {
-        const i = y * gw + x;
-        const v = heights[i];
-        const xr = Math.min(gw - 1, x + 1);
-        const yd = Math.min(gh - 1, y + 1);
-        const slope = Math.abs(v - heights[y * gw + xr]) + Math.abs(v - heights[yd * gw + x]);
-        // 波峰：锐度曲线（>1 更细更亮）；波谷：轻微压深
-        let crest = v * 2.0;
-        if (crest > 0) {
-          crest = Math.min(1.15, Math.pow(crest, crisp));
-        } else {
-          crest = Math.max(-0.5, crest);
-        }
-        const spec = Math.min(0.55, slope * 0.5);
-        const j = i * 4;
-        // 深海军蓝渐变基底（近黑 → 深蓝）
-        const rowT = y / gh;
-        const baseR = 6 + rowT * 4;
-        const baseG = 11 + rowT * 9;
-        const baseB = 20 + rowT * 16;
-        // 低饱和蓝白波峰色（#93c5fd 系）+ 冷白镜面（#dbeafe 系）
-        const crR = 147, crG = 197, crB = 253;
-        const spR = 219, spG = 234, spB = 254;
-        let r = baseR;
-        let g = baseG;
-        let b = baseB;
-        if (crest >= 0) {
-          r += (crR - baseR) * crest;
-          g += (crG - baseG) * crest;
-          b += (crB - baseB) * crest;
-        } else {
-          const k = Math.min(1, -crest);
-          r *= 1 - k * 0.5;
-          g *= 1 - k * 0.5;
-          b *= 1 - k * 0.5;
-        }
-        // 镜面光：只在坡度处加冷白（液态玻璃质感）
-        r += (spR - r) * spec * 0.55;
-        g += (spG - g) * spec * 0.55;
-        b += (spB - b) * spec * 0.55;
-        data[j] = Math.max(0, Math.min(255, r));
-        data[j + 1] = Math.max(0, Math.min(255, g));
-        data[j + 2] = Math.max(0, Math.min(255, b));
-        data[j + 3] = 255;
+    const period = Math.max(0.2, waveParams.period);
+    const fadePow = Math.max(0.3, waveParams.fade);
+    const energyK = waveParams.energy / 0.55;
+    const lw = Math.max(0.5, Math.min(2.5, waveParams.lineWidth));
+
+    if (active.length === 0) return;
+
+    // ── 细环：每个波源 3 圈同心细环持续扩散（圆内，边界 80% 起淡）──
+    ctx.lineWidth = lw;
+    for (const s of active) {
+      for (let k = 0; k < 3; k++) {
+        const ph = ((t / period) + k / 3) % 1;
+        const r = ph * s.radPx;
+        const edgeFade = r > s.radPx * 0.8 ? Math.max(0, 1 - (r / s.radPx - 0.8) / 0.2) : 1;
+        const alpha = Math.pow(1 - ph, fadePow) * 0.5 * s.level * energyK * edgeFade;
+        if (alpha <= 0.01) continue;
+        ctx.beginPath();
+        ctx.arc(s.gx, s.gy, r, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(165, 210, 255, ${alpha.toFixed(3)})`;
+        ctx.stroke();
       }
     }
-    waterGridCtx!.putImageData(img, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(waterGridCanvas!, 0, 0, w, h);
-    ctx.globalAlpha = 1;
 
-    if (!cyRef || active.length === 0) return;
-
-    // ── 节点振动：波高 × 联系强度（主波源 BFS 层深）；波源自身也随波微颤 ──
+    // ── 节点局部涟漪：波传到哪、哪泛起小环（相位随层深滞后）──
     const rip = ripple;
+    if (cyRef && rip) {
+      const mainSrc = active.find((s) => s.main);
+      const mainLevel = mainSrc ? mainSrc.level : 0;
+      cyRef.nodes().forEach((n: any) => {
+        const d = rip.layers.depth.get(n.id());
+        if (d === undefined || d === 0 || d > 6) return;
+        const strength = ripplePulseAmp(d) / 0.1;
+        const p = n.renderedPosition();
+        for (let k = 0; k < 2; k++) {
+          const ph = ((t / period) + d * 0.22 + k * 0.5) % 1;
+          const r = ph * (46 + strength * 34);
+          const alpha = Math.pow(1 - ph, fadePow) * 0.34 * strength * mainLevel * energyK;
+          if (alpha <= 0.01) continue;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(165, 210, 255, ${alpha.toFixed(3)})`;
+          ctx.stroke();
+        }
+      });
+    }
+
+    // ── 节点运动：只上下轻颤（相位随层深滞后）+ 点击瞬间沉水 ──
+    if (!cyRef) return;
     cyRef.batch(() => {
       cyRef.nodes().forEach((n: any) => {
         const id = n.id();
+        const orig = nodeOrigins.get(id);
+        if (!orig) return;
         let strength = 0;
-        const isSource = active.some((s) => s.id === id);
-        if (isSource) {
-          strength = active.find((s) => s.id === id)!.main ? 1.0 : 0.55;
+        const src = active.find((s) => s.id === id);
+        if (src) {
+          strength = src.main ? 1.0 : 0.55;
         } else if (rip) {
           const d = rip.layers.depth.get(id);
           if (d === undefined || d > 6) return;
-          strength = ripplePulseAmp(d) / 0.1;   // 1.0（直接相关）→ 0.15（最远层）
+          strength = ripplePulseAmp(d) / 0.1;
         } else {
           return;
         }
-        const p = n.renderedPosition();
-        const g = gridPosOf(p.x, p.y, w, h);
-        const hLocal = waveHeightAt(g.gx, g.gy, t, active, w / gw);
-        const orig = nodeOrigins.get(id);
-        if (orig && !dragging) {
-          const px = Math.max(-2.4, Math.min(2.4, hLocal * 30));
-          n.position({ x: orig.x + px * strength * 0.6, y: orig.y + px * strength * 0.8 });
+        let oy = Math.sin((t / period) * Math.PI * 2 - (rip?.layers.depth.get(id) ?? 0) * 0.5) * 2.2 * strength * energyK;
+        const dip = dips.find((dd) => dd.id === id);
+        if (dip) {
+          const dt = (nowMs - dip.t0) / 500;
+          if (dt < 1) oy += Math.sin(Math.PI * dt) * 7;   // 沉水（屏坐标向下）
         }
-        const haloA = Math.min(0.55, Math.abs(hLocal) * 2.4) * Math.max(0.25, strength * 0.5);
-        if (haloA <= 0.012) return;
-        const haloR = nodeSize(n) * 1.2 + Math.abs(hLocal) * 60 + 8;
-        const color = NODE_TYPE_COLOR[n.data('nodeType') as NodeType] ?? '#94a3b8';
-        const r = parseInt(color.slice(1, 3), 16);
-        const gc = parseInt(color.slice(3, 5), 16);
-        const b = parseInt(color.slice(5, 7), 16);
-        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
-        grad.addColorStop(0, `rgba(${r}, ${gc}, ${b}, ${haloA.toFixed(3)})`);
-        grad.addColorStop(1, `rgba(${r}, ${gc}, ${b}, 0)`);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, haloR, 0, Math.PI * 2);
-        ctx.fillStyle = grad;
-        ctx.fill();
+        if (!dragging) {
+          n.position({ x: orig.x, y: orig.y + oy });
+        }
       });
     });
   }
@@ -605,7 +527,6 @@
 
     // 新波源
     const isMain = !waveSources.some((s) => s.main);
-    const phase = [...nodeId].reduce((a, c) => a + c.charCodeAt(0), 0) % 6;
     const srcEl = cyRef.getElementById(nodeId);
     const srcPos = srcEl.renderedPosition();
     // v2.3 场半径：以本波源为圆心、到最远节点中心的距离（圆外平静；单节点取最小值）
@@ -620,11 +541,12 @@
       main: isMain,
       level: 0,
       target: isMain ? 1 : 0.55,
-      phase,
       gx: 0,
       gy: 0,
       radPx,
     });
+    // v2.3 点击瞬间"沉水"动画（先轻轻沉一下，波场随之启动）
+    dips = [...dips, { id: nodeId, t0: performance.now() }];
     if (isMain) {
       const layers = computeRippleLayers(buildAdjacency(snapshot), nodeId);
       ripple = { source: nodeId, activeDepth: 0, layers };
@@ -1239,32 +1161,26 @@
         </button>
         {#if wavePanelOpen}
           <div class="wp-body">
-            <label class="wp-row" title="波源能量：主波源幅度（次级波源自动为其 55%）">能量
+            <label class="wp-row" title="波源能量：环透明度与振动幅度（次级波源自动为其 55%）">能量
               <span class="wp-val">{waveParams.energy.toFixed(2)}</span>
               <input type="range" min="0.1" max="1.4" step="0.05" value={waveParams.energy}
                      onchange={(e) => (waveParams.energy = +(e.target as HTMLInputElement).value)} />
             </label>
-            <label class="wp-row" title="波动周期：一圈波所需秒数（越小抖动越快）">周期
+            <label class="wp-row" title="波动周期：一圈环从中心扩到边界的时间（秒）">周期
               <span class="wp-val">{waveParams.period.toFixed(1)}s</span>
               <input type="range" min="0.3" max="4" step="0.1" value={waveParams.period}
                      onchange={(e) => (waveParams.period = +(e.target as HTMLInputElement).value)} />
             </label>
-            <label class="wp-row" title="主谐波波长（网格单元，≈×12px）">波长
-              <span class="wp-val">{waveParams.wavelength}</span>
-              <input type="range" min="8" max="40" step="2" value={waveParams.wavelength}
-                     onchange={(e) => (waveParams.wavelength = +(e.target as HTMLInputElement).value)} />
+            <label class="wp-row" title="波纹粗细：涟漪环线宽（px）">粗细
+              <span class="wp-val">{waveParams.lineWidth.toFixed(1)}px</span>
+              <input type="range" min="0.5" max="2.5" step="0.1" value={waveParams.lineWidth}
+                     onchange={(e) => (waveParams.lineWidth = +(e.target as HTMLInputElement).value)} />
             </label>
-            <label class="wp-row" title="波峰锐度（波纹粗细）：>1 波峰更细更亮，<1 更圆润柔和">粗细
-              <span class="wp-val">{waveParams.crisp.toFixed(1)}</span>
-              <input type="range" min="0.3" max="1.8" step="0.1" value={waveParams.crisp}
-                     onchange={(e) => (waveParams.crisp = +(e.target as HTMLInputElement).value)} />
+            <label class="wp-row" title="环扩张过程中的透明度衰减速度：越大淡得越快">衰减
+              <span class="wp-val">{waveParams.fade.toFixed(1)}</span>
+              <input type="range" min="0.3" max="2.5" step="0.1" value={waveParams.fade}
+                     onchange={(e) => (waveParams.fade = +(e.target as HTMLInputElement).value)} />
             </label>
-            <label class="wp-row" title="距离衰减基准：越大波传得越远">衰减
-              <span class="wp-val">{waveParams.falloff}</span>
-              <input type="range" min="80" max="400" step="20" value={waveParams.falloff}
-                     onchange={(e) => (waveParams.falloff = +(e.target as HTMLInputElement).value)} />
-            </label>
-            <div class="wp-derived">波速 ≈ {Math.round((waveParams.wavelength * 12) / waveParams.period)} px/s（波长 ÷ 周期）</div>
           </div>
         {/if}
       </div>
@@ -1618,12 +1534,6 @@
     border-radius: 50%;
     background: rgba(125, 211, 252, 0.85);
     cursor: pointer;
-  }
-  .wp-derived {
-    margin-top: 4px;
-    font-size: 10px;
-    font-family: 'Consolas', monospace;
-    color: rgba(255, 255, 255, 0.35);
   }
   /* v1.4 缩放控件（右下角） */
   .zoom-controls {
