@@ -4,7 +4,7 @@
   import { renderBody } from './body_render';
   import type { ChainNode, NodeStatus, NodeType, ScanMode } from './types';
 
-  let { node, chainDir, mode, allNodes, onSave, onCancel, onFold, onDelete, onSetParent }: {
+  let { node, chainDir, mode, allNodes, onSave, onCancel, onFold, onDelete, onSetParent, collapsed = false, onExpand }: {
     node: ChainNode;
     chainDir: string | null;
     mode: ScanMode;
@@ -14,6 +14,8 @@
     onFold?: () => Promise<void>;
     onDelete?: (nodeId: string) => Promise<void>;
     onSetParent?: (nodeId: string, parent: string | null, rel: string) => Promise<void>;
+    collapsed?: boolean;
+    onExpand?: () => void;
   } = $props();
 
   let isDev = $derived(mode === 'dev');
@@ -303,6 +305,14 @@
   let canFold = $derived(!!onFold && node.parent !== null);
 </script>
 
+{#if collapsed}
+  <!-- v2.4 收起态：细条 + 展开按钮；点击画布空白处自动收起到这里，不必重新双击节点 -->
+  <aside class="sidebar collapsed">
+    <button class="expand-btn" onclick={onExpand} aria-label="展开侧栏" title={`展开侧栏：${node.title}`}>«</button>
+    <div class="collapsed-id" title={node.title}>{node.id}</div>
+    <span class="collapsed-dot" style="background: {typeColor};"></span>
+  </aside>
+{:else}
 <aside class="sidebar" style:width="{panel.width}px">
   <!-- v1.8 面板左缘拖拽条：调整面板宽度 -->
   <div class="width-handle" role="separator" aria-orientation="vertical" onpointerdown={resizeWidth} title="拖拽调整面板宽度"></div>
@@ -489,6 +499,7 @@
     </footer>
   </div>
 </aside>
+{/if}
 
 <style>
   .sidebar {
@@ -506,6 +517,44 @@
     display: flex;
     flex-direction: column;
     min-width: 320px;
+  }
+
+  /* v2.4 收起态：细条停靠右缘，保留节点身份与展开入口 */
+  .sidebar.collapsed {
+    width: 44px;
+    min-width: 44px;
+    padding: 12px 0;
+    align-items: center;
+    gap: 12px;
+  }
+  .sidebar.collapsed .expand-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.9);
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0;
+  }
+  .sidebar.collapsed .expand-btn:hover { background: rgba(255, 255, 255, 0.16); }
+  .sidebar.collapsed .collapsed-id {
+    writing-mode: vertical-rl;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    letter-spacing: 0.08em;
+    user-select: none;
+    max-height: 40vh;
+    overflow: hidden;
+  }
+  .sidebar.collapsed .collapsed-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    box-shadow: 0 0 8px currentColor;
+    margin-top: auto;
   }
 
   /* v1.8 面板左缘拖拽条（调整面板宽度） */

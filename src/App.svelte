@@ -40,6 +40,82 @@
   //   - cy.batch() 批量写位置（cytoscape 官方性能建议：避免每帧逐元素触发样式重算）
   //   - 早停：最大位移 <0.3px 连续 12 帧 → 收敛
   //   - 自适应迭代上限：节点越多帧数越少；n>400 直接跳过模拟（O(n²)/帧 不可行）
+  // v2.4 连线交叉最小化辅助：线段相交判定（方向积法；共线/共享端点不算交叉）
+  const segCross = (
+    p1: { x: number; y: number }, p2: { x: number; y: number },
+    p3: { x: number; y: number }, p4: { x: number; y: number },
+  ): boolean => {
+    const cross = (o: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) =>
+      (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    const d1 = cross(p3, p4, p1);
+    const d2 = cross(p3, p4, p2);
+    const d3 = cross(p1, p2, p3);
+    const d4 = cross(p1, p2, p4);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+  };
+
+  const countCrossings = (pos: { x: number; y: number }[], edgeIdx: [number, number][]): number => {
+    let c = 0;
+    for (let i = 0; i < edgeIdx.length; i++) {
+      const [a1, b1] = edgeIdx[i];
+      for (let j = i + 1; j < edgeIdx.length; j++) {
+        const [a2, b2] = edgeIdx[j];
+        if (a1 === a2 || a1 === b2 || b1 === a2 || b1 === b2) continue;
+        if (segCross(pos[a1], pos[b1], pos[a2], pos[b2])) c++;
+      }
+    }
+    return c;
+  };
+
+  // v2.4 质心（barycenter）后处理：经典交叉归约启发式——每轮把节点向邻居质心拉近，
+  // 只接受不增加交叉的轮次，连续停滞或变差即回退停止。树/链结构几轮内即收敛到少交叉布局。
+  const polishCrossings = (
+    pos: { x: number; y: number }[],
+    edgeIdx: [number, number][],
+    cyRef: Core,
+    nodeArr: any[],
+  ) => {
+    const n = pos.length;
+    if (edgeIdx.length < 2) return;
+    let best = countCrossings(pos, edgeIdx);
+    if (best === 0) return;
+    const MAX_SWEEPS = 40;
+    const LERP = 0.35;
+    let stagnant = 0;
+    const centroids = new Array(n);
+    for (let s = 0; s < MAX_SWEEPS && best > 0; s++) {
+      const prev = pos.map((p) => ({ x: p.x, y: p.y }));
+      for (let i = 0; i < n; i++) centroids[i] = { x: 0, y: 0, cnt: 0 };
+      for (const [a, b] of edgeIdx) {
+        centroids[a].x += pos[b].x; centroids[a].y += pos[b].y; centroids[a].cnt++;
+        centroids[b].x += pos[a].x; centroids[b].y += pos[a].y; centroids[b].cnt++;
+      }
+      for (let i = 0; i < n; i++) {
+        const c = centroids[i];
+        if (c.cnt === 0) continue;
+        const cx = c.x / c.cnt;
+        const cy = c.y / c.cnt;
+        pos[i].x += (cx - pos[i].x) * LERP;
+        pos[i].y += (cy - pos[i].y) * LERP;
+      }
+      const now = countCrossings(pos, edgeIdx);
+      if (now < best) {
+        best = now;
+        stagnant = 0;
+      } else if (now === best) {
+        stagnant++;
+        if (stagnant > 10) { pos.length = 0; pos.push(...prev); break; }
+      } else {
+        pos.length = 0;
+        pos.push(...prev);
+        break;
+      }
+    }
+    cyRef.batch(() => {
+      for (let i = 0; i < n; i++) nodeArr[i].position({ x: pos[i].x, y: pos[i].y });
+    });
+  };
+
   function runForceLayout(cyRef: Core) {
     stopForce();
     const nodeArr = cyRef.nodes().toArray();   // 固定顺序的节点数组（模拟期间成员不变）
@@ -63,6 +139,15 @@
     const idx = new Map<string, number>();
     nodeArr.forEach((nd, i) => idx.set(nd.id(), i));
 
+    // v2.4 边端点索引预计算（弹簧 + 交叉惩罚 + 质心后处理共用；O(E²) 仅在小图启用）
+    const edgeIdx: [number, number][] = [];
+    edges.forEach((e) => {
+      const si = idx.get(e.source().id());
+      const ti = idx.get(e.target().id());
+      if (si !== undefined && ti !== undefined) edgeIdx.push([si, ti]);
+    });
+    const doCrossWork = edgeIdx.length >= 2 && edgeIdx.length <= 200;
+
     const vx = new Float64Array(n);
     const vy = new Float64Array(n);
 
@@ -84,7 +169,8 @@
     const tick = () => {
       forceRun = null;
       if (iter++ >= MAX_ITER || alpha < 0.01 || still > 12) {
-        // v1.7 收敛后平滑适配视野（原先瞬跳，观感像"图自己跳到中央"）
+        // v2.4 收敛后先做质心交叉归约，再平滑适配视野
+        if (doCrossWork) polishCrossings(pos, edgeIdx, cyRef, nodeArr);
         cyRef.animate({
           fit: { eles: cyRef.elements(), padding: 60 },
           duration: 300,
@@ -114,10 +200,7 @@
         }
       }
       // 2) 边弹簧吸引：F = 刚度 × (当前长 - 理想长)，沿边方向
-      edges.forEach((e) => {
-        const si = idx.get(e.source().id());
-        const ti = idx.get(e.target().id());
-        if (si === undefined || ti === undefined) return;
+      for (const [si, ti] of edgeIdx) {
         let dx = pos[ti].x - pos[si].x;
         let dy = pos[ti].y - pos[si].y;
         const d = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
@@ -128,7 +211,33 @@
         vy[si] += fy;
         vx[ti] -= fx;
         vy[ti] -= fy;
-      });
+      }
+      // 2.5) v2.4 交叉惩罚：交叉边的中点互相推开（只在小图启用，O(E²)）
+      if (doCrossWork) {
+        const CROSS_F = 16;
+        for (let i = 0; i < edgeIdx.length; i++) {
+          const [a1, b1] = edgeIdx[i];
+          for (let j = i + 1; j < edgeIdx.length; j++) {
+            const [a2, b2] = edgeIdx[j];
+            if (a1 === a2 || a1 === b2 || b1 === a2 || b1 === b2) continue;
+            if (!segCross(pos[a1], pos[b1], pos[a2], pos[b2])) continue;
+            const m1x = (pos[a1].x + pos[b1].x) / 2;
+            const m1y = (pos[a1].y + pos[b1].y) / 2;
+            const m2x = (pos[a2].x + pos[b2].x) / 2;
+            const m2y = (pos[a2].y + pos[b2].y) / 2;
+            let dx = m1x - m2x;
+            let dy = m1y - m2y;
+            const dd = Math.hypot(dx, dy) || 1;
+            const f = Math.min((CROSS_F / dd) * alpha, 20);
+            dx = (dx / dd) * f;
+            dy = (dy / dd) * f;
+            vx[a1] += dx; vy[a1] += dy;
+            vx[b1] += dx; vy[b1] += dy;
+            vx[a2] -= dx; vy[a2] -= dy;
+            vx[b2] -= dx; vy[b2] -= dy;
+          }
+        }
+      }
       // 3) 弱中心引力（防整体漂移）
       const gc = 0.05 * alpha;
       for (let i = 0; i < n; i++) {
@@ -179,6 +288,8 @@
   let error = $state<string | null>(null);
   let loading = $state(false);
   let selectedNode = $state<ChainNode | null>(null);
+  // v2.4 侧栏收起态：点画布空白 → 侧栏缩成右缘细条（保留所选节点），点展开按钮恢复；双击节点重新打开
+  let sidebarCollapsed = $state(false);
   let showCreate = $state(false);
 
   // v2.1 多工作区：左侧栏管理；每个文件夹绑定自己的模式（.chain/.mode 标签）
@@ -201,6 +312,7 @@
     chainDir = null;
     snapshot = null;
     selectedNode = null;
+    sidebarCollapsed = false;
     hoverTip = null;
     lastDir = null;
     lastIdsSig = '';
@@ -737,6 +849,8 @@
     // v2.4 递进关系线型：solves=虚线（解决局限的递进主线）、alternative=点线（备选方案）
     { selector: 'edge[rel = "solves"]', style: { 'line-style': 'dashed', 'line-dash-pattern': [7, 5] } },
     { selector: 'edge[rel = "alternative"]', style: { 'line-style': 'dotted', 'line-dash-pattern': [2, 5] } },
+    // v2.4 搜索命中高亮脉冲：白描边 + 青白辉光（1.6s 后由 App 移除）
+    { selector: 'node.search-hit', style: { 'border-width': 3, 'border-color': '#ffffff', 'border-opacity': 0.95, 'shadow-blur': 30, 'shadow-opacity': 0.9, 'shadow-color': '#7dd3fc' } },
   ];
 
   async function loadChain() {
@@ -751,6 +865,7 @@
       lastDataSig = '';
       lastSliderSig = '';
       selectedNode = null;
+      sidebarCollapsed = false;
       hoverTip = null;
       stopForce();
       clearRipple();   // v2.2
@@ -786,6 +901,7 @@
     });
     snapshot = newSnapshot;
     selectedNode = null;
+    sidebarCollapsed = false;
     cy?.elements().removeClass('focus-dim focus-lit');   // v1.4 关闭侧栏同时解除聚焦
   }
 
@@ -816,6 +932,7 @@
     });
     snapshot = newSnapshot;
     selectedNode = null;
+    sidebarCollapsed = false;
     cy?.elements().removeClass('focus-dim focus-lit');
   }
 
@@ -844,6 +961,7 @@
     });
     snapshot = newSnapshot;
     selectedNode = null;
+    sidebarCollapsed = false;
     cy?.elements().removeClass('focus-dim focus-lit');
   }
 
@@ -950,7 +1068,6 @@
         minZoom: 0.08,
         maxZoom: 4,
       });
-      const clearFocus = () => cy?.elements().removeClass('focus-dim focus-lit');
       cy.on('tap', 'node', (evt) => {
         const n = evt.target;
         hoverTip = null;
@@ -962,12 +1079,16 @@
         const n = evt.target;
         stopForce();
         const nodeData = snapshot?.nodes.find(x => x.id === n.id());
-        if (nodeData) selectedNode = nodeData;
+        if (nodeData) {
+          selectedNode = nodeData;
+          sidebarCollapsed = false;   // 重新打开侧栏时总是展开态
+        }
       });
       cy.on('tap', (evt) => {
         if (evt.target === cy) {
-          selectedNode = null;  // 点空白处关侧栏
-          clearFocus();
+          // v2.4 点空白处 = 侧栏收起为右缘细条（保留所选节点，可一键展开），不再关闭
+          sidebarCollapsed = true;
+          searchOpen = false;   // 同时收起搜索下拉
           // v2.3 波源只由"再点同一节点"关闭（点空白不停止波场）
         }
       });
@@ -1002,10 +1123,11 @@
 
     const onResize = () => { cy?.resize(); cy?.fit(undefined, 60); };
     window.addEventListener('resize', onResize);
-    // v1.6.1 Esc 一键退出聚焦模式并关侧栏（防"节点不见了"的错觉）
+    // v1.6.1 Esc 关闭侧栏（点空白收起、Esc 彻底关闭——两级退出语义）
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         selectedNode = null;
+        sidebarCollapsed = false;
         cy?.elements().removeClass('focus-dim focus-lit');
         // v2.3 波源只由"再点同一节点"关闭（Esc 不停止波场）
       }
@@ -1073,6 +1195,55 @@
   let shortDir = $derived(
     chainDir && chainDir.length > 48 ? '…' + chainDir.slice(-47) : chainDir
   );
+
+  // ── v2.4 节点关键字搜索：标题/id/tags 模糊匹配，点击结果居中定位 + 高亮脉冲 ──
+  let searchText = $state('');
+  let searchOpen = $state(false);
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;   // 高亮消退定时器
+
+  const searchResults = $derived.by(() => {
+    const q = searchText.trim().toLowerCase();
+    const nodes = snapshot?.nodes ?? [];
+    if (!q) return [];
+    return nodes
+      .filter((nd) =>
+        nd.title.toLowerCase().includes(q) ||
+        nd.id.toLowerCase().includes(q) ||
+        nd.tags.some((t) => t.toLowerCase().includes(q))
+      )
+      .slice(0, 20)
+      .map((nd) => ({ id: nd.id, title: nd.title, type: nd.type }));
+  });
+
+  function jumpToNode(nodeId: string) {
+    if (!cy) return;
+    const el = cy.getElementById(nodeId);
+    if (el.empty()) return;
+    stopForce();
+    searchOpen = false;
+    // 居中定位（动画）+ 高亮脉冲（1.6s 后消退）
+    cy.animate({
+      center: { eles: el },
+      zoom: Math.max(cy.zoom(), 1.0),
+      duration: 350,
+      easing: 'ease-out',
+    });
+    cy.elements().removeClass('search-hit');
+    el.addClass('search-hit');
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => cy?.elements().removeClass('search-hit'), 1600);
+  }
+
+  function handleSearchKey(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = searchResults[0];
+      if (first) jumpToNode(first.id);
+    } else if (e.key === 'Escape') {
+      e.stopPropagation();   // 不让全局 Esc（关侧栏）误伤搜索交互
+      searchOpen = false;
+    }
+  }
 </script>
 
 <main>
@@ -1165,6 +1336,36 @@
       <div class="hover-tip" style:left="{hoverTip.x}px" style:top="{hoverTip.y}px">{hoverTip.text}</div>
     {/if}
 
+    <!-- v2.4 节点关键字搜索：标题/id/标签模糊匹配，点击结果居中定位 + 高亮 -->
+    {#if snapshot}
+      <div class="node-search">
+        <div class="ns-input-row">
+          <span class="ns-icon">⌕</span>
+          <input class="ns-input" bind:value={searchText} placeholder="搜索节点（标题 / id / 标签）…"
+                 oninput={() => (searchOpen = true)}
+                 onkeydown={handleSearchKey} />
+          {#if searchText}
+            <button class="ns-clear" onclick={() => { searchText = ''; searchOpen = false; }} title="清空">✕</button>
+          {/if}
+        </div>
+        {#if searchOpen && searchText.trim().length > 0}
+          <div class="ns-results">
+            {#if searchResults.length === 0}
+              <div class="ns-empty">无匹配节点</div>
+            {:else}
+              {#each searchResults as r (r.id)}
+                <button class="ns-item" onclick={() => jumpToNode(r.id)}>
+                  <span class="ns-dot" style:background={NODE_TYPE_COLOR[r.type]}></span>
+                  <span class="ns-title">{r.title}</span>
+                  <span class="ns-id">{r.id}</span>
+                </button>
+              {/each}
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <!-- v2.3 波纹参数测试面板：能量/周期/粗细/衰减由用户调节（测试期两模式通用） -->
     <div class="wave-params">
         <button type="button" class="wp-head" onclick={() => (wavePanelOpen = !wavePanelOpen)}>
@@ -1223,7 +1424,7 @@
         <div class="legend-row"><span class="legend-label small">圆点大小 = 连接数（平缓）</span></div>
         <div class="legend-row"><span class="legend-label small">单击节点 = 波纹传播 · 双击 = 编辑 · 再点波源 = 停止</span></div>
         <div class="legend-row"><span class="legend-label small">点击最亮 → 直接相关次之 → 逐级递减（只有相关节点受波震动）</span></div>
-        <div class="legend-row"><span class="legend-label small">悬停 = 显示 id · 滚轮 = 缩放</span></div>
+        <div class="legend-row"><span class="legend-label small">搜索框 = 关键字定位节点 · 悬停 = 显示 id · 滚轮 = 缩放</span></div>
         {#if scanMode === 'analysis'}
           <div class="legend-row"><span class="legend-label small">连线渐变 = 源类型色 → 目标类型色</span></div>
         {/if}
@@ -1251,11 +1452,14 @@
       onSave={handleSave}
       onCancel={() => {
         selectedNode = null;
+        sidebarCollapsed = false;
         cy?.elements().removeClass('focus-dim focus-lit');   // v1.6.1 关闭侧栏必须解除聚焦
       }}
       onFold={handleFold}
       onDelete={handleDeleteNode}
       onSetParent={handleSetParent}
+      collapsed={sidebarCollapsed}
+      onExpand={() => (sidebarCollapsed = false)}
     />
   {/if}
 
@@ -1485,6 +1689,94 @@
   .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
   .empty-hint p { font-size: 13px; margin: 0; letter-spacing: 0.5px; }
   .sub-hint { font-size: 11px !important; color: rgba(255, 255, 255, 0.2); margin-top: 6px !important; }
+
+  /* v2.4 节点关键字搜索（画布左上角） */
+  .node-search {
+    position: absolute;
+    top: 12px;
+    left: 14px;
+    z-index: 30;
+    width: 264px;
+  }
+  .ns-input-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(20, 24, 32, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    padding: 5px 8px;
+    backdrop-filter: blur(6px);
+  }
+  .ns-icon { color: rgba(255, 255, 255, 0.45); font-size: 13px; }
+  .ns-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 12px;
+    min-width: 0;
+  }
+  .ns-input::placeholder { color: rgba(255, 255, 255, 0.35); }
+  .ns-clear {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.45);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0 2px;
+  }
+  .ns-clear:hover { color: rgba(255, 255, 255, 0.85); }
+  .ns-results {
+    margin-top: 6px;
+    background: rgba(20, 24, 32, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+    backdrop-filter: blur(6px);
+  }
+  .ns-empty {
+    padding: 10px 12px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+  }
+  .ns-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 7px 10px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .ns-item:last-child { border-bottom: none; }
+  .ns-item:hover { background: rgba(255, 255, 255, 0.07); }
+  .ns-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.4);
+  }
+  .ns-title {
+    flex: 1;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.88);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ns-id {
+    font-size: 10px;
+    font-family: 'Consolas', monospace;
+    color: rgba(255, 255, 255, 0.4);
+    flex: none;
+  }
 
   /* v2.3 波纹参数测试面板（开发模式，右上角） */
   .wave-params {
