@@ -387,7 +387,7 @@
     }
     const nowMs = performance.now();
     if (dips.length > 0) {
-      dips = dips.filter((d) => nowMs - d.t0 < 750);
+      dips = dips.filter((d) => nowMs - d.t0 < 820);
     }
     if (cyRef) {
       for (const s of active) {
@@ -472,10 +472,19 @@
         } else {
           oy = Math.sin((t / period) * Math.PI * 2 - (rip?.layers.depth.get(id) ?? 0) * 0.5) * 2.2 * strength * energyK;
         }
+        // v2.3 沉水动画：俯视水面，"沉进水里"= 节点缩小再浮回（不是屏幕位移）
         const dip = dips.find((dd) => dd.id === id);
         if (dip) {
           const dt = (nowMs - dip.t0) / 620;
-          if (dt < 1) oy += Math.sin(Math.PI * dt) * 12;   // 沉水更明显（屏坐标向下）
+          if (dt < 1) {
+            const scale = 1 - Math.sin(Math.PI * dt) * 0.35;   // 最深缩至 0.65
+            const base = nodeSize(n);
+            n.style('width', `${base * scale}px`);
+            n.style('height', `${base * scale}px`);
+          } else {
+            n.removeStyle('width');
+            n.removeStyle('height');
+          }
         }
         if (!dragging) {
           n.position({ x: orig.x, y: orig.y + oy });
