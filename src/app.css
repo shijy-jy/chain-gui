@@ -1,0 +1,25 @@
+:root {
+  font-family: system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+  background-color: #0a0a0a;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+}

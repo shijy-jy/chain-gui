@@ -1,0 +1,25 @@
+# Build outputs
+src-tauri/target/
+dist/
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# AI 临时产物
+*.log
+*.tmp
+
+# 不要忽略 ai_workspace 里的 .gitkeep（让目录结构被跟踪）
+!ai_workspace/**/*.gitkeep
+
+# 本地工具配置与记忆（不入开源库）
+.codely-cli/
+CODELY.md
+mem-log/

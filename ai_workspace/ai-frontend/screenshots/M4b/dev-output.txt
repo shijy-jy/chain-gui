@@ -1,0 +1,44 @@
+cargo :      Running BeforeDevCommand (`npm run dev`)
+At line:1 char:220
++ ... vironmentVariable("Path","User"); cd G:\test1.x; cargo tauri dev 2>&1
++                                                      ~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (     Running Be...(`npm run dev`):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+> chain-gui@0.1.0 dev
+> vite
+
+Forced re-optimization of dependencies
+
+  VITE v5.4.21  ready in 1694 ms
+
+  ➜  Local:   http://localhost:1420/
+  ➜  Network: use --host to expose
+     Running DevCommand (`cargo  run --no-default-features --color always --`)
+        Info Watching G:\test1.x\src-tauri for changes...
+[1m[92m   Compiling[0m app v0.1.0 (G:\test1.x\src-tauri)
+[1m[96m    Building[0m [=======================> ] 376/378: app     
+                                                            
+[1m[93mwarning[0m[1m[97m: linker stdout: 正在创建库 G:\test1.x\src-tauri\target\debug\deps\app_lib.dll.lib 和对象 G:\test1
+.x\src-tauri\target\debug\deps\app_lib.dll.exp[0m
+  [1m[96m|[0m
+  [1m[96m= [0m[1m[97mnote[0m: `#[warn(linker_messages)]` on by default
+[1m[96m    Building[0m [=======================> ] 376/378: app     
+                                                            
+[1m[93mwarning[0m: `app` (lib) generated 1 warning
+[1m[96m    Building[0m [=======================> ] 377/378: app(bin)
+                                                            
+[1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 32.00s
+[1m[92m     Running[0m `target\debug\app.exe`
+08:52:12 [vite] page reload src/App.svelte
+08:52:12 [vite-plugin-svelte] src/lib/Sidebar.svelte:11:21 This reference only captures the initial value of `node`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+08:52:12 [vite-plugin-svelte] src/lib/Sidebar.svelte:12:34 This reference only captures the initial value of `node`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+08:52:12 [vite-plugin-svelte] src/lib/Sidebar.svelte:13:20 This reference only captures the initial value of `node`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+08:52:12 [vite-plugin-svelte] src/lib/Sidebar.svelte:14:24 This reference only captures the initial value of `node`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally
+08:54:04 [vite] page reload src/App.svelte
+[1m[91merror[0m: process didn't exit successfully: `target\debug\app.exe` (exit code: 0xffffffff)

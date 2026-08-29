@@ -1,0 +1,78 @@
+cargo :      Running BeforeDevCommand (`npm run dev`)
+At line:1 char:220
++ ... vironmentVariable("Path","User"); cd G:\test1.x; cargo tauri dev 2>&1
++                                                      ~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (     Running Be...(`npm run dev`):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+> chain-gui@0.1.0 dev
+> vite
+
+        Warn Waiting for your frontend dev server to start on http://localhost:1420/...
+Re-optimizing dependencies because lockfile has changed
+
+  VITE v5.4.21  ready in 9780 ms
+
+  ➜  Local:   http://localhost:1420/
+  ➜  Network: use --host to expose
+     Running DevCommand (`cargo  run --no-default-features --color always --`)
+        Info Watching G:\test1.x\src-tauri for changes...
+[1m[96m Downloading[0m 0 crates                                     
+[1m[96m Downloading[0m 1 crate                                      
+[1m[96m Downloading[0m 2 crates                                     
+[1m[96m Downloading[0m 3 crates                                     
+[1m[96m Downloading[0m 3 crates, remaining bytes: 287.3KiB          
+[1m[96m Downloading[0m 3 crates, remaining bytes: 221.0KiB          
+[1m[96m Downloading[0m 3 crates, remaining bytes: 141.0KiB          
+                                                            
+[1m[92m  Downloaded[0m rfd v0.16.0
+[1m[96m Downloading[0m 2 crates, remaining bytes: 141.0KiB          
+                                                            
+[1m[92m  Downloaded[0m tauri-plugin-dialog v2.7.2
+[1m[96m Downloading[0m 1 crate, remaining bytes: 41.6KiB            
+                                                            
+[1m[92m  Downloaded[0m tauri-plugin-fs v2.5.1
+[1m[96m Downloading[0m 0 crates                                     
+                                                            
+[1m[92m  Downloaded[0m 3 crates (324.8KiB) in 2.18s
+[1m[92m   Compiling[0m windows_x86_64_msvc v0.53.1
+[1m[92m   Compiling[0m tauri-plugin-fs v2.5.1
+[1m[92m   Compiling[0m tauri-plugin-dialog v2.7.2
+[1m[92m   Compiling[0m rfd v0.16.0
+[1m[96m    Building[0m [======================>  ] 361/378: tauri-p…
+[1m[96m    Building[0m [======================>  ] 362/378: tauri-p…
+[1m[96m    Building[0m [=======================> ] 363/378: tauri-p…
+[1m[96m    Building[0m [=======================> ] 364/378: tauri-p…
+[1m[96m    Building[0m [=======================> ] 365/378: tauri-p…
+                                                            
+[1m[92m   Compiling[0m windows-targets v0.53.5
+[1m[96m    Building[0m [=======================> ] 365/378: tauri-p…
+[1m[96m    Building[0m [=======================> ] 366/378: tauri-p…
+                                                            
+[1m[92m   Compiling[0m windows-sys v0.60.2
+[1m[96m    Building[0m [=======================> ] 366/378: tauri-p…
+[1m[96m    Building[0m [=======================> ] 367/378: tauri-p…
+[1m[96m    Building[0m [=======================> ] 368/378: windows…
+[1m[96m    Building[0m [=======================> ] 369/378: windows…
+[1m[96m    Building[0m [=======================> ] 370/378: windows…
+                                                            
+[1m[92m   Compiling[0m app v0.1.0 (G:\test1.x\src-tauri)
+[1m[96m    Building[0m [=======================> ] 371/378: app(bui…
+[1m[96m    Building[0m [=======================> ] 372/378: app(bui…
+[1m[96m    Building[0m [=======================> ] 373/378: app(bui…
+[1m[96m    Building[0m [=======================> ] 374/378: app(bui…
+[1m[96m    Building[0m [=======================> ] 375/378: tauri-p…
+[1m[96m    Building[0m [=======================> ] 376/378: app     
+                                                            
+[1m[93mwarning[0m[1m[97m: linker stdout: 正在创建库 G:\test1.x\src-tauri\target\debug\deps\app_lib.dll.lib 和对象 G:\test1
+.x\src-tauri\target\debug\deps\app_lib.dll.exp[0m
+  [1m[96m|[0m
+  [1m[96m= [0m[1m[97mnote[0m: `#[warn(linker_messages)]` on by default
+[1m[96m    Building[0m [=======================> ] 376/378: app     
+                                                            
+[1m[93mwarning[0m: `app` (lib) generated 1 warning
+[1m[96m    Building[0m [=======================> ] 377/378: app(bin)
+                                                            
+[1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 44.75s
+[1m[92m     Running[0m `target\debug\app.exe`
