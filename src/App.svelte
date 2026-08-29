@@ -23,6 +23,10 @@
   let repulsion = $state(30000);   // 由 minDist 派生（30000 × (minDist/40)²）
   let gravity = $state(0.15);      // 链接弹簧刚度（相连节点吸引）
   let edgeLen = $state(80);        // 由 minDist 派生（2 × minDist）
+  // v2.5 无关节点（无链接的节点/节点链，即不同连通分量）之间的最大间距上限——
+  // 每帧做"碰撞力反向"的拉回修正，防止分量各自飘远、全局观察被拉得太散。
+  // 下限保护：实际生效值 ≥ 6×minDist，避免与最小间距冲突
+  let maxDist = $state(240);
 
   function applyMinDist(md: number) {
     minDist = md;
@@ -210,6 +214,30 @@
     });
     const doCrossWork = edgeIdx.length >= 2 && edgeIdx.length <= 200;
 
+    // v2.5 连通分量（并查集）：无关节点间距上限只作用于不同分量之间
+    const comp = new Int32Array(n);
+    for (let i = 0; i < n; i++) comp[i] = i;
+    const findComp = (x: number): number => {
+      while (comp[x] !== x) {
+        comp[x] = comp[comp[x]];
+        x = comp[x];
+      }
+      return x;
+    };
+    for (const [a, b] of edgeIdx) {
+      const ra = findComp(a);
+      const rb = findComp(b);
+      if (ra !== rb) comp[ra] = rb;
+    }
+    for (let i = 0; i < n; i++) comp[i] = findComp(i);
+    let compCount = 0;
+    {
+      const seen = new Set<number>();
+      for (let i = 0; i < n; i++) seen.add(comp[i]);
+      compCount = seen.size;
+    }
+    const capDist = Math.max(maxDist, Math.round(minDist * 2.5));   // 下限保护：必须 ≥ 最小间距+半径才可行
+
     // v2.5 碰撞半径（中心距下限 = minDist + 两节点半径和；大小与连接数挂钩）
     const nodeRadii = nodeArr.map((nd: any) => nodeSize(nd) / 2);
 
@@ -343,6 +371,29 @@
               pos[i].y -= dy * push;
               pos[j].x += dx * push;
               pos[j].y += dy * push;
+            }
+          }
+        }
+      }
+      // 2.7) v2.5 无关节点间距上限（碰撞力的对称版）：不同连通分量的节点对相距超 capDist
+      //     就向中点拉回，迭代 3 次近似收敛——独立节点/节点链不会各自飘远，全局观察不被拉散
+      if (compCount > 1 && capDist > 0) {
+        for (let pass = 0; pass < 3; pass++) {
+          for (let i = 0; i < n; i++) {
+            if (grabbedNow.includes(i)) continue;
+            for (let j = i + 1; j < n; j++) {
+              if (grabbedNow.includes(j)) continue;
+              if (comp[i] === comp[j]) continue;
+              const dx = pos[j].x - pos[i].x;
+              const dy = pos[j].y - pos[i].y;
+              const d = Math.hypot(dx, dy);
+              if (d > capDist) {
+                const pull = ((d - capDist) / d) * 0.5;
+                pos[i].x += dx * pull;
+                pos[i].y += dy * pull;
+                pos[j].x -= dx * pull;
+                pos[j].y -= dy * pull;
+              }
             }
           }
         }
@@ -1141,10 +1192,11 @@
     const snap = snapshot;   // TS 收窄：嵌套闭包里保持非空类型
     const cyRef = cy;
 
-    // 追踪滑块值，拖动时触发重新模拟（v2.5：主参数=最小间距，边距/斥力由其派生）
+    // 追踪滑块值，拖动时触发重新模拟（v2.5：主参数=最小间距，边距/斥力由其派生；最大间距限制无关分量）
     const _m = minDist;
     const _g = gravity;
-    const sliderSig = `${_m}-${_g}`;
+    const _x = maxDist;
+    const sliderSig = `${_m}-${_g}-${_x}`;
 
     const idsSig = snap.nodes.map(x => x.id).sort().join(',');
     const dataSig = snap.nodes
@@ -1414,6 +1466,10 @@
         <label class="slider-label" title="链接弹簧刚度：相连节点相互吸引，越大越紧（微调用，主参数是最小间距）">引力<span class="slider-val">{gravity.toFixed(2)}</span>
           <input type="range" min="0.05" max="0.6" step="0.01" value={gravity}
             onchange={(e) => gravity = +(e.target as HTMLInputElement).value} />
+        </label>
+        <label class="slider-label" title="无关节点最大间距：没有链接的节点/节点链（不同连通分量）之间距离上限，防止铺得太开不好全局观察；实际生效值不低于 2.5×最小间距">最大间距<span class="slider-val">{maxDist}px</span>
+          <input type="range" min="120" max="600" step="20" value={maxDist}
+            onchange={(e) => maxDist = +(e.target as HTMLInputElement).value} />
         </label>
       </span>
     {/if}
