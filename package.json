@@ -1,7 +1,8 @@
 {
-  "name": "chain-gui",
+  "name": "engram",
   "private": true,
   "version": "0.1.0",
+  "description": "Engram — 开发者与 AI 共用的工程记忆图谱与知识库（Tauri 2 + Svelte 5 + Rust）",
   "type": "module",
   "scripts": {
     "dev": "vite",

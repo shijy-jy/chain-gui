@@ -1,10 +1,10 @@
 [package]
 name = "app"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+description = "Engram — 开发者与 AI 共用的工程记忆图谱与知识库（本地优先、纯文本、桌面可视化）"
+authors = ["shijy-jy"]
+license = "MIT"
+repository = "https://github.com/shijy-jy/engram"
 edition = "2021"
 rust-version = "1.77.2"
 

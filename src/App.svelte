@@ -1451,7 +1451,7 @@
 
   <div class="app-col">
   <header class="toolbar">
-    <span class="logo">⛓ chain-gui</span>
+    <span class="logo">🌊 Engram</span>
     {#if shortDir}
       <span class="dir" title={chainDir ?? ''}>{shortDir}</span>
     {/if}
