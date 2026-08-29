@@ -15,23 +15,19 @@
 
   // v1.5：cose 在链式图上会缩成团块 → 换自研全局力导向模拟（d3-force 风格）：
   //   所有节点两两斥力（库仑式）+ 边弹簧吸引 + 弱中心引力 = 神经元式全局铺开
-  // v1.6 物理标定 + 钳制（修复"堆在一起/点击爆开"）：
-  //   - 斥力默认 30000：与弹簧刚度 0.15、理想长 120 的平衡距离 ≈ 55px（节点 14-38px），铺开不塌缩
-  //   - 单次力上限 MAX_F 60 + 每帧位移钳制 MAX_STEP 10：近距离 K/d² 不再爆炸
-  //   - 散点位置首帧立即写入：加载即圆环，不再有 (0,0) 堆叠瞬间
-  let repulsion = $state(30000);   // 全局节点间斥力强度
+  // v2.5 布局主参数 = 最小间距（参考 d3-force forceCollide / fcose nodeSeparation / Graphviz nodesep）：
+  //   - 碰撞力每帧硬保证：任意两节点中心距 ≥ minDist + 两节点半径和（与节点数无关，天然自适应）
+  //   - minDist 间接驱动引力和斥力：边弹簧理想长 = 2×minDist，斥力常数 ∝ minDist²（默认 40 对应 30000）
+  //   - 用户只需调这一个间距；「引力」滑条保留为刚度微调
+  let minDist = $state(40);
+  let repulsion = $state(30000);   // 由 minDist 派生（30000 × (minDist/40)²）
   let gravity = $state(0.15);      // 链接弹簧刚度（相连节点吸引）
-  let edgeLen = $state(120);       // 弹簧理想长度
-  // v2.4 斥力按节点数自适应：以 RESTRI（7 节点 ≈ 默认 30000 铺开效果好）为基准，
-  // 节点越多默认斥力按比例放大（封顶滑条上限），避免大图初始加载后密集；
-  // 用户一旦手动拖过滑条即接管，不再随图自动变化。
-  let userSetRepulsion = false;
+  let edgeLen = $state(80);        // 由 minDist 派生（2 × minDist）
 
-  function adaptiveRepulsion(n: number): number {
-    const REF_N = 7;          // RESTRI 参考规模
-    const REF_K = 30000;      // 参考斥力
-    const k = (REF_K * Math.max(n, 1)) / REF_N;
-    return Math.min(Math.round(k / 1000) * 1000, 80000);
+  function applyMinDist(md: number) {
+    minDist = md;
+    edgeLen = Math.round(md * 2);
+    repulsion = Math.round(30000 * (md / 40) ** 2);
   }
 
   // v1.5 力导向模拟运行时（requestAnimationFrame 句柄；null = 未在运行）
@@ -85,6 +81,7 @@
     edgeIdx: [number, number][],
     cyRef: Core,
     nodeArr: any[],
+    nodeRadii: number[],
   ) => {
     const n = pos.length;
     if (edgeIdx.length < 2) return;
@@ -148,6 +145,34 @@
         break;
       }
     }
+    // v2.5 归约位移不得破坏最小间距：跑几轮碰撞修正（d3 collide 式直接推开）
+    if (minDist > 0) {
+      for (let pass = 0; pass < 8; pass++) {
+        let moved = false;
+        for (let i = 0; i < n; i++) {
+          for (let j = i + 1; j < n; j++) {
+            const req = minDist + nodeRadii[i] + nodeRadii[j];
+            let dx = pos[j].x - pos[i].x;
+            let dy = pos[j].y - pos[i].y;
+            let d = Math.hypot(dx, dy);
+            if (d < req) {
+              if (d < 0.001) {
+                dx = Math.random() - 0.5;
+                dy = Math.random() - 0.5;
+                d = Math.hypot(dx, dy) || 1;
+              }
+              const push = ((req - d) / d) * 0.5;
+              pos[i].x -= dx * push;
+              pos[i].y -= dy * push;
+              pos[j].x += dx * push;
+              pos[j].y += dy * push;
+              moved = true;
+            }
+          }
+        }
+        if (!moved) break;
+      }
+    }
     cyRef.batch(() => {
       for (let i = 0; i < n; i++) nodeArr[i].position({ x: pos[i].x, y: pos[i].y });
     });
@@ -185,6 +210,9 @@
     });
     const doCrossWork = edgeIdx.length >= 2 && edgeIdx.length <= 200;
 
+    // v2.5 碰撞半径（中心距下限 = minDist + 两节点半径和；大小与连接数挂钩）
+    const nodeRadii = nodeArr.map((nd: any) => nodeSize(nd) / 2);
+
     const vx = new Float64Array(n);
     const vy = new Float64Array(n);
 
@@ -210,7 +238,7 @@
       forceRun = null;
       if (iter++ >= MAX_ITER || (iter >= MIN_ITER && (alpha < 0.01 || still > 12))) {
         // v2.4 收敛后先做质心交叉归约，再平滑适配视野
-        if (doCrossWork) polishCrossings(pos, edgeIdx, cyRef, nodeArr);
+        if (doCrossWork) polishCrossings(pos, edgeIdx, cyRef, nodeArr, nodeRadii);
         cyRef.animate({
           fit: { eles: cyRef.elements(), padding: 60 },
           duration: 300,
@@ -290,6 +318,32 @@
             vx[b1] += dx; vy[b1] += dy;
             vx[a2] -= dx; vy[a2] -= dy;
             vx[b2] -= dx; vy[b2] -= dy;
+          }
+        }
+      }
+      // 2.6) v2.5 碰撞力（参考 d3-force forceCollide）：每帧把间距不足的节点对直接推开，
+      //     硬保证任意两节点中心距 ≥ minDist + 半径和（与节点数无关，多少节点都不重叠）
+      if (minDist > 0) {
+        for (let i = 0; i < n; i++) {
+          if (grabbedNow.includes(i)) continue;
+          for (let j = i + 1; j < n; j++) {
+            if (grabbedNow.includes(j)) continue;
+            const req = minDist + nodeRadii[i] + nodeRadii[j];
+            let dx = pos[j].x - pos[i].x;
+            let dy = pos[j].y - pos[i].y;
+            let d = Math.hypot(dx, dy);
+            if (d < req) {
+              if (d < 0.001) {
+                dx = Math.random() - 0.5;
+                dy = Math.random() - 0.5;
+                d = Math.hypot(dx, dy) || 1;
+              }
+              const push = ((req - d) / d) * 0.5;   // d3 collide 默认强度 1：各推一半
+              pos[i].x -= dx * push;
+              pos[i].y -= dy * push;
+              pos[j].x += dx * push;
+              pos[j].y += dy * push;
+            }
           }
         }
       }
@@ -954,14 +1008,7 @@
     loading = true;
     error = null;
     try {
-      const payload = await invoke<ChainSnapshot>('scan_chain', { dir: chainDir, mode: scanMode });
-      // v2.4 斥力按节点数自适应（以 RESTRI 7 节点=30000 为基准）——
-      // 在写入 snapshot 之前更新，$effect 同一次重建即用新斥力，避免二次重排；
-      // 用户手动拖过滑条后不再自动调整
-      if (!userSetRepulsion) {
-        repulsion = adaptiveRepulsion(payload.nodes.length);
-      }
-      snapshot = payload;
+      snapshot = await invoke<ChainSnapshot>('scan_chain', { dir: chainDir, mode: scanMode });
     } catch (e) {
       const msg = String(e);
       if (msg.includes('不存在 .chain')) {
@@ -1094,11 +1141,10 @@
     const snap = snapshot;   // TS 收窄：嵌套闭包里保持非空类型
     const cyRef = cy;
 
-    // 追踪滑块值，拖动时触发重新模拟
-    const _r = repulsion;
+    // 追踪滑块值，拖动时触发重新模拟（v2.5：主参数=最小间距，边距/斥力由其派生）
+    const _m = minDist;
     const _g = gravity;
-    const _e = edgeLen;
-    const sliderSig = `${_r}-${_g}-${_e}`;
+    const sliderSig = `${_m}-${_g}`;
 
     const idsSig = snap.nodes.map(x => x.id).sort().join(',');
     const dataSig = snap.nodes
@@ -1361,17 +1407,13 @@
     <span class="spacer"></span>
     {#if snapshot}
       <span class="slider-group">
-        <label class="slider-label" title="节点间全局斥力：所有节点两两互斥，越大越散（神经元式铺开）；默认随节点数自适应（基准：RESTRI 7 节点 = 30000），手动拖动后不再自动调整">排斥<span class="slider-val">{repulsion}</span>
-          <input type="range" min="2000" max="80000" step="1000" value={repulsion}
-            onchange={(e) => { repulsion = +(e.target as HTMLInputElement).value; userSetRepulsion = true; }} />
+        <label class="slider-label" title="最小间距（v2.5）：任意两节点边缘间的最小间隙，碰撞力每帧硬保证（与节点数无关）；同时派生边弹簧理想长 = 2×间距、斥力 ∝ 间距²，调这一个就同时影响引力和斥力">最小间距<span class="slider-val">{minDist}px</span>
+          <input type="range" min="20" max="120" step="5" value={minDist}
+            onchange={(e) => applyMinDist(+(e.target as HTMLInputElement).value)} />
         </label>
-        <label class="slider-label" title="链接弹簧刚度：相连节点相互吸引，越大越紧">引力<span class="slider-val">{gravity.toFixed(2)}</span>
+        <label class="slider-label" title="链接弹簧刚度：相连节点相互吸引，越大越紧（微调用，主参数是最小间距）">引力<span class="slider-val">{gravity.toFixed(2)}</span>
           <input type="range" min="0.05" max="0.6" step="0.01" value={gravity}
             onchange={(e) => gravity = +(e.target as HTMLInputElement).value} />
-        </label>
-        <label class="slider-label" title="弹簧理想长度：越大图越舒展">边距<span class="slider-val">{edgeLen}</span>
-          <input type="range" min="80" max="260" step="10" value={edgeLen}
-            onchange={(e) => edgeLen = +(e.target as HTMLInputElement).value} />
         </label>
       </span>
     {/if}
