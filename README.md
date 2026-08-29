@@ -1,166 +1,164 @@
-# 工程推进器 (chain-gui)
+# chain-gui
 
-> Chain Protocol 的可视化编辑工具 —— Tauri 2 + Svelte 5 + Cytoscape + Rust
+> **开发者与 AI 共用的工程记忆图谱 · 桌面可视化工具**
+> Tauri 2 · Svelte 5 · Cytoscape · Rust —— 纯文本存储，图谱呈现，水面般的交互
 
-把 `.chain/nodes/*.md` 文件夹渲染成可拖拽、可缩放、可点选的关系图谱。
+<p align="center">
+  <img src="docs/screenshot-analysis.png" alt="分析模式：链协议图谱" width="46%">
+  <img src="docs/screenshot-dev.png" alt="开发模式：自由知识库" width="46%">
+</p>
 
 ---
 
-## 技术栈
+## 它是什么
 
-| 层 | 选型 | 版本 |
+chain-gui 把你和 AI 在对话中共同维护的工程记忆（`.chain/nodes/*.md` 纯文本文件）渲染成一张可拖拽、可缩放、可交互的知识图谱。
+
+**日常用法只有三步**：
+
+1. 在软件里点一下「复制 AI 指南」，把它贴进任意 AI 对话——AI 就学会了你的工程记忆协议；
+2. AI 按协议在 `.chain/` 里创建、更新节点（纯 Markdown + YAML frontmatter）；
+3. 你随时打开 chain-gui：看全局结构、搜索定位节点、编辑正文、用波纹交互感知关联强弱。
+
+人看图、AI 读文件——**双方共享的是同一份工程记忆**。数据是纯文本：可以 git 管理、可以迁移、任何编辑器都能改，软件只是它的一个窗口。
+
+> 它不是"多 AI 协作框架"。它是一张**记忆图谱**：谁维护文件、用哪个模型，都不重要；重要的是项目走到哪一步、为什么这么走、失败过什么——这些都被如实钉在图上，随时可回溯。
+
+---
+
+## 两种模式，覆盖两类场景
+
+| | 分析模式（链协议） | 开发模式（自由知识库） |
 |---|---|---|
-| 桌面壳 | Tauri | 2.11.3 |
-| 前端框架 | Svelte | 5.x |
-| 构建工具 | Vite | 5.4.x |
-| 图谱渲染 | Cytoscape + cytoscape-dagre | 3.34 / 4.0 |
-| 后端逻辑 | Rust（edition 2021）| rust ≥ 1.77.2 |
-| 序列化 | serde / serde_yaml / serde_json | - |
-| 目录扫描 | walkdir | 2.x |
+| 定位 | 工程推进：目标 → 设计 → 任务 → 验证 | 知识搭建：笔记、卡片、任意拓扑 |
+| 结构 | 严格单根树，校验器强制（单根/无环/无悬空） | 完全自由：多根、孤立卡片、环都可以 |
+| 状态 | pending / in_progress / success / failed / blocked | 无状态（中性 note 类型） |
+| 失败处理 | 失败定格 → 派生追查链 → 重验闭环 | 递进关系建模（见下） |
+| AI 指南 | `AI_GUIDE.md`（思维宪法 + 链协议，v7） | `AI_GUIDE_DEV.md`（知识库搭建指南，v2） |
+
+**递进关系建模**（开发模式）：链接带关系类型，图谱用线型表达——
+- 实线 `contains`：包含/从属
+- 虚线 `solves`：子节点解决父节点的失败/局限（递进主线）
+- 点线 `alternative`：备选方案
+
+> 工作区模式由 `.chain/.mode` 标签绑定，随工程走，不可混用。
+
+---
+
+## 功能特性
+
+**图谱交互**
+- 🌊 **水面波纹交互**：单击节点 = 波源，同心细环向全场扩散；直接相关节点点亮并随之"震动"，更深层渐暗——关系强弱一眼可见；再点停止，其它节点可作次级波源
+- 🔦 **亮度层级**：按 BFS 层深逐级衰减（默认曲线：d0=1.0 → d1=0.8 → d2=0.4 → …），「亮度对比」滑条可调陡峭度
+- 🧲 **力导向布局**：BFS 分层初始散点 + 斥力/弹簧模拟 + 连线交叉最小化（交叉惩罚 + 质心归约）
+  - 「最小间距」：任意两节点边缘间隙的硬保证（碰撞力每帧强制）
+  - 「最大间距」：无链接的节点/节点链之间距离上限，全局观察不被拉散
+  - 拖拽节点实时跟手重排，松手自动续排
+- 🔎 **关键字搜索**：标题/id/标签模糊匹配，回车或点击结果居中定位 + 高亮脉冲
+- 🖱️ 双击节点打开编辑侧栏；点空白收起为右缘细条（不丢上下文）
+
+**节点与数据**
+- 侧栏编辑：标题/状态/标签/正文（Markdown + LaTeX 预览）/证据文件/过程日志
+- 证据产物分层归档 `artifacts/<节点id>/`，点击文件名直接打开
+- 链快照（受控回溯）与子链折叠（压缩已完成的子链，历史永不丢）
+- 文件监听实时刷新：外部编辑/AI 写入，图谱自动更新
+
+**工程化**
+- AI 指南内置版本管理：初始化/扫描时自动刷新工作区里的旧版指南副本
+- 校验器反向生成规则文档，指南与软件行为严格一致
+- 97 个 Rust 单元测试 + svelte-check 类型检查 + 生产构建
+
+---
+
+## 截图
+
+分析模式（链协议图谱 + 状态光晕）：
+
+![分析模式](docs/screenshot-analysis.png)
+
+开发模式（知识库 + 递进关系线型：实线/虚线/点线）：
+
+![开发模式](docs/screenshot-dev.png)
+
+单击节点后的波纹与亮度分层（点击节点最亮，直接相关次之，更深层渐暗）：
+
+![波纹交互](docs/screenshot-dev-wave.png)
+
+---
+
+## 快速开始
+
+**前置环境**
+
+- [Rust](https://rustup.rs) ≥ 1.77（Windows 需 Visual Studio Build Tools 的 C++ 桌面开发组件）
+- [Node.js](https://nodejs.org) 18+
+- Tauri CLI：`cargo install tauri-cli --version "^2.0" --locked`
+
+**运行**
+
+```bash
+git clone https://github.com/shijy-jy/chain-gui.git
+cd chain-gui
+npm install
+cargo tauri dev
+```
+
+**体验示例**
+
+仓库自带两个示例工程（`demo/analysis` 链协议示例、`demo/dev` 知识库+递进链示例）：
+左侧工作区栏 → 添加文件夹 → 选择 `demo/analysis`（分析页签下）或 `demo/dev`（开发页签下）。
 
 ---
 
 ## 目录结构
 
 ```
-G:\test1.x\
-├── src/                      # 前端（Svelte + TS）
-│   ├── lib/
-│   │   ├── types.ts          # 节点/边类型定义
-│   │   └── chain_to_cytoscape.ts  # ChainSnapshot → Cytoscape 元素
-│   ├── App.svelte
-│   ├── app.css
-│   ├── main.ts
-│   └── vite-env.d.ts
+chain-gui/
+├── src/                      # 前端（Svelte 5 + TypeScript）
+│   ├── App.svelte            # 主组件：图谱、波纹、布局、搜索、工具栏
+│   ├── lib/                  # 涟漪 BFS 分层、链数据转换、侧栏编辑、正文渲染
+│   └── components/           # 工作区栏、状态栏、新建节点对话框
 ├── src-tauri/                # Rust 后端
-│   ├── src/
-│   │   ├── model/            # Node / ChainSnapshot / ValidationReport
-│   │   ├── scanner/          # frontmatter 解析 + walkdir 扫描
-│   │   ├── commands/         # Tauri #[command]
-│   │   └── lib.rs            # Builder + invoke_handler
-│   ├── Cargo.toml
-│   └── tauri.conf.json
-├── test-data/                # 演示用 5 节点 4 边 .chain 样例
-│   └── .chain/nodes/
-│       ├── g-001.md          # goal
-│       ├── d-001.md          # design (parent=g-001)
-│       ├── d-002.md          # design (parent=g-001)
-│       ├── t-001.md          # task (parent=d-001)
-│       └── v-001.md          # verification (parent=t-001)
-├── package.json
-├── vite.config.ts
-├── svelte.config.js
-├── tsconfig.json
-└── ai_workspace/             # 多 AI 协作区（v0.2+ 新增）
-    ├── README.md             # 协作协议
-    ├── CODE_STATE.md         # 全局基线台账
-    └── ai-coordinator/       # 调度/验收
-        ├── task_cards/       # 各里程碑任务卡
-        ├── reviews/          # coze 验收记录
-        ├── decisions/        # 重要决策归档
-        └── CURRENT.md
+│   ├── model/                # Node / ChainSnapshot / 更新模型
+│   ├── scanner/              # frontmatter 解析、目录扫描、结构校验
+│   ├── commands/             # Tauri 命令（扫描/编辑/折叠/快照/指南/工作区）
+│   └── watcher.rs            # 文件监听 → 前端实时刷新
+├── resources/                # 双 AI 使用指南（分析 v7 / 开发 v2）
+├── demo/                     # 两个示例工程（可直接打开体验）
+└── docs/                     # 截图与文档
 ```
 
----
+## 技术栈
 
-## 在 VSCode 里跑（M3 效果验证）
-
-### 一次性前置
-
-1. **装 Rust**：[rustup.rs](https://rustup.rs) 下载 `rustup-init.exe`，一路默认
-2. **装 Node.js 18+**：[nodejs.org](https://nodejs.org) LTS
-3. **VSCode 装 3 个扩展**：
-   - `rust-analyzer`
-   - `Tauri`
-   - `Svelte`
-4. **装 Tauri CLI**（关键，工程里没装 `@tauri-apps/cli`）：
-   ```bash
-   cargo install tauri-cli --version "^2.0" --locked
-   ```
-   第一次编译 5-10 分钟，慢慢等
-
-### 每次跑
-
-1. VSCode → `文件` → `打开文件夹` → 选 `G:\test1.x`
-2. 打开终端：`Ctrl + `（VSCode 内置终端）
-3. 新机器或刚 `git pull` 后先装前端依赖：
-   ```bash
-   npm install
-   ```
-4. 启动（自动起 vite + Tauri 窗口）：
-   ```bash
-   cargo tauri dev
-   ```
-5. 窗口标题是 `Chain Protocol GUI`，弹出来就对了
-
-### 看 M3 演示效果
-
-- 点"选 .chain 父目录"按钮
-- 选 `G:\test1.x\test-data`
-- 应该看到 **5 节点 4 边**，dagre **左→右**布局
-- **节点配色**（按 NodeType 背景色）：
-  - goal 🟢 `#a8e6a3`
-  - design 🔵 `#a3c9e6`
-  - task 🟠 `#f5b97c`
-  - verification 🟣 `#c9a3e6`
-- **节点边框**（按 NodeStatus）：
-  - pending / success / failed / blocked（细线 1-2px）
-  - **in_progress 加粗到 5px，黄色 `#f5d76e`**
-- 拖拽节点 / 滚轮缩放 / 点选节点都应该工作
-
----
+| 层 | 选型 |
+|---|---|
+| 桌面壳 | Tauri 2 |
+| 前端框架 | Svelte 5（runes）+ TypeScript |
+| 构建 | Vite 5 |
+| 图谱渲染 | Cytoscape.js（自定义力导向布局 + canvas 水面层） |
+| 公式/正文 | markdown-it + KaTeX |
+| 后端 | Rust（serde / serde_yaml / walkdir / notify） |
 
 ## 常用命令
 
 | 命令 | 用途 |
 |---|---|
-| `cargo tauri dev` | 起 dev 环境（vite + 窗口），日常调试 |
-| `cargo tauri build` | 打包发布版 exe（输出在 `src-tauri/target/release/bundle/`）|
-| `npm run dev` | 只起 vite 前端（不弹窗，纯前端调试用）|
-| `npm run build` | 编译前端到 `dist/` |
+| `cargo tauri dev` | 开发模式（vite + 桌面窗口） |
+| `cargo tauri build` | 打包发布版安装包 |
 | `npm run check` | svelte-check 类型检查 |
-| `cargo test` | 跑 Rust 单元/集成测试（在 `src-tauri/` 下执行）|
+| `npm run build` | 前端生产构建 |
+| `cargo test --lib` | Rust 单元测试 |
 
----
+## 常见问题
 
-## 故障排查
+| 症状 | 解决 |
+|---|---|
+| `tauri-cli not found` | 安装：`cargo install tauri-cli --version "^2.0" --locked` |
+| `link.exe not found` | 安装 Visual Studio Build Tools（C++ 桌面开发 workload） |
+| 窗口白屏 | 在工程根目录执行 `npm install` |
+| 图谱空白 | 添加的目录必须**包含** `.chain/nodes/`（选其父目录） |
+| 端口 1420 被占用 | 结束残留的 vite 进程后重试 |
 
-| 症状 | 原因 | 解决 |
-|---|---|---|
-| `cargo: command not found` | Rust 没装好或 PATH 未生效 | 重开 VSCode / `rustup show` 验证 |
-| `tauri-cli not found` | 步骤 4 没装成功 | 重跑 `cargo install tauri-cli --version "^2.0" --locked` |
-| 窗口白屏 / 节点不显示 | npm 依赖没装 | 在工程根跑 `npm install` |
-| `link.exe not found` 编译报错 | 缺 MSVC 工具链 | 装 Visual Studio Build Tools + C++ 桌面开发 workload |
-| 端口 1420 被占用 | 之前 dev 没关干净 | `Get-Process -Name "node" \| Stop-Process -Force` |
-| 选目录后图谱空白 | `.chain/nodes/` 路径选错 | 必须选**包含** `.chain/nodes/` 的父目录（不是 `.chain/nodes/` 本身）|
+## 许可证
 
----
-
-## 多 AI 协作（M0 之后）
-
-工程根目录下的 `ai_workspace/` 是给多 AI 协作用的，每个 AI 独立文件夹 + 一个 `ai-coordinator` 调度方。**任何 AI 改代码前先看 `ai_workspace/README.md` 协议**。
-
-当前已注册 AI：
-- `ai-rust`：Rust 后端实现
-- `ai-frontend`：Svelte 前端实现
-- `ai-qa`：暂缓启动，coze 临时兼任 schema 校验
-
----
-
-## 当前里程碑
-
-详见 `ai_workspace/ai-coordinator/CURRENT.md`。
-
-- ✅ M1 空白窗口
-- ✅ M2 后端扫描 + scan_chain command
-- ✅ M3 图谱可视化
-- ✅ M4 节点编辑（双向 IPC）
-- ✅ M5 文件监听 + 自动重载
-- ✅ M6 schema 校验
-- ✅ M7 工具栏 / 状态栏 / 快捷键
-- ✅ M8 校验状态面板 + 初始化向导（v1.0）
-- ✅ M9 安装包打包（v1.0 收官）
-- ✅ M10 AI 使用指南内嵌 + 初始化写盘 + 复制按钮（v1.1.0）
-- ⏳ M11 AI 工程推进适配（v1.2，本次）：指南版本标记与自动刷新、evidence 证据字段、过程日志（PROCESS_LOG.md）、试错记录协议、侧栏只读元信息
-
-完整规划见 `chain_protocol_gui_impl_plan_v3.html`（在云盘 `/Coze/Drive/怀瑾的新项目（4）/`）。
+[MIT](LICENSE) © 2026 shijy-jy
