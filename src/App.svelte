@@ -603,13 +603,15 @@
     });
   }
 
-  // v2.4 亮度对比参数驱动：层深 d 的亮度 = (1 - contrast)^d（d0 恒为 1），
+  // v2.5 亮度对比参数驱动：默认曲线精心设计为"点击节点与直接相关明显亮、
+  // 更深层明显渐暗"——d0=1、d1=0.8、d2=0.45、d3=0.25、d4=0.14、d5=0.08、d6=0.05；
+  // 对比滑条 = 相对这条基准曲线的陡峭倍数（默认 0.28 = 1.0 倍），越大深层越暗。
   // 运行时改写 cytoscape 样式表（cy.style().selector()），滑条拖动即时生效。
-  // 对比越大，逐层越暗、层次越分明；波外压暗固定 0.06。
   function updateRippleStyle(cyRef: Core) {
-    const base = Math.max(0.05, Math.min(0.95, 1 - waveParams.contrast));
+    const BASE = [1, 0.8, 0.45, 0.25, 0.14, 0.08, 0.05];
+    const k = waveParams.contrast / 0.28;   // 默认 1.0 = 设计曲线原样
     for (let d = 0; d <= 6; d++) {
-      const v = Math.pow(base, d);
+      const v = Math.pow(BASE[d], k);
       cyRef
         .style()
         .selector(`node.rip-d${d}`)
@@ -1460,16 +1462,28 @@
     {#if snapshot}
       <span class="slider-group">
         <label class="slider-label" title="最小间距（v2.5）：任意两节点边缘间的最小间隙，碰撞力每帧硬保证（与节点数无关）；同时派生边弹簧理想长 = 2×间距、斥力 ∝ 间距²，调这一个就同时影响引力和斥力">最小间距<span class="slider-val">{minDist}px</span>
-          <input type="range" min="20" max="120" step="5" value={minDist}
-            onchange={(e) => applyMinDist(+(e.target as HTMLInputElement).value)} />
+          <span class="slider-track">
+            <input type="range" min="20" max="120" step="5" value={minDist}
+              onchange={(e) => applyMinDist(+(e.target as HTMLInputElement).value)} />
+            <button class="slider-def-dot" style:left="20%" title="默认值 40px，点击恢复"
+                    onclick={(e) => { e.preventDefault(); applyMinDist(40); }}></button>
+          </span>
         </label>
         <label class="slider-label" title="链接弹簧刚度：相连节点相互吸引，越大越紧（微调用，主参数是最小间距）">引力<span class="slider-val">{gravity.toFixed(2)}</span>
-          <input type="range" min="0.05" max="0.6" step="0.01" value={gravity}
-            onchange={(e) => gravity = +(e.target as HTMLInputElement).value} />
+          <span class="slider-track">
+            <input type="range" min="0.05" max="0.6" step="0.01" value={gravity}
+              onchange={(e) => gravity = +(e.target as HTMLInputElement).value} />
+            <button class="slider-def-dot" style:left="18.2%" title="默认值 0.15，点击恢复"
+                    onclick={(e) => { e.preventDefault(); gravity = 0.15; }}></button>
+          </span>
         </label>
         <label class="slider-label" title="无关节点最大间距：没有链接的节点/节点链（不同连通分量）之间距离上限，防止铺得太开不好全局观察；实际生效值不低于 2.5×最小间距">最大间距<span class="slider-val">{maxDist}px</span>
-          <input type="range" min="120" max="600" step="20" value={maxDist}
-            onchange={(e) => maxDist = +(e.target as HTMLInputElement).value} />
+          <span class="slider-track">
+            <input type="range" min="120" max="600" step="20" value={maxDist}
+              onchange={(e) => maxDist = +(e.target as HTMLInputElement).value} />
+            <button class="slider-def-dot" style:left="25%" title="默认值 240px，点击恢复"
+                    onclick={(e) => { e.preventDefault(); maxDist = 240; }}></button>
+          </span>
         </label>
       </span>
     {/if}
@@ -1562,28 +1576,48 @@
           <div class="wp-body">
             <label class="wp-row" title="波源能量：环透明度与振动幅度（次级波源自动为其 55%）">能量
               <span class="wp-val">{waveParams.energy.toFixed(2)}</span>
-              <input type="range" min="0.1" max="1.4" step="0.05" value={waveParams.energy}
-                     onchange={(e) => (waveParams.energy = +(e.target as HTMLInputElement).value)} />
+              <span class="slider-track">
+                <input type="range" min="0.1" max="1.4" step="0.05" value={waveParams.energy}
+                       onchange={(e) => (waveParams.energy = +(e.target as HTMLInputElement).value)} />
+                <button class="slider-def-dot" style:left="34.6%" title="默认值 0.55，点击恢复"
+                        onclick={(e) => { e.preventDefault(); waveParams.energy = 0.55; }}></button>
+              </span>
             </label>
             <label class="wp-row" title="波动周期：一圈环从中心扩到边界的时间（秒）">周期
               <span class="wp-val">{waveParams.period.toFixed(1)}s</span>
-              <input type="range" min="0.3" max="4" step="0.1" value={waveParams.period}
-                     onchange={(e) => (waveParams.period = +(e.target as HTMLInputElement).value)} />
+              <span class="slider-track">
+                <input type="range" min="0.3" max="4" step="0.1" value={waveParams.period}
+                       onchange={(e) => (waveParams.period = +(e.target as HTMLInputElement).value)} />
+                <button class="slider-def-dot" style:left="35.1%" title="默认值 1.6s，点击恢复"
+                        onclick={(e) => { e.preventDefault(); waveParams.period = 1.6; }}></button>
+              </span>
             </label>
             <label class="wp-row" title="波纹粗细：涟漪环线宽（px）">粗细
               <span class="wp-val">{waveParams.lineWidth.toFixed(1)}px</span>
-              <input type="range" min="0.5" max="2.5" step="0.1" value={waveParams.lineWidth}
-                     onchange={(e) => (waveParams.lineWidth = +(e.target as HTMLInputElement).value)} />
+              <span class="slider-track">
+                <input type="range" min="0.5" max="2.5" step="0.1" value={waveParams.lineWidth}
+                       onchange={(e) => (waveParams.lineWidth = +(e.target as HTMLInputElement).value)} />
+                <button class="slider-def-dot" style:left="25%" title="默认值 1.0px，点击恢复"
+                        onclick={(e) => { e.preventDefault(); waveParams.lineWidth = 1.0; }}></button>
+              </span>
             </label>
             <label class="wp-row" title="环扩张过程中的透明度衰减速度：越大淡得越快">衰减
               <span class="wp-val">{waveParams.fade.toFixed(1)}</span>
-              <input type="range" min="0.3" max="2.5" step="0.1" value={waveParams.fade}
-                     onchange={(e) => (waveParams.fade = +(e.target as HTMLInputElement).value)} />
+              <span class="slider-track">
+                <input type="range" min="0.3" max="2.5" step="0.1" value={waveParams.fade}
+                       onchange={(e) => (waveParams.fade = +(e.target as HTMLInputElement).value)} />
+                <button class="slider-def-dot" style:left="40.9%" title="默认值 1.2，点击恢复"
+                        onclick={(e) => { e.preventDefault(); waveParams.fade = 1.2; }}></button>
+              </span>
             </label>
-            <label class="wp-row" title="亮度对比：每层节点的亮度衰减比例，越大对比越强、越远越暗（点击节点后生效）">亮度对比
+            <label class="wp-row" title="亮度对比：相对默认亮度曲线的陡峭倍数（默认 0.28 = 1 倍：点击节点与直接相关明显亮、更深层明显渐暗），越大深层越暗">亮度对比
               <span class="wp-val">{waveParams.contrast.toFixed(2)}</span>
-              <input type="range" min="0.05" max="0.85" step="0.05" value={waveParams.contrast}
-                     onchange={(e) => (waveParams.contrast = +(e.target as HTMLInputElement).value)} />
+              <span class="slider-track">
+                <input type="range" min="0.05" max="0.85" step="0.05" value={waveParams.contrast}
+                       onchange={(e) => (waveParams.contrast = +(e.target as HTMLInputElement).value)} />
+                <button class="slider-def-dot" style:left="28.8%" title="默认值 0.28，点击恢复"
+                        onclick={(e) => { e.preventDefault(); waveParams.contrast = 0.28; }}></button>
+              </span>
             </label>
           </div>
         {/if}
@@ -1779,6 +1813,30 @@
   .slider-label input[type="range"]::-webkit-slider-thumb:hover {
     background: rgba(255, 255, 255, 0.95);
   }
+  /* v2.5 默认值圆点：轨道上标记软件的默认设置，点击恢复默认 */
+  .slider-track {
+    position: relative;
+    display: inline-block;
+  }
+  .slider-track input[type="range"] {
+    width: 80px;
+  }
+  .slider-def-dot {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #7dd3fc;
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    box-shadow: 0 0 6px rgba(125, 211, 252, 0.9);
+    cursor: pointer;
+    padding: 0;
+    z-index: 2;
+    transition: transform 0.12s ease;
+  }
+  .slider-def-dot:hover { transform: translate(-50%, -50%) scale(1.45); }
   .spacer { flex: 1; }
   .create-btn {
     background: rgba(52, 211, 153, 0.12);
@@ -2023,6 +2081,7 @@
     outline: none;
     cursor: pointer;
   }
+  .wp-row .slider-track { width: 100%; }
   .wp-row input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
