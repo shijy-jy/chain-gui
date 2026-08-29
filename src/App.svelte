@@ -22,6 +22,17 @@
   let repulsion = $state(30000);   // 全局节点间斥力强度
   let gravity = $state(0.15);      // 链接弹簧刚度（相连节点吸引）
   let edgeLen = $state(120);       // 弹簧理想长度
+  // v2.4 斥力按节点数自适应：以 RESTRI（7 节点 ≈ 默认 30000 铺开效果好）为基准，
+  // 节点越多默认斥力按比例放大（封顶滑条上限），避免大图初始加载后密集；
+  // 用户一旦手动拖过滑条即接管，不再随图自动变化。
+  let userSetRepulsion = false;
+
+  function adaptiveRepulsion(n: number): number {
+    const REF_N = 7;          // RESTRI 参考规模
+    const REF_K = 30000;      // 参考斥力
+    const k = (REF_K * Math.max(n, 1)) / REF_N;
+    return Math.min(Math.round(k / 1000) * 1000, 80000);
+  }
 
   // v1.5 力导向模拟运行时（requestAnimationFrame 句柄；null = 未在运行）
   let forceRun: number | null = null;
@@ -943,7 +954,14 @@
     loading = true;
     error = null;
     try {
-      snapshot = await invoke<ChainSnapshot>('scan_chain', { dir: chainDir, mode: scanMode });
+      const payload = await invoke<ChainSnapshot>('scan_chain', { dir: chainDir, mode: scanMode });
+      // v2.4 斥力按节点数自适应（以 RESTRI 7 节点=30000 为基准）——
+      // 在写入 snapshot 之前更新，$effect 同一次重建即用新斥力，避免二次重排；
+      // 用户手动拖过滑条后不再自动调整
+      if (!userSetRepulsion) {
+        repulsion = adaptiveRepulsion(payload.nodes.length);
+      }
+      snapshot = payload;
     } catch (e) {
       const msg = String(e);
       if (msg.includes('不存在 .chain')) {
@@ -1343,9 +1361,9 @@
     <span class="spacer"></span>
     {#if snapshot}
       <span class="slider-group">
-        <label class="slider-label" title="节点间全局斥力：所有节点两两互斥，越大越散（神经元式铺开）">排斥<span class="slider-val">{repulsion}</span>
+        <label class="slider-label" title="节点间全局斥力：所有节点两两互斥，越大越散（神经元式铺开）；默认随节点数自适应（基准：RESTRI 7 节点 = 30000），手动拖动后不再自动调整">排斥<span class="slider-val">{repulsion}</span>
           <input type="range" min="2000" max="80000" step="1000" value={repulsion}
-            onchange={(e) => repulsion = +(e.target as HTMLInputElement).value} />
+            onchange={(e) => { repulsion = +(e.target as HTMLInputElement).value; userSetRepulsion = true; }} />
         </label>
         <label class="slider-label" title="链接弹簧刚度：相连节点相互吸引，越大越紧">引力<span class="slider-val">{gravity.toFixed(2)}</span>
           <input type="range" min="0.05" max="0.6" step="0.01" value={gravity}
