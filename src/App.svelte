@@ -83,6 +83,23 @@
     const LERP = 0.35;
     let stagnant = 0;
     const centroids = new Array(n);
+    // v2.4 修复"切图后没完全展开"：质心归约会把图向中心压缩（面积收缩换零交叉），
+    // 必须保持铺开程度——记录初始包围盒面积，每轮收缩超阈值就按比例拉回。
+    const bboxArea = () => {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const p of pos) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+      const w = maxX - minX;
+      const h = maxY - minY;
+      return { area: w * h, w, h, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+    };
+    const b0 = bboxArea();
+    if (b0.w < 4 || b0.h < 4) return;   // 已塌缩成一团，交归约无意义
+    const MIN_AREA_RATIO = 0.75;
     for (let s = 0; s < MAX_SWEEPS && best > 0; s++) {
       const prev = pos.map((p) => ({ x: p.x, y: p.y }));
       for (let i = 0; i < n; i++) centroids[i] = { x: 0, y: 0, cnt: 0 };
@@ -97,6 +114,15 @@
         const cy = c.y / c.cnt;
         pos[i].x += (cx - pos[i].x) * LERP;
         pos[i].y += (cy - pos[i].y) * LERP;
+      }
+      // 面积保持：收缩过深则以质心为中心等比放大回阈值（交叉数与缩放无关，归约照常生效）
+      const bb = bboxArea();
+      if (bb.area < MIN_AREA_RATIO * b0.area && bb.area > 1) {
+        const scale = Math.sqrt((MIN_AREA_RATIO * b0.area) / bb.area);
+        for (const p of pos) {
+          p.x = bb.cx + (p.x - bb.cx) * scale;
+          p.y = bb.cy + (p.y - bb.cy) * scale;
+        }
       }
       const now = countCrossings(pos, edgeIdx);
       if (now < best) {
@@ -181,6 +207,21 @@
         });
         return;
       }
+      // v2.4 拖拽不再停模拟：把被抓节点的最新位置同步进 pos 并冻结其速度，
+      // 其余节点围绕被拖节点实时重排——布局从此不会被任何输入事件杀死（冻结根因之一）
+      const grabbedNow: number[] = [];
+      if (dragging) {
+        cyRef.nodes(':grabbed').forEach((g: any) => {
+          const gi = idx.get(g.id());
+          if (gi !== undefined) {
+            pos[gi].x = g.position('x');
+            pos[gi].y = g.position('y');
+            vx[gi] = 0;
+            vy[gi] = 0;
+            grabbedNow.push(gi);
+          }
+        });
+      }
       // 1) 全节点两两斥力 O(n²)：F = min(K/d², MAX_F)（这就是"神经元链接"式全局铺开的关键）
       for (let i = 0; i < n; i++) {
         for (let j = i + 1; j < n; j++) {
@@ -248,8 +289,10 @@
         vy[i] -= pos[i].y * gc;
       }
       // 4) 阻尼 + 积分 + 位移钳制（v1.6: 每帧最多 MAX_STEP，杜绝飞出/爆开）
+      //    v2.4 被拖节点跳过积分——位置由鼠标决定，模拟不得与之对抗
       let maxStep = 0;
       for (let i = 0; i < n; i++) {
+        if (grabbedNow.includes(i)) continue;
         vx[i] *= 0.86;
         vy[i] *= 0.86;
         let sx = vx[i];
@@ -1137,15 +1180,13 @@
       // v1.5 拖动节点：按住时暂停模拟，松开后从当前位置续排（Obsidian 手感）
       cy.on('grab', () => {
         hoverTip = null;
-        dragging = true;   // v2.3 拖拽时暂停水面振动偏移
-        stopForce();
+        dragging = true;   // v2.4 拖拽中模拟照常运行（被抓节点位置每帧同步进模拟），不再 stopForce
       });
       cy.on('free', () => {
         dragging = false;
-        // v2.4 修复：涟漪中松手也必须重排——点击节点时 grab 会停掉力模拟，
-        // 旧设计"涟漪中不重排"导致布局冻在密集散点，需双击停波后才会恢复。
-        // 波源每帧从 renderedPosition 重取坐标，布局移动不影响水面渲染。
-        if (cy) runForceLayout(cy);
+        // v2.4 模拟若仍在跑就让它继续；只有已死（收敛/被杀）才重启——
+        // 点击/拖拽/涟漪都不再能把布局停死
+        if (forceRun === null && cy) runForceLayout(cy);
       });
     } catch (e) {
       error = `[cytoscape init failed] ${(e as Error).message}`;
