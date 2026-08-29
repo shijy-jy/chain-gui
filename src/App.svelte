@@ -163,12 +163,15 @@
     const ALPHA_DECAY = 0.97;   // 模拟冷却（~150 tick ≈ 2.5s 收敛）
     // v2.0 自适应迭代上限：节点越多每帧 O(n²) 越贵，代数递减
     const MAX_ITER = n > 250 ? 100 : n > 100 ? 200 : 400;
+    // v2.4 修复：前 MIN_ITER 帧禁止早停——低斥力或初始散点接近弹簧平衡时，
+    // 旧逻辑十几帧内就"收敛"在密集起点，铺开动画看起来像没播放
+    const MIN_ITER = 30;
 
     let iter = 0;
     let still = 0;   // 连续低位移帧计数（早停）
     const tick = () => {
       forceRun = null;
-      if (iter++ >= MAX_ITER || alpha < 0.01 || still > 12) {
+      if (iter++ >= MAX_ITER || (iter >= MIN_ITER && (alpha < 0.01 || still > 12))) {
         // v2.4 收敛后先做质心交叉归约，再平滑适配视野
         if (doCrossWork) polishCrossings(pos, edgeIdx, cyRef, nodeArr);
         cyRef.animate({
@@ -410,6 +413,7 @@
     period: 1.6,       // 周期（秒/圈，环从中心扩到边界的时间）
     lineWidth: 1.0,    // 粗细：环线宽（px，0.5–2.5）
     fade: 1.2,         // 衰减：环扩张过程中的透明度衰减速度（0.3–2.5，越大淡得越快）
+    contrast: 0.28,    // v2.4 亮度对比：每层的亮度衰减比例（越大对比越强，越远越暗）
   });
   let wavePanelOpen = $state(true);
 
@@ -439,6 +443,28 @@
       cyRef.edges().addClass('rip-hide');
     });
   }
+
+  // v2.4 亮度对比参数驱动：层深 d 的亮度 = (1 - contrast)^d（d0 恒为 1），
+  // 运行时改写 cytoscape 样式表（cy.style().selector()），滑条拖动即时生效。
+  // 对比越大，逐层越暗、层次越分明；波外压暗固定 0.06。
+  function updateRippleStyle(cyRef: Core) {
+    const base = Math.max(0.05, Math.min(0.95, 1 - waveParams.contrast));
+    for (let d = 0; d <= 6; d++) {
+      const v = Math.pow(base, d);
+      cyRef
+        .style()
+        .selector(`node.rip-d${d}`)
+        .style({ 'opacity': v, 'text-opacity': Math.min(1, v + 0.05) })
+        .update();
+    }
+  }
+
+  // 对比滑条变化 → 立即改写涟漪亮度样式（cy 未就绪时跳过，onMount 里会再补一次）
+  $effect(() => {
+    const c = waveParams.contrast;   // 追踪对比值
+    const cyRef = cy;
+    if (cyRef) updateRippleStyle(cyRef);
+  });
 
   function clearRipple() {
     if (rippleTimer !== undefined) {
@@ -1068,6 +1094,7 @@
         minZoom: 0.08,
         maxZoom: 4,
       });
+      updateRippleStyle(cy);   // v2.4 亮度对比公式接管 rip-dN 样式（滑条默认值）
       cy.on('tap', 'node', (evt) => {
         const n = evt.target;
         hoverTip = null;
@@ -1077,7 +1104,8 @@
       // v2.4 两模式统一：双击节点 = 打开编辑侧栏（单击已被涟漪交互占用）
       cy.on('dbltap', 'node', (evt) => {
         const n = evt.target;
-        stopForce();
+        // v2.4 修复：不再 stopForce——双击的 grab/free 已天然暂停/恢复布局，
+        // 这里停掉会让布局在双击后永久冻死在半途（用户看到的"停起点密集"的另一来源）
         const nodeData = snapshot?.nodes.find(x => x.id === n.id());
         if (nodeData) {
           selectedNode = nodeData;
@@ -1114,7 +1142,9 @@
       });
       cy.on('free', () => {
         dragging = false;
-        if (ripple) return;   // v2.3 涟漪中不重排（位置由水面驱动，布局已稳定）
+        // v2.4 修复：涟漪中松手也必须重排——点击节点时 grab 会停掉力模拟，
+        // 旧设计"涟漪中不重排"导致布局冻在密集散点，需双击停波后才会恢复。
+        // 波源每帧从 renderedPosition 重取坐标，布局移动不影响水面渲染。
         if (cy) runForceLayout(cy);
       });
     } catch (e) {
@@ -1392,6 +1422,11 @@
               <span class="wp-val">{waveParams.fade.toFixed(1)}</span>
               <input type="range" min="0.3" max="2.5" step="0.1" value={waveParams.fade}
                      onchange={(e) => (waveParams.fade = +(e.target as HTMLInputElement).value)} />
+            </label>
+            <label class="wp-row" title="亮度对比：每层节点的亮度衰减比例，越大对比越强、越远越暗（点击节点后生效）">亮度对比
+              <span class="wp-val">{waveParams.contrast.toFixed(2)}</span>
+              <input type="range" min="0.05" max="0.85" step="0.05" value={waveParams.contrast}
+                     onchange={(e) => (waveParams.contrast = +(e.target as HTMLInputElement).value)} />
             </label>
           </div>
         {/if}
