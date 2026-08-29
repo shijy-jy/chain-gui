@@ -604,11 +604,11 @@
   }
 
   // v2.5 亮度对比参数驱动：默认曲线精心设计为"点击节点与直接相关明显亮、
-  // 更深层明显渐暗"——d0=1、d1=0.8、d2=0.45、d3=0.25、d4=0.14、d5=0.08、d6=0.05；
+  // 更深层明显渐暗"——d0=1、d1=0.8、d2=0.4、d3=0.2、d4=0.1、d5=0.05、d6=0.03；
   // 对比滑条 = 相对这条基准曲线的陡峭倍数（默认 0.28 = 1.0 倍），越大深层越暗。
   // 运行时改写 cytoscape 样式表（cy.style().selector()），滑条拖动即时生效。
   function updateRippleStyle(cyRef: Core) {
-    const BASE = [1, 0.8, 0.45, 0.25, 0.14, 0.08, 0.05];
+    const BASE = [1, 0.8, 0.4, 0.2, 0.1, 0.05, 0.03];
     const k = waveParams.contrast / 0.28;   // 默认 1.0 = 设计曲线原样
     for (let d = 0; d <= 6; d++) {
       const v = Math.pow(BASE[d], k);
@@ -1465,7 +1465,7 @@
           <span class="slider-track">
             <input type="range" min="20" max="120" step="5" value={minDist}
               onchange={(e) => applyMinDist(+(e.target as HTMLInputElement).value)} />
-            <button class="slider-def-dot" style:left="20%" title="默认值 40px，点击恢复"
+            <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.2)" title="默认值 40px，点击恢复"
                     onclick={(e) => { e.preventDefault(); applyMinDist(40); }}></button>
           </span>
         </label>
@@ -1473,7 +1473,7 @@
           <span class="slider-track">
             <input type="range" min="0.05" max="0.6" step="0.01" value={gravity}
               onchange={(e) => gravity = +(e.target as HTMLInputElement).value} />
-            <button class="slider-def-dot" style:left="18.2%" title="默认值 0.15，点击恢复"
+            <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.1818)" title="默认值 0.15，点击恢复"
                     onclick={(e) => { e.preventDefault(); gravity = 0.15; }}></button>
           </span>
         </label>
@@ -1481,7 +1481,7 @@
           <span class="slider-track">
             <input type="range" min="120" max="600" step="20" value={maxDist}
               onchange={(e) => maxDist = +(e.target as HTMLInputElement).value} />
-            <button class="slider-def-dot" style:left="25%" title="默认值 240px，点击恢复"
+            <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.25)" title="默认值 240px，点击恢复"
                     onclick={(e) => { e.preventDefault(); maxDist = 240; }}></button>
           </span>
         </label>
@@ -1579,7 +1579,7 @@
               <span class="slider-track">
                 <input type="range" min="0.1" max="1.4" step="0.05" value={waveParams.energy}
                        onchange={(e) => (waveParams.energy = +(e.target as HTMLInputElement).value)} />
-                <button class="slider-def-dot" style:left="34.6%" title="默认值 0.55，点击恢复"
+                <button class="slider-def-dot" style:left="calc(5.5px + (100% - 11px) * 0.3462)" title="默认值 0.55，点击恢复"
                         onclick={(e) => { e.preventDefault(); waveParams.energy = 0.55; }}></button>
               </span>
             </label>
@@ -1588,7 +1588,7 @@
               <span class="slider-track">
                 <input type="range" min="0.3" max="4" step="0.1" value={waveParams.period}
                        onchange={(e) => (waveParams.period = +(e.target as HTMLInputElement).value)} />
-                <button class="slider-def-dot" style:left="35.1%" title="默认值 1.6s，点击恢复"
+                <button class="slider-def-dot" style:left="calc(5.5px + (100% - 11px) * 0.3514)" title="默认值 1.6s，点击恢复"
                         onclick={(e) => { e.preventDefault(); waveParams.period = 1.6; }}></button>
               </span>
             </label>
@@ -1597,7 +1597,7 @@
               <span class="slider-track">
                 <input type="range" min="0.5" max="2.5" step="0.1" value={waveParams.lineWidth}
                        onchange={(e) => (waveParams.lineWidth = +(e.target as HTMLInputElement).value)} />
-                <button class="slider-def-dot" style:left="25%" title="默认值 1.0px，点击恢复"
+                <button class="slider-def-dot" style:left="calc(5.5px + (100% - 11px) * 0.25)" title="默认值 1.0px，点击恢复"
                         onclick={(e) => { e.preventDefault(); waveParams.lineWidth = 1.0; }}></button>
               </span>
             </label>
@@ -1606,7 +1606,7 @@
               <span class="slider-track">
                 <input type="range" min="0.3" max="2.5" step="0.1" value={waveParams.fade}
                        onchange={(e) => (waveParams.fade = +(e.target as HTMLInputElement).value)} />
-                <button class="slider-def-dot" style:left="40.9%" title="默认值 1.2，点击恢复"
+                <button class="slider-def-dot" style:left="calc(5.5px + (100% - 11px) * 0.4091)" title="默认值 1.2，点击恢复"
                         onclick={(e) => { e.preventDefault(); waveParams.fade = 1.2; }}></button>
               </span>
             </label>
@@ -1615,7 +1615,7 @@
               <span class="slider-track">
                 <input type="range" min="0.05" max="0.85" step="0.05" value={waveParams.contrast}
                        onchange={(e) => (waveParams.contrast = +(e.target as HTMLInputElement).value)} />
-                <button class="slider-def-dot" style:left="28.8%" title="默认值 0.28，点击恢复"
+                <button class="slider-def-dot" style:left="calc(5.5px + (100% - 11px) * 0.2875)" title="默认值 0.28，点击恢复"
                         onclick={(e) => { e.preventDefault(); waveParams.contrast = 0.28; }}></button>
               </span>
             </label>
@@ -1813,13 +1813,19 @@
   .slider-label input[type="range"]::-webkit-slider-thumb:hover {
     background: rgba(255, 255, 255, 0.95);
   }
-  /* v2.5 默认值圆点：轨道上标记软件的默认设置，点击恢复默认 */
+  /* v2.5 默认值圆点：轨道上标记软件的默认设置，点击恢复默认。
+     对齐要点：圆点 left 用 calc(半thumb + (100% - thumb) × 默认比例) 按真实 thumb 行程定位；
+     .slider-track 消除 inline 基线空隙（line-height/font-size 归零），保证 top:50% 与轨道中心重合 */
   .slider-track {
     position: relative;
     display: inline-block;
+    line-height: 0;
+    font-size: 0;
+    vertical-align: middle;
   }
   .slider-track input[type="range"] {
     width: 80px;
+    margin: 0;   /* UA 默认 margin 会让输入框在轨道内偏移 2px，圆点对不齐 */
   }
   .slider-def-dot {
     position: absolute;
@@ -2074,6 +2080,7 @@
   .wp-row input[type="range"] {
     width: 100%;
     height: 4px;
+    margin: 0;   /* 同上：归零默认 margin，保证圆点与轨道/thumb 行程对齐 */
     -webkit-appearance: none;
     appearance: none;
     background: rgba(255, 255, 255, 0.12);
