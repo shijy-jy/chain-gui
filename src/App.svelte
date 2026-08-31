@@ -267,8 +267,11 @@
       if (iter++ >= MAX_ITER || (iter >= MIN_ITER && (alpha < 0.01 || still > 12))) {
         // v2.4 收敛后先做质心交叉归约，再平滑适配视野
         if (doCrossWork) polishCrossings(pos, edgeIdx, cyRef, nodeArr, nodeRadii);
+        // v2.6 聚焦视图下收敛适配聚焦范围（而非全图），保持"拉近"状态不被重排弹回
+        const focusNow = focusSet;
+        const fitEles = focusNow ? cyRef.nodes().filter((nd) => focusNow.has(nd.id())) : cyRef.elements();
         cyRef.animate({
-          fit: { eles: cyRef.elements(), padding: 60 },
+          fit: { eles: fitEles, padding: focusNow ? 90 : 60 },
           duration: 300,
           easing: 'ease-out',
         });
@@ -450,8 +453,11 @@
   let error = $state<string | null>(null);
   let loading = $state(false);
   let selectedNode = $state<ChainNode | null>(null);
-  // v2.4 侧栏收起态：点画布空白 → 侧栏缩成右缘细条（保留所选节点），点展开按钮恢复；双击节点重新打开
+  // v2.6 侧栏常驻：点空白 = 收起为右缘细条（保留所选节点），顶部按钮拉出；单击节点切换显示内容
   let sidebarCollapsed = $state(false);
+  // v2.6 双击聚焦视图：focusSet = 聚焦范围内（BFS ≤ 6 层）的节点集合；null = 全局视图
+  let focusNodeId: string | null = null;
+  let focusSet: Set<string> | null = null;
   let showCreate = $state(false);
 
   // v2.1 多工作区：左侧栏管理；每个文件夹绑定自己的模式（.chain/.mode 标签）
@@ -475,6 +481,8 @@
     snapshot = null;
     selectedNode = null;
     sidebarCollapsed = false;
+    focusNodeId = null;      // v2.6 切模式层重置双击聚焦
+    focusSet = null;
     hoverTip = null;
     lastDir = null;
     lastIdsSig = '';
@@ -585,6 +593,44 @@
       adj.get(e.child)?.push(e.parent);   // 知识链接不分方向：无向传播
     }
     return adj;
+  }
+
+  // v2.6 双击聚焦：拉近到以节点为中心的 BFS ≤ 6 层关系范围（明显拉近效果）；
+  // 再双击同一节点回到全局视图。聚焦只动视口，不影响布局与波纹。
+  function toggleFocus(cyRef: Core, nodeId: string) {
+    if (!snapshot) return;
+    if (focusNodeId === nodeId) {
+      focusNodeId = null;
+      focusSet = null;
+      cyRef.animate({
+        fit: { eles: cyRef.elements(), padding: 60 },
+        duration: 400,
+        easing: 'ease-in-out',
+      });
+      return;
+    }
+    const layers = computeRippleLayers(buildAdjacency(snapshot), nodeId);
+    const set = new Set<string>();
+    layers.byDepth.forEach((arr, d) => {
+      if (d <= 6) arr.forEach((id) => set.add(id));
+    });
+    focusNodeId = nodeId;
+    focusSet = set;
+    const eles = cyRef.nodes().filter((nd) => set.has(nd.id()));
+    // v2.6 密集图上 6 层子集包围盒可能与全图相当（无拉近感）——
+    // 保证聚焦至少放大 1.25 倍，明显有"拉近"效果；封顶最大缩放
+    const bb = eles.boundingBox();
+    const zoomNeeded = Math.min(
+      (cyRef.width() - 180) / Math.max(bb.w, 1),
+      (cyRef.height() - 180) / Math.max(bb.h, 1),
+    );
+    const targetZoom = Math.min(Math.max(zoomNeeded, cyRef.zoom() * 1.25), 4);
+    cyRef.animate({
+      fit: { eles, padding: 90 },
+      zoom: targetZoom,
+      duration: 400,
+      easing: 'ease-in-out',
+    });
   }
 
   function applyRippleClasses(cyRef: Core, activeDepth: number) {
@@ -1053,6 +1099,8 @@
       lastSliderSig = '';
       selectedNode = null;
       sidebarCollapsed = false;
+      focusNodeId = null;      // v2.6 切目录重置双击聚焦
+      focusSet = null;
       hoverTip = null;
       stopForce();
       clearRipple();   // v2.2
@@ -1078,17 +1126,18 @@
 
   async function handleSave(fields: { title: string; status: NodeStatus | null; body: string; tags: string[]; evidence: string[] }) {
     if (!chainDir || !selectedNode) return;
-    // 失败时 invoke reject，错误由 Sidebar 的 catch 显示；成功才更新 snapshot 并关侧栏
+    // 失败时 invoke reject，错误由 Sidebar 的 catch 显示；成功才更新 snapshot 并刷新信息栏
     // v2.0 开发模式：status 为 null = 不写状态（知识库节点可有可无）
+    const savedId = selectedNode.id;
     const newSnapshot = await invoke<ChainSnapshot>('update_node', {
       dir: chainDir,
-      nodeId: selectedNode.id,
+      nodeId: savedId,
       fields: fields,
       mode: scanMode,
     });
     snapshot = newSnapshot;
-    selectedNode = null;
-    sidebarCollapsed = false;
+    // v2.6 常驻信息栏：保存后刷新为最新数据继续显示（旧逻辑关闭侧栏已退役）
+    selectedNode = newSnapshot.nodes.find((x) => x.id === savedId) ?? null;
     cy?.elements().removeClass('focus-dim focus-lit');   // v1.4 关闭侧栏同时解除聚焦
   }
 
@@ -1213,6 +1262,8 @@
       lastSliderSig = sliderSig;
       stopForce();
       cyRef.elements().remove();
+      focusNodeId = null;   // v2.6 节点集合重建时退出双击聚焦
+      focusSet = null;
       // v2.4 两模式统一：连线渲染为"若有若无"的淡线（.ghost），点击后整组淡出改由涟漪表达
       cyRef.add(chainToElements(snap, { withEdges: true }));
       cyRef.edges().addClass('ghost');
@@ -1259,23 +1310,21 @@
       cy.on('tap', 'node', (evt) => {
         const n = evt.target;
         hoverTip = null;
-        // v2.4 两模式统一：点击节点 = 波源开关（再点停止），波纹表达关系；编辑改双击
+        // v2.6 两模式统一：点击节点 = 波源开关（再点停止），波纹表达关系；
+        // 同时右侧常驻信息栏切换到该节点内容
         toggleWaveSource(n.id());
+        const nodeData = snapshot?.nodes.find(x => x.id === n.id());
+        if (nodeData) selectedNode = nodeData;
       });
-      // v2.4 两模式统一：双击节点 = 打开编辑侧栏（单击已被涟漪交互占用）
+      // v2.6 两模式统一：单击 = 波源开关 + 切换右侧信息栏内容；双击 = 视图聚焦/退出聚焦
       cy.on('dbltap', 'node', (evt) => {
         const n = evt.target;
-        // v2.4 修复：不再 stopForce——双击的 grab/free 已天然暂停/恢复布局，
-        // 这里停掉会让布局在双击后永久冻死在半途（用户看到的"停起点密集"的另一来源）
-        const nodeData = snapshot?.nodes.find(x => x.id === n.id());
-        if (nodeData) {
-          selectedNode = nodeData;
-          sidebarCollapsed = false;   // 重新打开侧栏时总是展开态
-        }
+        hoverTip = null;
+        if (cy) toggleFocus(cy, n.id());
       });
       cy.on('tap', (evt) => {
         if (evt.target === cy) {
-          // v2.4 点空白处 = 侧栏收起为右缘细条（保留所选节点，可一键展开），不再关闭
+          // v2.6 点空白处 = 侧栏收起为右缘细条（保留所选节点，可一键展开），不再关闭
           sidebarCollapsed = true;
           searchOpen = false;   // 同时收起搜索下拉
           // v2.3 波源只由"再点同一节点"关闭（点空白不停止波场）
@@ -1323,11 +1372,16 @@
 
     const onResize = () => { cy?.resize(); cy?.fit(undefined, 60); };
     window.addEventListener('resize', onResize);
-    // v1.6.1 Esc 关闭侧栏（点空白收起、Esc 彻底关闭——两级退出语义）
+    // v2.6 Esc：优先退出双击聚焦视图；否则收起右侧信息栏（常驻侧栏无"关闭"语义）
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        selectedNode = null;
-        sidebarCollapsed = false;
+        if (focusNodeId !== null && cy) {
+          focusNodeId = null;
+          focusSet = null;
+          cy.animate({ fit: { eles: cy.elements(), padding: 60 }, duration: 300, easing: 'ease-out' });
+          return;
+        }
+        sidebarCollapsed = true;
         cy?.elements().removeClass('focus-dim focus-lit');
         // v2.3 波源只由"再点同一节点"关闭（Esc 不停止波场）
       }
@@ -1660,7 +1714,7 @@
         <div class="legend-row"><span class="dot dot-dash"></span><span class="legend-label">阻塞（虚线框）</span></div>
         <div class="legend-sep"></div>
         <div class="legend-row"><span class="legend-label small">圆点大小 = 连接数（平缓）</span></div>
-        <div class="legend-row"><span class="legend-label small">单击节点 = 波纹传播 · 双击 = 编辑 · 再点波源 = 停止</span></div>
+        <div class="legend-row"><span class="legend-label small">单击节点 = 波源 + 信息栏 · 双击 = 聚焦视图（再双击退出） · 再点波源 = 停止</span></div>
         <div class="legend-row"><span class="legend-label small">点击最亮 → 直接相关次之 → 逐级递减（只有相关节点受波震动）</span></div>
         <div class="legend-row"><span class="legend-label small">搜索框 = 关键字定位节点 · 悬停 = 显示 id · 滚轮 = 缩放</span></div>
         {#if scanMode === 'analysis'}
@@ -1675,13 +1729,13 @@
           <div class="legend-sep"></div>
           <div class="legend-row"><span class="legend-label small">水面波场：单击节点 = 生成波源（持续向四周传播）</span></div>
           <div class="legend-row"><span class="legend-label small">再点同一节点 = 逐渐停止 · 点其它节点 = 次级波源（能量较弱）</span></div>
-          <div class="legend-row"><span class="legend-label small">点击最亮 → 直接相关次之 → 逐级递减 · 双击 = 编辑</span></div>
+          <div class="legend-row"><span class="legend-label small">点击最亮 → 直接相关次之 → 逐级递减 · 双击 = 聚焦视图</span></div>
         {/if}
       </div>
     {/if}
   </div>
 
-  {#if selectedNode}
+  {#if snapshot}
     <Sidebar
       node={selectedNode}
       chainDir={chainDir}
@@ -1689,9 +1743,9 @@
       allNodes={snapshot?.nodes ?? []}
       onSave={handleSave}
       onCancel={() => {
-        selectedNode = null;
-        sidebarCollapsed = false;
-        cy?.elements().removeClass('focus-dim focus-lit');   // v1.6.1 关闭侧栏必须解除聚焦
+        // v2.6 常驻信息栏：✕/取消 = 收起为右缘细条（不再"关闭"）
+        sidebarCollapsed = true;
+        cy?.elements().removeClass('focus-dim focus-lit');
       }}
       onFold={handleFold}
       onDelete={handleDeleteNode}

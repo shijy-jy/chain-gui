@@ -5,7 +5,7 @@
   import type { ChainNode, NodeStatus, NodeType, ScanMode } from './types';
 
   let { node, chainDir, mode, allNodes, onSave, onCancel, onFold, onDelete, onSetParent, collapsed = false, onExpand }: {
-    node: ChainNode;
+    node: ChainNode | null;
     chainDir: string | null;
     mode: ScanMode;
     allNodes: ChainNode[];
@@ -216,22 +216,34 @@
     verification: '#34d399',
     note: '#94a3b8',
   };
-  let typeColor = $derived(typeColors[node.type]);
+  let typeColor = $derived(node ? typeColors[node.type] : '#94a3b8');
 
   // node 变化时重置表单（effect 只追踪读取的 node.xxx，写入的 state 不触发重跑）
+  // v2.6 常驻信息栏：node 可为 null（未选中任何节点 → 占位提示）
   $effect(() => {
-    title = node.title;
-    status = node.status;
-    body = node.body;
-    tagsText = node.tags.join(', ');
-    evidence = [...node.evidence];
-    parentSel = node.parent;
-    relSel = node.rel ?? 'contains';   // v2.4
+    if (node) {
+      title = node.title;
+      status = node.status;
+      body = node.body;
+      tagsText = node.tags.join(', ');
+      evidence = [...node.evidence];
+      parentSel = node.parent;
+      relSel = node.rel ?? 'contains';   // v2.4
+    } else {
+      title = '';
+      status = 'pending';
+      body = '';
+      tagsText = '';
+      evidence = [];
+      parentSel = null;
+      relSel = 'contains';
+    }
     error = null;
   });
 
   // v2.0 开发模式：改链接（父节点 + v2.4 递进关系类型）
   async function handleChangeParent() {
+    if (!node) return;   // v2.6 空态保护
     if (!onSetParent || parentBusy || (parentSel === node.parent && relSel === (node.rel ?? 'contains'))) return;
     parentBusy = true;
     parentMessage = null;
@@ -249,6 +261,7 @@
 
   // v2.0 开发模式：删除节点（两段式确认）
   async function handleDelete() {
+    if (!node) return;   // v2.6 空态保护
     if (!onDelete || delBusy) return;
     if (!delArmed) {
       delArmed = true;
@@ -302,18 +315,19 @@
     }
   }
 
-  let canFold = $derived(!!onFold && node.parent !== null);
+  let canFold = $derived(!!onFold && !!node && node.parent !== null);
 </script>
 
 {#if collapsed}
-  <!-- v2.4 收起态：细条 + 展开按钮；点击画布空白处自动收起到这里，不必重新双击节点 -->
+  <!-- v2.6 收起态：细条 + 顶部拉出按钮（对齐左侧栏交互）；点画布空白自动收到这里 -->
   <aside class="sidebar collapsed">
-    <button class="expand-btn" onclick={onExpand} aria-label="展开侧栏" title={`展开侧栏：${node.title}`}>«</button>
-    <div class="collapsed-id" title={node.title}>{node.id}</div>
+    <button class="expand-btn" onclick={onExpand} aria-label="展开侧栏" title={`展开信息栏${node ? `：${node.title}` : ''}`}>«</button>
+    <div class="collapsed-id" title={node?.title ?? 'Engram'}>{node?.id ?? 'Engram'}</div>
     <span class="collapsed-dot" style="background: {typeColor};"></span>
   </aside>
 {:else}
 <aside class="sidebar" style:width="{panel.width}px">
+  {#if node}
   <!-- v1.8 面板左缘拖拽条：调整面板宽度 -->
   <div class="width-handle" role="separator" aria-orientation="vertical" onpointerdown={resizeWidth} title="拖拽调整面板宽度"></div>
 
@@ -322,7 +336,7 @@
       <span class="type-dot" style="background: {typeColor}; box-shadow: 0 0 8px {typeColor};"></span>
       <h2>{node.id}</h2>
     </div>
-    <button class="close" onclick={onCancel} aria-label="关闭">✕</button>
+    <button class="close" onclick={onCancel} aria-label="收起" title="收起为侧边细条">»</button>
   </header>
 
   <div class="meta-row">
@@ -492,12 +506,20 @@
     {/if}
 
     <footer>
-      <button class="cancel" onclick={onCancel} disabled={saving}>取消</button>
+      <button class="cancel" onclick={onCancel} disabled={saving} title="收起为侧边细条">收起</button>
       <button class="save" onclick={handleSave} disabled={saving}>
         {saving ? '保存中…' : '保存'}
       </button>
     </footer>
   </div>
+  {:else}
+    <!-- v2.6 常驻信息栏的空态：未单击任何节点时的占位 -->
+    <div class="panel-empty">
+      <div class="panel-empty-icon">🌊</div>
+      <p class="panel-empty-title">单击节点查看详情</p>
+      <p class="panel-empty-sub">点击画布中的任意节点，这里会显示它的标题、状态、正文与证据；<br/>双击节点聚焦视图，再双击退出聚焦。</p>
+    </div>
+  {/if}
 </aside>
 {/if}
 
@@ -518,6 +540,22 @@
     flex-direction: column;
     min-width: 320px;
   }
+
+  /* v2.6 常驻信息栏空态 */
+  .panel-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: rgba(255, 255, 255, 0.35);
+    text-align: center;
+    padding: 0 20px;
+  }
+  .panel-empty-icon { font-size: 34px; opacity: 0.6; }
+  .panel-empty-title { font-size: 14px; color: rgba(255, 255, 255, 0.5); margin: 0; }
+  .panel-empty-sub { font-size: 11px; line-height: 1.7; margin: 0; }
 
   /* v2.4 收起态：细条停靠右缘，保留节点身份与展开入口 */
   .sidebar.collapsed {
