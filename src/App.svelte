@@ -11,6 +11,7 @@
   import StatusBar from './components/StatusBar.svelte';
   import CreateNodeDialog from './components/CreateNodeDialog.svelte';
   import WorkspaceSidebar from './components/WorkspaceSidebar.svelte';
+  import { panel, SIDEBAR_COLLAPSED_WIDTH } from './lib/panel_state.svelte.ts';
   import type { ChainSnapshot, ChainNode, NodeStatus, NodeType, ScanMode, WorkspaceInfo } from './lib/types';
 
   // v1.5：cose 在链式图上会缩成团块 → 换自研全局力导向模拟（d3-force 风格）：
@@ -671,6 +672,24 @@
     const c = waveParams.contrast;   // 追踪对比值
     const cyRef = cy;
     if (cyRef) updateRippleStyle(cyRef);
+  });
+
+  // v2.6 常驻信息栏为画布预留空间：宽度/收起/图谱有无变化时同步 cytoscape 视口，
+  // 收起↔展开切换后重新适配当前视野（聚焦中则适配聚焦范围）
+  let lastSbState: boolean | null = null;
+  $effect(() => {
+    const _c = sidebarCollapsed;
+    const _w = panel.width;
+    const _has = !!snapshot;
+    const cyRef = cy;
+    if (!cyRef) return;
+    requestAnimationFrame(() => cyRef.resize());
+    if (lastSbState !== null && lastSbState !== _c) {
+      const f = focusSet;
+      const eles = f ? cyRef.nodes().filter((nd) => f.has(nd.id())) : cyRef.elements();
+      cyRef.animate({ fit: { eles, padding: 60 }, duration: 250, easing: 'ease-out' });
+    }
+    lastSbState = _c;
   });
 
   function clearRipple() {
@@ -1584,7 +1603,9 @@
     </div>
   {/if}
 
-  <div class="canvas-wrap">
+  <!-- v2.6 为常驻信息栏预留空间：margin-right 真正收窄画布容器（padding 对绝对定位子元素无效），
+       画布、右下角缩放按钮、右上角波纹面板只出现在信息栏左侧，不再被压住；无图谱时不预留 -->
+  <div class="canvas-wrap" style:margin-right={(snapshot ? (sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : panel.width) : 0) + 'px'}>
     {#if !snapshot && !loading}
       <div class="empty-hint">
         <div class="empty-icon">⛓</div>

@@ -2,6 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
   import { renderBody } from './body_render';
+  import { panel } from './panel_state.svelte.ts';
   import type { ChainNode, NodeStatus, NodeType, ScanMode } from './types';
 
   let { node, chainDir, mode, allNodes, onSave, onCancel, onFold, onDelete, onSetParent, collapsed = false, onExpand }: {
@@ -60,16 +61,8 @@
   let evMessage = $state<string | null>(null);
 
   // v1.8 VSCode 式分栏：面板宽度 + 各内容区高度/折叠状态。
-  // 模块级 $state——切换节点重新挂载组件时保留用户的布局调整。
-  const panel = $state({
-    width: 380,
-    bodyH: 300,
-    evidenceH: 136,
-    logH: 112,
-    bodyOpen: true,
-    evidenceOpen: true,
-    logOpen: true,
-  });
+  // v2.6 移至模块级共享状态（src/lib/panel_state.ts）——App 需要读取宽度为画布预留空间，
+  // 防止常驻信息栏压住右下角缩放按钮/右上角波纹面板与画布节点。
 
   // v1.9 正文显示模式：预览（Markdown + LaTeX 渲染，同 DeepSeek 网页版 KaTeX 观感）/
   // 编辑（textarea），模块级保留用户选择；默认预览优先，点「编辑」才进文本框
@@ -513,8 +506,9 @@
     </footer>
   </div>
   {:else}
-    <!-- v2.6 常驻信息栏的空态：未单击任何节点时的占位 -->
+    <!-- v2.6 常驻信息栏的空态：未单击任何节点时的占位（右上角同样提供收起按钮） -->
     <div class="panel-empty">
+      <button class="close close-empty" onclick={onCancel} aria-label="收起" title="收起为侧边细条">»</button>
       <div class="panel-empty-icon">🌊</div>
       <p class="panel-empty-title">单击节点查看详情</p>
       <p class="panel-empty-sub">点击画布中的任意节点，这里会显示它的标题、状态、正文与证据；<br/>双击节点聚焦视图，再双击退出聚焦。</p>
@@ -552,6 +546,12 @@
     color: rgba(255, 255, 255, 0.35);
     text-align: center;
     padding: 0 20px;
+    position: relative;
+  }
+  .panel-empty .close-empty {
+    position: absolute;
+    top: 12px;
+    right: 14px;
   }
   .panel-empty-icon { font-size: 34px; opacity: 0.6; }
   .panel-empty-title { font-size: 14px; color: rgba(255, 255, 255, 0.5); margin: 0; }
