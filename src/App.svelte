@@ -1295,16 +1295,27 @@
       // v2.0 边悬停高亮（cytoscape 无 :hover 选择器，用事件类实现）
       cy.on('mouseover', 'edge', (evt) => evt.target.addClass('edge-hover'));
       cy.on('mouseout', 'edge', (evt) => evt.target.removeClass('edge-hover'));
-      // v1.5 拖动节点：按住时暂停模拟，松开后从当前位置续排（Obsidian 手感）
-      cy.on('grab', () => {
+      // v1.5 拖动节点：按住时模拟照常运行（被抓节点位置每帧同步进模拟），松开后视位移决定是否重排
+      let grabStartPos: { x: number; y: number } | null = null;
+      cy.on('grab', (evt) => {
         hoverTip = null;
-        dragging = true;   // v2.4 拖拽中模拟照常运行（被抓节点位置每帧同步进模拟），不再 stopForce
+        dragging = true;
+        grabStartPos = { ...evt.target.position() };   // v2.5 记录按下位置，用于区分点击与拖拽
       });
-      cy.on('free', () => {
+      cy.on('free', (evt) => {
         dragging = false;
-        // v2.4 模拟若仍在跑就让它继续；只有已死（收敛/被杀）才重启——
-        // 点击/拖拽/涟漪都不再能把布局停死
-        if (forceRun === null && cy) runForceLayout(cy);
+        // v2.5 只有真实拖拽（位移 ≥ 8px）且模拟已收敛时才重排——
+        // cytoscape 对每次单击也触发 grab/free，旧逻辑导致"点一下节点就整图重排"，
+        // 边界节点被挤出视图、双击第二下落空打不开信息栏。
+        // 重布局只允许发生在：打开/切换图谱、滑条改动、外部增删节点、真实拖拽松手。
+        const start = grabStartPos;
+        grabStartPos = null;
+        const el = evt.target;
+        let moved = Infinity;
+        if (start && el) {
+          moved = Math.hypot(el.position('x') - start.x, el.position('y') - start.y);
+        }
+        if (moved >= 8 && forceRun === null && cy) runForceLayout(cy);
       });
     } catch (e) {
       error = `[cytoscape init failed] ${(e as Error).message}`;
@@ -1408,7 +1419,8 @@
     if (!cy) return;
     const el = cy.getElementById(nodeId);
     if (el.empty()) return;
-    stopForce();
+    // v2.5 不再 stopForce——搜索定位只动视口（center/zoom），与位置模拟互不冲突；
+    // 旧代码会把正在铺开的布局杀在半途（与点击冻结同类问题）
     searchOpen = false;
     // 居中定位（动画）+ 高亮脉冲（1.6s 后消退）
     cy.animate({
