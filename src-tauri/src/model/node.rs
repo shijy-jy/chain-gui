@@ -45,6 +45,9 @@ pub struct Node {
     /// solves（子解决父的局限，递进主链）/ alternative（子是父的备选方案）
     #[serde(default)]
     pub rel: Option<String>,
+    /// 规划书 v1.1-D1：边说明（rel 的可选补充叙述，不引入边列表；MCP link_nodes 写入）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rel_desc: Option<String>,
     pub status: NodeStatus,
     pub created: String,
     pub updated: String,

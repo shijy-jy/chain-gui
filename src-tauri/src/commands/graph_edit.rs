@@ -41,14 +41,14 @@ fn normalize_rel(r: &Option<String>) -> &str {
 }
 
 /// id 安全校验：只允许字母数字连字符下划线（防路径穿越/非法文件名）
-fn is_safe_id(id: &str) -> bool {
+pub fn is_safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
         && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// 自动生成不重复的 id：node-1、node-2、…
-fn auto_id(nodes_dir: &std::path::Path) -> String {
+pub fn auto_id(nodes_dir: &std::path::Path) -> String {
     let mut n = 1;
     loop {
         let candidate = format!("node-{n}");

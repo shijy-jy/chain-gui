@@ -2,6 +2,7 @@ pub mod model;
 pub mod scanner;
 pub mod commands;
 pub mod watcher;
+pub mod mcp;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

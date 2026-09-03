@@ -159,6 +159,7 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
                 title: first_title_or(stem, content),
                 parent: None,
                 rel: None,
+                rel_desc: None,
                 status: NodeStatus::None,
                 created: now_iso8601(),
                 updated: now_iso8601(),
@@ -212,6 +213,8 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
         .and_then(|v| v.as_u64())
         .filter(|&r| r > 0)
         .unwrap_or(1) as u32;
+    // 规划书 v1.1-D1：可选边说明（dev 宽松提取，无则 None）
+    let rel_desc = get("rel_desc").and_then(|v| v.as_str().map(|s| s.to_string()));
     let tags = get("tags")
         .and_then(|v| v.as_sequence().map(|seq| {
             seq.iter().filter_map(|i| i.as_str().map(|s| s.to_string())).collect()
@@ -229,6 +232,7 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
         title,
         parent,
         rel,
+        rel_desc,
         status,
         created,
         updated,
