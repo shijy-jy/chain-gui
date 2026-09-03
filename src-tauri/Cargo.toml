@@ -14,6 +14,16 @@ rust-version = "1.77.2"
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# 显式声明 bin：M1 引入 src/bin/engram-mcp.rs 后 autobins 多 bin 导致 tauri build 主程序错选
+# （2.7.0 打包事故：engram-mcp 被当主程序 patch 改名覆盖 app.exe）。显式声明消除歧义。
+[[bin]]
+name = "app"
+path = "src/main.rs"
+
+[[bin]]
+name = "engram-mcp"
+path = "src/bin/engram-mcp.rs"
+
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
 
