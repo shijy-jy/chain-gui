@@ -24,6 +24,9 @@ serde_yaml = "0.9"
 anyhow = "1"
 walkdir = "2"
 log = "0.4"
+# engram-mcp：MCP server（M1 spike 引入；server 能力走 stdio，schemars 由 rmcp re-export 复用）
+rmcp = { version = "3.2", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["full"] }
 tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2.7.2"
