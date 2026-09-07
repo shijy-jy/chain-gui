@@ -24,6 +24,8 @@ pub fn scan_chain(
         .map(ScanMode::parse_lenient)
         .unwrap_or(ScanMode::Analysis);
     let path = PathBuf::from(&dir);
+    // 宪法第 9 条：schema major 高于当前支持 → 阻止打开（绝不降级写入旧数据）
+    engram_core::schema::check_openable(&path)?;
     // v2.1 模式强绑定：文件夹标签与请求模式不符 → 拒绝（防混用）
     engram_core::workspace::check_mode(&path, scan_mode)?;
     let snapshot = scan_chain_dir_mode(&path, scan_mode).map_err(|e| e.to_string())?;
@@ -330,6 +332,9 @@ pub fn add_workspace(
         // 旧工作区补签（v2.1 起所有工作区必须有标签）
         engram_core::workspace::write_mode_tag(&canonical, scan_mode)?;
     }
+    // 宪法第 9 条 adoption 写：GUI 添加工作区时补写 .schema（幂等；更低的 major 需走 migrate，
+    // 当前仅 1.0，无历史版本；未来版本在此接入「迁移弹窗」流程）
+    engram_core::schema::ensure_schema(&canonical)?;
 
     let p = config_path(&app)?;
     let mut list = engram_core::workspace::read_workspaces(&p);

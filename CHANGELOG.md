@@ -3,8 +3,17 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
 ## [未发布]
+### Changed
+- cargo workspace 化 + engram-core 下沉（唯一写路径重构，GUI/MCP 入口全部经 core 守门）
+- 双模式差异收为 core profile 配置包（rel 词表/指南指针/type·status 词表/校验开关）
+- GUI 写路径改走 core 原子写（tmp/rename），与 MCP 写路径同守门
+### Added
+- golden 契约测试实装（真实 engram-mcp 进程 11 条调用逐条比对，CI golden job）
+- 四版本矩阵 + git 短哈希：`engram-mcp --version` / `engram-cli --version` / GUI `get_version_info`
+- `.schema` 版本（隐式 1.0）+ `engram-cli migrate` 幂等迁移（detect→backup→transform→verify→write，失败回滚）
+- 供应链门禁：cargo-audit + cargo-deny（CI audit/deny job）+ 依赖理由清单
+- MCP 打开/GUI 扫描拒绝更高 major 工作区（SCHEMA_TOO_NEW:）
 ### Planned
-- cargo workspace 化 + engram-core 下沉（唯一写路径重构）
 - 单实例多工作区（workspace 参数）
 - 检索阶梯 L1–L5 + recall 工具
 

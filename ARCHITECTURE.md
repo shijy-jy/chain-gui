@@ -42,4 +42,4 @@ MCP 工具清单的增删改必须：①更新 golden 契约文件；②CHANGELO
 
 `.chain/.schema` 记录格式版本 `major.minor`（缺失 = 隐式 1.0，三位一体：frontmatter 字段集 / 目录结构 / 索引格式）。major 变更（破坏性事实源变更）必须走幂等迁移工具 `engram-cli migrate`（detect → backup → transform → verify → 写版本，失败回滚）；minor 变更（加性字段 / 派生物格式）仅重建派生物。旧软件遇更高 major 一律拒绝打开；扫描器除「忽略未知可选字段」外不出现任何版本 if 分支。
 
-**目标态（实现待 §10⑤）**：规则自 ADR 0013 生效；`.schema` 读写与 migrate 工具尚未实现，落地前 `.schema` 文件不产生，现有工作区按隐式 1.0 处理。
+**实现状态**：§10⑤ 已落地——`engram-core::schema`（读写/adoption/读者规则）、`engram-core::migrate`（五相幂等框架）、`engram-cli migrate`（退出码 0/2/3/4/5/1）、GUI 添加工作区 adoption 写、MCP/GUI 打开时拒绝更高 major。

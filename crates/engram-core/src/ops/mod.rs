@@ -46,6 +46,8 @@ impl Workspace {
                 root.display()
             )
         })?;
+        // 宪法第 9 条：旧软件遇更高 major 一律拒绝打开（MCP 只读 .schema，不 adoption 写）
+        crate::schema::check_openable(&root)?;
         Ok(Self { root, mode })
     }
 

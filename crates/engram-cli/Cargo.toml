@@ -1,0 +1,16 @@
+[package]
+name = "engram-cli"
+version = "2.7.0"
+description = "Engram 工作区维护 CLI（幂等迁移 migrate / 版本矩阵）"
+authors = ["shijy-jy"]
+license = "MIT"
+repository = "https://github.com/shijy-jy/engram"
+edition = "2021"
+rust-version = "1.77.2"
+
+[[bin]]
+name = "engram-cli"
+path = "src/main.rs"
+
+[dependencies]
+engram-core = { path = "../engram-core", version = "2.7.0" }

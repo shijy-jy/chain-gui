@@ -5,10 +5,12 @@
 
 pub mod evidence;
 pub mod guide;
+pub mod migrate;
 pub mod model;
 pub mod ops;
 pub mod profile;
 pub mod scanner;
+pub mod schema;
 pub mod version;
 pub mod watch;
 pub mod workspace;

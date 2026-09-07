@@ -7,8 +7,8 @@ use crate::guide::{AI_GUIDE_DEV_VERSION, AI_GUIDE_VERSION};
 /// 并同步更新 docs/test-golden/engram-mcp-golden.json。
 pub const TOOL_CONTRACT_VERSION: u32 = 1;
 
-/// 索引/schema 格式版本：§10⑤ 实现 `.schema` 前为未实现态（宪法第 9 条目标态）。
-pub const SCHEMA_SPEC_VERSION: Option<&str> = None;
+/// 索引/schema 格式版本（宪法第 9 条；§10⑤ 起已实现，见 crate::schema）
+pub const SCHEMA_SPEC_VERSION: Option<&str> = Some("1.0");
 
 /// 四版本矩阵 + 漂移锚点
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -44,15 +44,13 @@ impl VersionInfo {
     /// --version 单行人类可读输出（发布管线校验锚点）
     pub fn display_line(&self) -> String {
         format!(
-            "Engram {} (git {}) tool-contract v{} guide analysis v{}/dev v{} schema {}",
+            "Engram {} (git {}) tool-contract v{} guide analysis v{}/dev v{} schema v{}",
             self.app,
             self.git_hash,
             self.tool_contract,
             self.guide_analysis,
             self.guide_dev,
-            self.schema
-                .as_deref()
-                .unwrap_or("n/a（.schema 待实现，§10⑤）"),
+            self.schema.as_deref().unwrap_or("n/a（§10⑤ 待实现）"),
         )
     }
 }
@@ -80,10 +78,10 @@ mod tests {
             "应含双指南版本：{line}"
         );
         assert!(
-            line.contains("schema n/a"),
-            "schema 未实现应标注 n/a：{line}"
+            line.contains("schema v1.0"),
+            "schema 已实现应标注版本：{line}"
         );
-        assert_eq!(v.schema, None);
+        assert_eq!(v.schema.as_deref(), Some("1.0"));
     }
 
     #[test]

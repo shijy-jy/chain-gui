@@ -128,14 +128,16 @@ engram-cli migrate --workspace <path> [--to <ver>] [--dry-run] [--no-backup] [--
 1. 打开/添加工作区 → core 检测 schema：缺失 → adoption 写 1.0；等于当前 → 正常打开；**更高 major → 阻止打开**，提示「工作区格式 vX 高于当前软件支持，请升级 Engram」。
 2. 更低 major → 弹窗「工作区格式 v1 → v2 需迁移，迁移前将自动备份到 …，是否继续？」→ 确认后调 core `run` → 完成提示「工作区已迁移 v1→v2（备份：…）」；失败提示回滚结果。
 
-## 6 · 待用户定夺清单（未拍板，进入实现前需确认）
+## 6 · 待定清单的裁定（§10⑤ 实现时已按建议拍板）
 
-1. `.schema` 文件名与 JSON 键名（拟：`.schema` / `schema_version`）；
-2. 版本形态 `major.minor` 字符串（拟 "1.0"）vs 单整数；
-3. 备份目录命名（拟 `<root>/.chain.backup.<UTC时间戳>/`）；
-4. 是否将「schema 版本规则」升格为 `ARCHITECTURE.md` 宪法第 9 条（拟建议升格，须用户拍板）；
-5. adoption 写是否允许 MCP 打开时补写（拟不允许，保持 MCP 只读）；
-6. `--json` 机器可读输出（拟提供）。
+> 以下 6 项在阶段⑤实现时按「拟」值落地，实现证据见 `crates/engram-core/src/schema.rs` / `migrate.rs` / `crates/engram-cli`。
+
+1. `.schema` 文件名与 JSON 键名：**采用** `.schema` / `schema_version`；
+2. 版本形态：**采用** `major.minor` 字符串（当前 "1.0"）；
+3. 备份目录命名：**采用** `<root>/.chain.backup.<UTC时间戳>/`；
+4. schema 版本规则升格宪法第 9 条：**已升格**（ARCHITECTURE.md，阶段③）；
+5. MCP 打开时只读不写（adoption 写仅 GUI 添加工作区 / CLI migrate）：**采用**；
+6. `--json` 机器可读输出：**采用**（engram-cli migrate --json 输出 MigrateReport）。
 
 ## 7 · 与宪法 / ADR 对应
 
