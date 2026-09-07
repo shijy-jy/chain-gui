@@ -51,6 +51,6 @@ Tool "update_node" '{"id":"node-1","mode":"append","content":"\nappended note"}'
 Tool "link_nodes" '{"from":"node-1","to":"node-2","rel_type":"bogus"}' | Out-Null
 
 $p.Kill(); $p.WaitForExit()
-$golden | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $out "engram-mcp-golden.json") -Encoding UTF8
+$json = $golden | ConvertTo-Json -Depth 8; [System.IO.File]::WriteAllText((Join-Path $out "engram-mcp-golden.json"), $json, [System.Text.UTF8Encoding]::new($false))
 Remove-Item $ws -Recurse -Force
 "golden entries: $($golden.Count) -> docs/test-golden/engram-mcp-golden.json"

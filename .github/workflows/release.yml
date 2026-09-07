@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release (NSIS + engram-mcp)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Build NSIS
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Engram ${{ github.ref_name }}'
+          releaseBody: '自动发布：见 CHANGELOG.md（未覆盖项声明随附）。'
+          releaseDraft: true
+          prerelease: false
+
+      - name: Verify version stamp
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem src-tauri/target/release/engram-mcp.exe -ErrorAction SilentlyContinue
+          if (-not $exe) { throw "engram-mcp.exe not built" }
+          & $exe.FullName --version 2>&1 | Select-Object -First 1
