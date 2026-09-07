@@ -1,8 +1,13 @@
 ﻿# _collect_golden.ps1 - 固化 engram-mcp 9 工具的请求/响应对为 golden 契约文件
 # 输出：docs/test-golden/engram-mcp-golden.json（实现 MCP golden 契约测试时直接对照）
+# 路径参数化：本地/CI 可用 -Exe/-Out 覆盖；默认从本脚本所在仓库根推导
+param(
+  [string]$Exe = (Join-Path (Split-Path $PSScriptRoot -Parent) "src-tauri\target\release\engram-mcp.exe"),
+  [string]$Out = (Join-Path (Split-Path $PSScriptRoot -Parent) "docs\test-golden")
+)
 $ErrorActionPreference = "Stop"
-$exe = "D:\AIworkspace\Engram\engram-mcp.exe"
-$out = "G:\test1.x\docs\test-golden"
+$exe = $Exe
+$out = $Out
 New-Item -ItemType Directory -Force $out | Out-Null
 $ws = Join-Path $env:TEMP ("engram_golden_" + $PID)
 New-Item -ItemType Directory -Force (Join-Path $ws ".chain\nodes") | Out-Null

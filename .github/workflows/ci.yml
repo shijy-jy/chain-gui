@@ -74,7 +74,9 @@ jobs:
             ~/.cargo/git
             src-tauri/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
-      # 契约测试（待实现）：运行 tools/_collect_golden.ps1 生成当前响应并 diff docs/test-golden/engram-mcp-golden.json
+      # 完整 diff 契约测试（待实现）：用参数化的 tools/_collect_golden.ps1（-Exe/-Out）
+      # 在临时工作区生成当前响应，与 docs/test-golden/engram-mcp-golden.json 做结构化 diff。
+      # 当前步骤仅做 smoke：校验 golden 文件存在，防止误删/漏提交。
       - name: golden (smoke placeholder)
         shell: pwsh
         run: |
