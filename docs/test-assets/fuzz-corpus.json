@@ -1,0 +1,20 @@
+{
+  "comment": "frontmatter 解析器 fuzz 语料（初始集）：合法 / 畸形 / 编码边界三类。fuzz 目标：任何输入不得 panic；解析失败必须返回 Err 而非部分状态。",
+  "cases": [
+    { "id": "valid-minimal", "raw": "---\nid: a-001\ntitle: A\n---\n\nbody" },
+    { "id": "valid-full", "raw": "---\nid: g-001\ntype: goal\nstatus: in_progress\ntitle: 目标\ncreated: 2026-08-13T10:00:00+08:00\nupdated: 2026-08-13T10:00:00+08:00\nrevision: 3\ntags: [a, b]\nparent: null\n---\n\n# 目标\n正文" },
+    { "id": "no-frontmatter", "raw": "# 只有正文\n没有 frontmatter" },
+    { "id": "unclosed-delimiter", "raw": "---\nid: x-001\n" },
+    { "id": "bad-yaml-indent", "raw": "---\nid: x-001\n  title: 缩进错误\n---\n" },
+    { "id": "nested-junk", "raw": "---\nid: [unclosed\n---\n" },
+    { "id": "crlf", "raw": "---\r\nid: c-001\r\ntitle: CRLF\r\n---\r\n\r\nbody" },
+    { "id": "gbk-bytes", "raw": "---\nid: e-001\ntitle: \u00c3\u00a6\u00c2\u00b5\u00c2\u008b\n---\n" },
+    { "id": "chinese-id", "raw": "---\nid: 世界观-三界\ntitle: 三界\n---\n\n正文" },
+    { "id": "empty", "raw": "" },
+    { "id": "only-dashes", "raw": "---\n---" },
+    { "id": "duplicate-keys", "raw": "---\nid: a\nid: b\n---\n" },
+    { "id": "rel-array-vs-scalar", "raw": "---\nid: r-001\nrel:\n  - to: x\n    type: solves\n---\n" },
+    { "id": "deep-nesting", "raw": "---\na: {b: {c: {d: {e: [1,2,3]}}}}\n---\n" },
+    { "id": "huge-single-line", "raw": "---\nid: " + "x".repeat(10000) + "\n---\n" }
+  ]
+}

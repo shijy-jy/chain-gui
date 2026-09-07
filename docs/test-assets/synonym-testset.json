@@ -1,0 +1,44 @@
+{
+  "comment": "中文同义词检索测试集：embedding 选型门槛（fastembed + BGE-small-zh-v1.5 必须通过全部三组）。每组 query 与 target_title 语义同义、与 distractors 语义无关；判据：cos(query, target) > cos(query, 每个 distractor) 且 > 0.35。",
+  "groups": [
+    {
+      "id": "g1",
+      "query": "布局",
+      "target_title": "力导向布局",
+      "target_body": "节点斥力与弹簧吸引的平衡模拟，用于图的自动排列。",
+      "distractors": [
+        { "title": "贝叶斯定理", "body": "条件概率的更新公式。" },
+        { "title": "文件监听", "body": "目录变化事件的去抖与重扫。" }
+      ]
+    },
+    {
+      "id": "g2",
+      "query": "采样",
+      "target_title": "蓄水池重采样",
+      "target_body": "加权流式采样算法，保持样本分布的无偏性。",
+      "distractors": [
+        { "title": "马尔可夫链", "body": "状态转移的概率模型。" },
+        { "title": "梯度下降", "body": "损失函数的迭代优化。" }
+      ]
+    },
+    {
+      "id": "g3",
+      "query": "缺陷",
+      "target_title": "局限 · 路径追踪方差大",
+      "target_body": "间接光照与小光源场景下收敛极慢，需要海量样本。",
+      "distractors": [
+        { "title": "纹理压缩", "body": "图像存储的编码格式。" },
+        { "title": "线程池", "body": "并发任务的调度结构。" }
+      ]
+    },
+    {
+      "id": "g4-mixed-formula",
+      "query": "蒙特卡洛积分",
+      "target_title": "渲染方程与蒙特卡洛估计",
+      "target_body": "用采样均值估计积分 $I = \\int f(x) dx$，收敛率 $O(1/\\sqrt{N})$。",
+      "distractors": [
+        { "title": "JSON 序列化", "body": "结构数据的文本编码。" }
+      ]
+    }
+  ]
+}

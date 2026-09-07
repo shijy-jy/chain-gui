@@ -47,10 +47,34 @@ pub fn start_watch(
         *dir_guard = Some(dir.clone());
     }
 
-    let last_fire = std::sync::Arc::new(Mutex::new(Instant::now() - Duration::from_secs(1)));
-    let scan_dir = dir.clone();
+    // 事件回调与 Tauri 解耦：build_watch_callback 纯逻辑可脱离 AppHandle 测试（补事件循环盲区）
+    let callback = build_watch_callback(dir.clone(), mode, move |result| match result {
+        RescanResult::Ok(snapshot) => { let _ = app.emit("chain-changed", &snapshot); }
+        RescanResult::Err(e) => { let _ = app.emit("chain-error", e); }
+    });
 
-    let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+    let mut watcher = notify::recommended_watcher(callback).map_err(|e| format!("创建 watcher 失败：{e}"))?;
+
+    watcher.watch(&nodes_dir, RecursiveMode::NonRecursive)
+        .map_err(|e| format!("监听失败：{e}"))?;
+
+    let mut guard = state.watcher.lock().map_err(|e| e.to_string())?;
+    *guard = Some(watcher);
+    Ok(())
+}
+
+/// 事件循环回调（与 Tauri 解耦，可测试）：只关心 nodes/ 下 .md 的 Modify/Create/Remove，
+/// 300ms 去抖后按当前模式重扫并交给 emit 回调。
+pub fn build_watch_callback<F>(
+    scan_dir: PathBuf,
+    mode: Arc<Mutex<ScanMode>>,
+    emit: F,
+) -> impl FnMut(notify::Result<notify::Event>)
+where
+    F: Fn(RescanResult) + Send + 'static,
+{
+    let last_fire = Arc::new(Mutex::new(Instant::now() - Duration::from_secs(1)));
+    move |res: Result<notify::Event, notify::Error>| {
         let Ok(event) = res else { return };
         if !matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)) {
             return;
@@ -68,18 +92,8 @@ pub fn start_watch(
         let Ok(mode_guard) = mode.lock() else { return };
         let scan_mode = *mode_guard;
         drop(mode_guard);
-        rescan_and_emit(&scan_dir, scan_mode, |result| match result {
-            RescanResult::Ok(snapshot) => { let _ = app.emit("chain-changed", &snapshot); }
-            RescanResult::Err(e) => { let _ = app.emit("chain-error", e); }
-        });
-    }).map_err(|e| format!("创建 watcher 失败：{e}"))?;
-
-    watcher.watch(&nodes_dir, RecursiveMode::NonRecursive)
-        .map_err(|e| format!("监听失败：{e}"))?;
-
-    let mut guard = state.watcher.lock().map_err(|e| e.to_string())?;
-    *guard = Some(watcher);
-    Ok(())
+        rescan_and_emit(&scan_dir, scan_mode, &emit);
+    }
 }
 
 #[cfg(test)]
@@ -149,5 +163,37 @@ mod tests {
             }
         });
         assert!(got_err.get(), "无 .chain 目录应报错");
+    }
+
+    /// 事件循环真实测试（补盲区）：真实 notify watcher + 真实文件写入 →
+    /// build_watch_callback 应在 2s 内触发重扫（验收判据「GUI 2 秒内刷新」的自动化等价）。
+    #[test]
+    fn test_watch_event_loop_picks_up_new_md_file() {
+        let tmp = setup_chain();
+        let nodes_dir = tmp.path().join(".chain").join("nodes");
+        let (tx, rx) = std::sync::mpsc::channel::<usize>();
+
+        let mode = Arc::new(Mutex::new(ScanMode::Analysis));
+        let callback = build_watch_callback(tmp.path().to_path_buf(), mode, move |result| {
+            if let RescanResult::Ok(snap) = result {
+                let _ = tx.send(snap.nodes.len());
+            }
+        });
+        let mut watcher = notify::recommended_watcher(callback).expect("watcher 创建失败");
+        watcher
+            .watch(&nodes_dir, RecursiveMode::NonRecursive)
+            .expect("监听失败");
+
+        // 写入新节点文件（真实文件事件）
+        fs::write(
+            nodes_dir.join("t-001.md"),
+            "---\nid: t-001\ntype: task\ntitle: 任务1\nparent: g-001\nstatus: pending\ncreated: 2026-08-13T10:00:00+08:00\nupdated: 2026-08-13T10:00:00+08:00\nrevision: 1\ntags: []\n---\n\n# 任务1\n",
+        )
+        .unwrap();
+
+        let got = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("2 秒内应收到 watcher 事件（事件循环盲区回归）");
+        assert_eq!(got, 2, "重扫应发现 2 个节点（初始 g-001 + 新增 t-001）");
     }
 }
