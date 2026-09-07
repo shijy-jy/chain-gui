@@ -116,11 +116,14 @@ engram/
 │   ├── App.svelte            # 主组件：图谱、波纹、布局、搜索、工具栏
 │   ├── lib/                  # 涟漪 BFS 分层、链数据转换、侧栏编辑、正文渲染
 │   └── components/           # 工作区栏、状态栏、新建节点对话框
-├── src-tauri/                # Rust 后端
-│   ├── model/                # Node / ChainSnapshot / 更新模型
-│   ├── scanner/              # frontmatter 解析、目录扫描、结构校验
-│   ├── commands/             # Tauri 命令（扫描/编辑/折叠/快照/指南/工作区）
-│   └── watcher.rs            # 文件监听 → 前端实时刷新
+├── crates/                   # Rust workspace（cargo workspace 化，见 ARCHITECTURE.md）
+│   ├── engram-core/          # 领域核心纯库：唯一知道「规则」的地方（零 Tauri/MCP 依赖）
+│   │   ├── model/            # Node / ChainSnapshot / 更新模型
+│   │   ├── scanner/          # frontmatter 解析、目录扫描、结构校验
+│   │   ├── ops/              # 读写守门（D2/D3/D4）+ 检索工具 + 链级操作（唯一写路径）
+│   │   └── profile/guide/watch/… # 双模式 profile、AI 指南、watcher 回调
+│   ├── engram-mcp/           # MCP server 薄壳（stdio 协议映射，调 core）
+│   └── engram-gui/           # Tauri 桌面壳薄命令层（调 core）
 ├── resources/                # 双 AI 使用指南（分析 v7 / 开发 v2）
 ├── demo/                     # 两个示例工程（可直接打开体验）
 └── docs/                     # 截图与文档

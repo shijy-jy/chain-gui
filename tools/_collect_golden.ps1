@@ -2,7 +2,7 @@
 # 输出：docs/test-golden/engram-mcp-golden.json（实现 MCP golden 契约测试时直接对照）
 # 路径参数化：本地/CI 可用 -Exe/-Out 覆盖；默认从本脚本所在仓库根推导
 param(
-  [string]$Exe = (Join-Path (Split-Path $PSScriptRoot -Parent) "src-tauri\target\release\engram-mcp.exe"),
+  [string]$Exe = (Join-Path (Split-Path $PSScriptRoot -Parent) "target\release\engram-mcp.exe"),
   [string]$Out = (Join-Path (Split-Path $PSScriptRoot -Parent) "docs\test-golden")
 )
 $ErrorActionPreference = "Stop"

@@ -1,6 +1,4 @@
-# Build outputs
-src-tauri/target/
-src-tauri/resources/
+# Build outputs（cargo workspace 统一 target 在仓库根）
 /target/
 dist/
 node_modules/

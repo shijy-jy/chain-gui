@@ -9,9 +9,6 @@ jobs:
   rust:
     name: Rust (fmt · clippy · test)
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: src-tauri
     steps:
       - uses: actions/checkout@v4
 
@@ -26,17 +23,17 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
 
       - name: fmt
         run: cargo fmt --all -- --check
 
       - name: clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: test
-        run: cargo test --lib
+        run: cargo test --workspace
 
   frontend:
     name: Frontend (svelte-check · build)
@@ -61,9 +58,6 @@ jobs:
     name: MCP golden contract
     runs-on: windows-latest
     needs: rust
-    defaults:
-      run:
-        working-directory: src-tauri
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -72,13 +66,13 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
       # 完整 diff 契约测试（待实现）：用参数化的 tools/_collect_golden.ps1（-Exe/-Out）
       # 在临时工作区生成当前响应，与 docs/test-golden/engram-mcp-golden.json 做结构化 diff。
       # 当前步骤仅做 smoke：校验 golden 文件存在，防止误删/漏提交。
       - name: golden (smoke placeholder)
         shell: pwsh
         run: |
-          if (-not (Test-Path ../docs/test-golden/engram-mcp-golden.json)) { throw "golden file missing" }
+          if (-not (Test-Path docs/test-golden/engram-mcp-golden.json)) { throw "golden file missing" }
           Write-Host "golden contract smoke: file present (full diff test lands with contract test impl)"

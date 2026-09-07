@@ -1,0 +1,38 @@
+[package]
+name = "engram-gui"
+version = "0.1.0"
+description = "Engram — 开发者与 AI 共用的工程记忆图谱与知识库（本地优先、纯文本、桌面可视化）"
+authors = ["shijy-jy"]
+license = "MIT"
+repository = "https://github.com/shijy-jy/engram"
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "engram_gui"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# 显式声明 bin：engram-mcp 已拆分为独立 crate（engram-mcp），此处仅主程序。
+# 2.7.0 打包事故（多 bin 导致 tauri build 主程序错选）从结构上消除：GUI crate 只有一个 bin。
+[[bin]]
+name = "app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+engram-core = { path = "../engram-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+tauri = { version = "2.11.3", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2.7.2"
+# WatchState 持有 RecommendedWatcher（core::watch 构造回调，GUI 持有句柄）
+notify = "8.2.0"
+# v1.8 证据打开：ShellExecuteW 直调（参照 tauri-plugin-opener/open crate 的 shellexecute 实现与 Python os.startfile；
+# explorer.exe/cmd start 均有怪癖，不可靠）。windows-sys 0.59 已在依赖树中，无新增外部 crate。
+windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_Foundation"] }

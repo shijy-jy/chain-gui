@@ -1,0 +1,21 @@
+[package]
+name = "engram-core"
+version = "0.1.0"
+description = "Engram 领域核心：唯一知道「规则」的纯库（零 Tauri、零 MCP 依赖）"
+authors = ["shijy-jy"]
+license = "MIT"
+repository = "https://github.com/shijy-jy/engram"
+edition = "2021"
+rust-version = "1.77.2"
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+anyhow = "1"
+walkdir = "2"
+# watcher 事件循环（纯回调构造，Tauri 发射留在 GUI 侧）
+notify = "8.2.0"
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,22 @@
+[package]
+name = "engram-mcp"
+version = "0.1.0"
+description = "Engram MCP server（stdio 薄壳适配器：协议翻译，规则全在 engram-core）"
+authors = ["shijy-jy"]
+license = "MIT"
+repository = "https://github.com/shijy-jy/engram"
+edition = "2021"
+rust-version = "1.77.2"
+
+[[bin]]
+name = "engram-mcp"
+path = "src/main.rs"
+
+[dependencies]
+engram-core = { path = "../engram-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1"
+# MCP server（server 能力走 stdio，schemars 由 rmcp re-export 复用）
+rmcp = { version = "3.2", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["full"] }
