@@ -1,5 +1,5 @@
 {
-  "comment": "中文同义词检索测试集：embedding 选型门槛（fastembed + BGE-small-zh-v1.5 必须通过全部三组）。每组 query 与 target_title 语义同义、与 distractors 语义无关；判据：cos(query, target) > cos(query, 每个 distractor) 且 > 0.35。",
+  "comment": "中文同义词检索测试集：embedding 选型门槛（fastembed + BGE-small-zh-v1.5 必须通过全部组）。每组 query 与 target_title 语义同义、与 distractors 语义无关；判据：cos(query, target) > cos(query, 每个 distractor) 且 > 0.35。（target 嵌入文本 = title + 换行 + body，与检索侧节点文本口径一致）",
   "groups": [
     {
       "id": "g1",
