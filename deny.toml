@@ -1,0 +1,38 @@
+# Engram 供应链门禁（终版 §7）：许可证白名单 MIT/Apache-2.0/BSD + 说明例外
+# CI：cargo-deny check licenses advisories bans sources（.github/workflows/ci.yml deny job）
+[advisories]
+version = 3
+# 漏洞（vulnerability）恒为 deny，无需配置
+yanked = "warn"
+# unmaintained 仅对 workspace 直接依赖告警（transitive 全部告警噪音过大）
+unmaintained = "workspace"
+
+[licenses]
+# 白名单原则：宽松许可证 + 树内实际存在的无传染性例外（如 ring 的 ISC/MIT/OpenSSL 组合、webpki 系列 MPL）
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "CC0-1.0",
+]
+# 不在 allow 清单内的一律 deny（cargo-deny 0.20 起 copyleft/default/unlicensed 键已并入此语义）
+confidence-threshold = 0.8
+
+# 例外（逐个注明理由）：
+# target-lexicon（经 system-deps → tauri 的 Linux 平台链）：LLVM 例外条款，宽松许可
+[[licenses.exceptions]]
+name = "target-lexicon"
+version = "*"
+allow = ["Apache-2.0 WITH LLVM-exception"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

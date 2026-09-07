@@ -160,6 +160,14 @@ pub fn get_guide_version(mode: Option<String>) -> u32 {
     engram_core::guide::guide_version_for(mode.as_deref())
 }
 
+/// 四版本矩阵 + git 短哈希（诊断/状态栏用，ADR 0011；版本取自 tauri.conf.json）
+#[command]
+pub fn get_version_info(app: AppHandle) -> Result<engram_core::version::VersionInfo, String> {
+    Ok(engram_core::version::VersionInfo::new(
+        &app.package_info().version.to_string(),
+    ))
+}
+
 // ── 证据 ──────────────────────────────────────────────────
 
 /// 把绝对路径转成相对工程根的 evidence 相对路径（协议要求相对路径，统一 `/` 分隔）

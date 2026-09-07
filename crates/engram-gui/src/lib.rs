@@ -31,6 +31,7 @@ pub fn run() {
             commands::init_chain,
             commands::get_ai_guide,
             commands::get_guide_version,
+            commands::get_version_info,
             commands::append_log,
             commands::get_process_log,
             commands::snapshot_chain,

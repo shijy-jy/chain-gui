@@ -9,5 +9,6 @@ pub mod model;
 pub mod ops;
 pub mod profile;
 pub mod scanner;
+pub mod version;
 pub mod watch;
 pub mod workspace;

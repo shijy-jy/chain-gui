@@ -29,26 +29,39 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            src-tauri/target
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('src-tauri/Cargo.lock') }}
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
 
       - run: npm ci
       - run: npm run build
 
-      - name: Build NSIS
+      - name: Build engram-mcp (release)
+        run: cargo build --release -p engram-mcp
+
+      - name: Stage engram-mcp into bundle resources
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force crates/engram-gui/resources | Out-Null
+          Copy-Item target/release/engram-mcp.exe crates/engram-gui/resources/engram-mcp.exe
+
+      - name: Verify version stamp (drift anchor)
+        shell: pwsh
+        run: |
+          $line = & target/release/engram-mcp.exe --version
+          Write-Host $line
+          $short = $env:GITHUB_SHA.Substring(0, 7)
+          if ($line -notmatch [regex]::Escape($short)) { throw "版本戳不含 git 短哈希 $short（构建漂移）" }
+
+      - name: Build NSIS (tauri-action)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: crates/engram-gui
           tagName: ${{ github.ref_name }}
           releaseName: 'Engram ${{ github.ref_name }}'
-          releaseBody: '自动发布：见 CHANGELOG.md（未覆盖项声明随附）。'
+          releaseBody: |
+            自动发布（cargo workspace：engram-core / engram-mcp / engram-gui）。
+            未覆盖项声明：GUI 端到端（WebDriver 冒烟）尚未自动化；MCP 11 工具已由 golden 契约测试覆盖（CI golden job）；真实目录端到端验证为 ignored 测试，需手动执行 `cargo test -p engram-core --test real_dir_verify -- --ignored`。
           releaseDraft: true
           prerelease: false
-
-      - name: Verify version stamp
-        shell: pwsh
-        run: |
-          $exe = Get-ChildItem src-tauri/target/release/engram-mcp.exe -ErrorAction SilentlyContinue
-          if (-not $exe) { throw "engram-mcp.exe not built" }
-          & $exe.FullName --version 2>&1 | Select-Object -First 1

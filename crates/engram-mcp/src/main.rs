@@ -250,6 +250,14 @@ async fn main() -> anyhow::Result<()> {
     let mut workspace: Option<PathBuf> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
+        // 四版本矩阵 + git 短哈希（ADR 0011）：安装版/开发版漂移验证锚点
+        if a == "--version" || a == "-V" {
+            println!(
+                "{}",
+                engram_core::version::VersionInfo::new(env!("CARGO_PKG_VERSION")).display_line()
+            );
+            return Ok(());
+        }
         if a == "--workspace" || a == "-w" {
             workspace = args.next().map(PathBuf::from);
         }

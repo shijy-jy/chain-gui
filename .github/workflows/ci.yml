@@ -73,3 +73,23 @@ jobs:
       # docs/test-golden/engram-mcp-golden.json 逐条对比；golden 缺失时 include_str! 编译失败。
       - name: golden contract
         run: cargo test -p engram-mcp --test golden_contract
+
+  audit:
+    name: Security audit (cargo-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  deny:
+    name: Supply chain (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses advisories bans sources
+          arguments: --hide-inclusion-graph
