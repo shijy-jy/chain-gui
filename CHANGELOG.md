@@ -3,9 +3,10 @@
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
 ## [未发布]
-- 计划：cargo workspace 化 + engram-core 下沉（唯一写路径重构）
-- 计划：单实例多工作区（workspace 参数）
-- 计划：检索阶梯 L1–L5 + recall 工具
+### Planned
+- cargo workspace 化 + engram-core 下沉（唯一写路径重构）
+- 单实例多工作区（workspace 参数）
+- 检索阶梯 L1–L5 + recall 工具
 
 ## [2.7.0] - 2026-09-03
 ### Added

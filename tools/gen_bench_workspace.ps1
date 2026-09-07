@@ -1,4 +1,4 @@
-# gen_bench_workspace.ps1 - 生成 N 节点基准工作区（dev 模式）
+﻿# gen_bench_workspace.ps1 - 生成 N 节点基准工作区（dev 模式）
 # 用法：powershell -File tools/gen_bench_workspace.ps1 -N 1000 -Out "G:\temp\bench-1000"
 # 结构：hub 树 + 10% 孤立节点；用于扫描性能 / 布局 / 全库重嵌基准。
 param([int]$N = 1000, [string]$Out = "")

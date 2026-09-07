@@ -1,4 +1,4 @@
-# _collect_golden.ps1 - 固化 engram-mcp 9 工具的请求/响应对为 golden 契约文件
+﻿# _collect_golden.ps1 - 固化 engram-mcp 9 工具的请求/响应对为 golden 契约文件
 # 输出：docs/test-golden/engram-mcp-golden.json（实现 MCP golden 契约测试时直接对照）
 $ErrorActionPreference = "Stop"
 $exe = "D:\AIworkspace\Engram\engram-mcp.exe"

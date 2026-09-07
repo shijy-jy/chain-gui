@@ -1,6 +1,8 @@
 # ARCHITECTURE.md — Engram 分层宪法
 
 > 本文件是不可逾越条款（摘录自《架构设计终版 v1.0》§2）。任何 PR 违反以下条款即被拒绝；条款变更必须走 ADR。
+>
+> 与终版 §2 的对应说明：终版第 2、3 条（派生物不进事实源 / 统计索引审计不进 YAML）在此合并为本文件第 2 条；本文件第 8 条「工具即契约」为摘录时新增。主题全覆盖、内容一致。
 
 ## 1. 依赖方向
 
@@ -30,7 +32,7 @@ rel 三类型（contains / solves / alternative）不扩张；语义细节走 re
 
 ## 7. 错误码契约
 
-稳定错误码 + 文案分离：`CONFLICT:` / `DUPLICATE_TITLE:` / `INVALID_REL:` / `WORKSPACE_MODE_MISMATCH:`。文案可改，码不可改；i18n 由此预留。
+**目标态（当前未实现，待落地时补齐）**：稳定错误码 + 文案分离：`CONFLICT:` / `DUPLICATE_TITLE:` / `INVALID_REL:` / `WORKSPACE_MODE_MISMATCH:`。文案可改，码不可改；i18n 由此预留。当前 server 返回的错误文案尚不含统一前缀，实现错误码分层时同步固化进 golden 契约。
 
 ## 8. 工具即契约
 

@@ -1,4 +1,4 @@
-﻿[
+[
     {
         "request":  "{\"name\":\"create_node\",\"arguments\":{\"title\":\"Golden A\",\"body\":\"# A\\nnode A body\"}}",
         "tool":  "create_node",
