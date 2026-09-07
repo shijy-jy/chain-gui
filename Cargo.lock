@@ -824,9 +824,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "engram-core",
+ "regex",
  "rmcp",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 

@@ -68,11 +68,8 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-      # 完整 diff 契约测试（待实现）：用参数化的 tools/_collect_golden.ps1（-Exe/-Out）
-      # 在临时工作区生成当前响应，与 docs/test-golden/engram-mcp-golden.json 做结构化 diff。
-      # 当前步骤仅做 smoke：校验 golden 文件存在，防止误删/漏提交。
-      - name: golden (smoke placeholder)
-        shell: pwsh
-        run: |
-          if (-not (Test-Path docs/test-golden/engram-mcp-golden.json)) { throw "golden file missing" }
-          Write-Host "golden contract smoke: file present (full diff test lands with contract test impl)"
+      # 完整 diff 契约测试（已实装）：crates/engram-mcp/tests/golden_contract.rs
+      # 拉起真实 engram-mcp 进程重放 11 条工具调用，归一化（时间戳/临时路径）后与
+      # docs/test-golden/engram-mcp-golden.json 逐条对比；golden 缺失时 include_str! 编译失败。
+      - name: golden contract
+        run: cargo test -p engram-mcp --test golden_contract

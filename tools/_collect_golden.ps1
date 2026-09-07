@@ -44,6 +44,9 @@ Send "initialize" '{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo
 Send "notifications/initialized" "{}" | Out-Null
 
 Tool "create_node" '{"title":"Golden A","body":"# A\nnode A body"}' | Out-Null
+# 防时序抖动：updated 为秒级精度，两节点跨秒创建保证 search 的 updated 倒序结果确定
+# （Rust 侧 golden_contract.rs 有相同间隔；两端必须保持一致）
+Start-Sleep -Milliseconds 1100
 Tool "create_node" '{"title":"Golden B","body":"# B\nnode B body"}' | Out-Null
 Tool "link_nodes" '{"from":"node-1","to":"node-2","rel_type":"solves"}' | Out-Null
 Tool "get_overview" '{}' | Out-Null
