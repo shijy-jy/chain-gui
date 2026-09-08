@@ -592,7 +592,6 @@
   let waterCtx: CanvasRenderingContext2D | null = null;
   let waterRaf: number | null = null;
   let waterFrame = 0;
-  let waterBaseGrad: CanvasGradient | null = null;
 
   // ── v2.3 涟漪参数（测试面板，用户可调）──
   const waveParams = $state({
@@ -793,14 +792,6 @@
     if (waterCanvas.width !== w || waterCanvas.height !== h) {
       waterCanvas.width = w;
       waterCanvas.height = h;
-      waterBaseGrad = null;
-    }
-    if (!waterBaseGrad) {
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, '#070d18');
-      g.addColorStop(0.55, '#0a1524');
-      g.addColorStop(1, '#060b13');
-      waterBaseGrad = g;
     }
 
     // ── 波源生命周期 ──
@@ -817,8 +808,20 @@
     if (dips.length > 0) {
       dips = dips.filter((d) => nowMs - d.t0 < 820);
     }
-    // v2.13：闲置零绘制——无波源时上一帧已是干净底色，直接跳过（省全屏 fill + 一切重活）
-    if (active.length === 0) return;
+    // v2.13：波源全部停息 → 清理残留缩放旁路后零绘制（上一帧已擦净，CSS 底色透出）
+    if (active.length === 0) {
+      if (cyRef && rippleScaled.size > 0) {
+        for (const id of rippleScaled) {
+          const ele = cyRef.getElementById(id);
+          if (!ele.empty()) {
+            ele.removeStyle('width');
+            ele.removeStyle('height');
+          }
+        }
+        rippleScaled = new Set();
+      }
+      return;
+    }
     ensurePositions(cyRef);
     for (const s of active) {
       const p = nodePos(s.id);
@@ -826,9 +829,8 @@
       s.gy = p.y;
     }
 
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = waterBaseGrad;
-    ctx.fillRect(0, 0, w, h);
+    // v2.13 60fps：底色由 CSS 承担，每帧只 clearRect 擦掉上一帧的环（比渐变填充快 2-3 倍）
+    ctx.clearRect(0, 0, w, h);
 
     const period = Math.max(0.2, waveParams.period);
     const fadePow = Math.max(0.3, waveParams.fade);
@@ -877,10 +879,11 @@
     }
     ctx.globalAlpha = 1;
 
-    // ── 节点运动（俯视语义）：v2.13 收窄为「波源深呼吸 + 点击沉水」——
-    //    原「受影响节点每帧缩放脉冲」是对全图元素每帧写样式（卡顿主因），
-    //    该语义改由上方 canvas 礁石环承担；波源数量极少（通常 1-3），成本可忽略 ──
+    // ── 节点运动（俯视语义）：v2.13 收窄为「波源深呼吸 + 点击沉水」，且**隔帧更新（30Hz）**——
+    //    每帧写 cytoscape 样式会以 60Hz 触发整图重绘（大图代价高），而呼吸是慢正弦，
+    //    30Hz 视觉无差；高速环动画由 canvas 以 60fps 承担 ──
     if (!cyRef) return;
+    if (frame % 2 !== 0) return;
     const scaledNow = new Set<string>();
     cyRef.batch(() => {
       for (const s of active) {
@@ -911,7 +914,9 @@
     rippleScaled = scaledNow;
   }
 
-  // 水面动画循环（按时长节流 ~30fps——120Hz 屏上不翻倍重活；开发模式常驻）
+  // 水面动画循环（按时长节流 ~60fps——环动画位移大（约 600px/s），30fps 每帧跳 20px 可见顿挫；
+  //   每帧重活已在上轮优化消除：静态位置缓存、呼吸样式 30Hz、底色走 CSS，60fps 预算充足；
+  //   120Hz+ 屏上以 16ms 为上限不超速）
   function startWaterLoop() {
     if (waterRaf !== null) return;
     const t0 = performance.now();
@@ -919,7 +924,7 @@
     const tick = () => {
       waterRaf = null;
       const now = performance.now();
-      if (now - lastDraw >= 33) {
+      if (now - lastDraw >= 16) {
         lastDraw = now;
         waterFrame += 1;
         drawWater(cy, (now - t0) / 1000, waterFrame);
@@ -2083,7 +2088,8 @@
     z-index: 1;
     background: transparent;   /* v2.4 两模式统一：透出水面画布 */
   }
-  /* v2.2 水面画布（开发模式）：节点层之下，透明背景透出 */
+  /* v2.2 水面画布（开发模式）：节点层之下；v2.13 渐变底色走 CSS（每帧只 clearRect 擦旧环，
+     免去每帧全屏渐变填充——60fps 流畅度优化） */
   .water-canvas {
     position: absolute;
     inset: 0;
@@ -2091,6 +2097,7 @@
     width: 100%;
     height: 100%;
     pointer-events: none;
+    background: linear-gradient(180deg, #070d18 0%, #0a1524 55%, #060b13 100%);
   }
   /* v1.7 悬停浮层（id · 类型）：跟随节点渲染坐标，不拦截鼠标 */
   .hover-tip {
