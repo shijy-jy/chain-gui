@@ -558,7 +558,7 @@ mod tests {
             .trim()
             .trim_matches('"')
             .trim_matches('\'');
-        // RFC3339（UTC+8）：YYYY-MM-DDTHH:MM:SS+08:00，25 字符
+        // RFC3339（+08:00 本地时区）：YYYY-MM-DDTHH:MM:SS+08:00，25 字符
         assert_eq!(ts.len(), 25, "updated 必须是 RFC3339 格式，实际：{}", ts);
         assert_eq!(&ts[10..11], "T");
         assert!(

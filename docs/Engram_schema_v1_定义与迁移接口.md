@@ -117,7 +117,7 @@ pub enum MigrateError {
 engram-cli migrate --workspace <path> [--to <ver>] [--dry-run] [--no-backup] [--json]
 ```
 
-- 流程固定五相：**detect**（读 `.schema`，算目标版本）→ **backup**（整目录复制到 `<root>/.chain.backup.<UTC时间戳>/`，位于 `.chain` 之外不污染扫描）→ **transform**（按版本步进执行 A/B 类动作）→ **verify**（重扫 + validator 全绿；A 类另验节点数/边数与迁移前一致）→ **write**（写新 `.schema`）。
+- 流程固定五相：**detect**（读 `.schema`，算目标版本）→ **backup**（整目录复制到 `<root>/.chain.backup.<本地时间戳 +08:00>/`，位于 `.chain` 之外不污染扫描）→ **transform**（按版本步进执行 A/B 类动作）→ **verify**（重扫 + validator 全绿；A 类另验节点数/边数与迁移前一致）→ **write**（写新 `.schema`）。
 - 幂等契约：同一 (from→to) 步进重复执行结果一致；backup/transform/write 任一相失败 → 从备份回滚并报 `MIGRATE_FAILED:`（exit 1），verify 失败 → 回滚并报 `VERIFY_FAILED:`（exit 3）。
 - 退出码：`0` 成功或已是最新；`2` dry-run 将发生变更（未落盘）；`3` 校验失败（已回滚）；`4` SCHEMA_TOO_NEW（旧软件拒绝打开）；`5` 非工作区/参数非法；`1` 其他错误。
 - 输出：人类可读报告走 stdout；`--json` 输出 `MigrateReport` 序列化（供 GUI 与测试消费）。
@@ -134,7 +134,7 @@ engram-cli migrate --workspace <path> [--to <ver>] [--dry-run] [--no-backup] [--
 
 1. `.schema` 文件名与 JSON 键名：**采用** `.schema` / `schema_version`；
 2. 版本形态：**采用** `major.minor` 字符串（当前 "1.0"）；
-3. 备份目录命名：**采用** `<root>/.chain.backup.<UTC时间戳>/`；
+3. 备份目录命名：**采用** `<root>/.chain.backup.<本地时间戳 +08:00>/`；
 4. schema 版本规则升格宪法第 9 条：**已升格**（ARCHITECTURE.md，阶段③）；
 5. MCP 打开时只读不写（adoption 写仅 GUI 添加工作区 / CLI migrate）：**采用**；
 6. `--json` 机器可读输出：**采用**（engram-cli migrate --json 输出 MigrateReport）。

@@ -106,18 +106,24 @@ fn class_for(from: SchemaVersion, to: SchemaVersion) -> MigrateClass {
 pub fn plan(root: &Path) -> Result<MigratePlan, MigrateError> {
     let found = detect(root)?;
     let to = SchemaVersion::current();
-    if found > to {
+    // 只按 major 判定「旧软件拒绝打开」（与 check_openable 一致）；
+    // 同 major 更高 minor 可打开、可读——migrate 不得降级写入，走「无步骤」路径（run 只警告）
+    if found.major > to.major {
         return Err(MigrateError::SchemaTooNew {
             found,
             supported: to,
         });
     }
-    let steps = steps_between(found, to).ok_or_else(|| {
-        MigrateError::MigrateFailed(format!(
-            "缺少 v{}→v{} 的迁移步骤（需在 engram-core::migrate::steps_between 登记）",
-            found, to
-        ))
-    })?;
+    let steps = if found > to {
+        Vec::new()
+    } else {
+        steps_between(found, to).ok_or_else(|| {
+            MigrateError::MigrateFailed(format!(
+                "缺少 v{}→v{} 的迁移步骤（需在 engram-core::migrate::steps_between 登记）",
+                found, to
+            ))
+        })?
+    };
     Ok(MigratePlan {
         from: found,
         to,
@@ -142,7 +148,12 @@ pub fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateReport, MigrateErro
     let will_change = !p.steps.is_empty() || schema_missing;
 
     let mut warnings = Vec::new();
-    if !p.steps.is_empty() {
+    if p.from > p.to {
+        warnings.push(format!(
+            "工作区 schema v{} 高于当前软件 v{}（同 major 更高 minor），保持不动、不降级写入",
+            p.from, p.to
+        ));
+    } else if !p.steps.is_empty() {
         warnings.push(format!(
             "迁移 v{}→v{}：{} 个步骤",
             p.from,
@@ -221,7 +232,7 @@ fn verify_scan(root: &Path) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// 备份 .chain 到 <root>/.chain.backup.<UTC时间戳>/（原子写元数据同款时间格式）
+/// 备份 .chain 到 <root>/.chain.backup.<时间戳>/（本地 +08:00，与 now_iso8601 全库一致；毫秒后缀防同秒碰撞）
 fn backup_chain(root: &Path) -> Result<PathBuf, String> {
     let ts = crate::scanner::frontmatter::now_iso8601();
     let millis = std::time::SystemTime::now()
@@ -379,6 +390,26 @@ mod tests {
         let backup_node = Path::new(&backup).join("nodes").join("node-1.md");
         assert!(backup_node.exists(), "备份应含节点文件");
         assert!(Path::new(&backup).join(".mode").exists(), "备份应含 .mode");
+    }
+
+    #[test]
+    fn test_minor_higher_no_downgrade() {
+        // 同 major 更高 minor：可打开、可读——migrate 不得降级写入，只警告不动盘
+        let tmp = ws_with_nodes();
+        write_schema(tmp.path(), SchemaVersion { major: 1, minor: 9 }).unwrap();
+        let p = plan(tmp.path()).unwrap();
+        assert!(p.steps.is_empty(), "更高 minor 应按无步骤处理");
+        let r = run(tmp.path(), &opts(false, true)).unwrap();
+        assert!(!r.changed, "更高 minor 不得动盘");
+        assert!(r.backup.is_none());
+        assert!(
+            r.warnings.iter().any(|w| w.contains("不降级")),
+            "应含不降级警告：{:?}",
+            r.warnings
+        );
+        let raw = fs::read_to_string(tmp.path().join(".chain").join(SCHEMA_FILE)).unwrap();
+        assert!(raw.contains("1.9"), "schema 文件必须保持 1.9：{raw}");
+        assert_eq!(count_backups(tmp.path()), 0, "不动盘不应备份");
     }
 
     fn count_backups(root: &Path) -> usize {

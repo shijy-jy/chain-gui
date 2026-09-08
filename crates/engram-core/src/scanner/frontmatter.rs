@@ -1,7 +1,7 @@
 use crate::model::node::Node;
 use anyhow::{Context, Result};
 
-/// 当前时间的 RFC3339 字符串（固定 UTC+8，手写 civil 算法，不引 chrono 依赖）
+/// 当前时间的 RFC3339 字符串（固定 +08:00 本地时区，手写 civil 算法，不引 chrono 依赖）
 pub fn now_iso8601() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

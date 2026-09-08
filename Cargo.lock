@@ -794,6 +794,8 @@ name = "engram-cli"
 version = "2.7.0"
 dependencies = [
  "engram-core",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
