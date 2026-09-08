@@ -44,13 +44,17 @@ fn normalize_rel(r: &Option<String>) -> &str {
     }
 }
 
-/// id 安全校验：只允许字母数字连字符下划线（防路径穿越/非法文件名）
+/// id 安全校验：拒绝路径穿越与非法文件名字符（`\ / : * ? " < > |`、控制字符、`.` 开头、空）。
+/// v2.13 放宽：开发模式节点 id = 文件名，中文/空格/「·」等合法文件名此前被 ASCII 白名单
+/// 误杀——MCP 工具读不到中文 id 节点（learning/story/water 等知识库全线中招）。
+/// 正确防线是**黑名单路径危险字符**，而不是白名单字符集。
 pub fn is_safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
+        && !id.starts_with('.')
         && id
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            .all(|c| !c.is_control() && !matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
 }
 
 /// 自动生成不重复的 id：node-1、node-2、…
@@ -100,7 +104,7 @@ pub fn create_node(
     let id = match &input.id {
         Some(id) => {
             if !is_safe_id(id) {
-                return Err("id 只允许字母/数字/连字符/下划线（如 node-1、算法笔记）".into());
+                return Err("id 非法（不能为空、超 64 字符、含路径字符或非法文件名字符）".into());
             }
             id.clone()
         }
@@ -334,6 +338,27 @@ mod tests {
             create_node(tmp.path(), &bad, ScanMode::Dev).is_err(),
             "路径穿越 id 应被拒绝"
         );
+        let mut bad2 = input("x");
+        bad2.id = Some("a/b".into());
+        assert!(
+            create_node(tmp.path(), &bad2, ScanMode::Dev).is_err(),
+            "含路径分隔符应被拒绝"
+        );
+    }
+
+    #[test]
+    fn test_is_safe_id_allows_unicode_and_spaces() {
+        // v2.13 放宽：开发模式节点 id = 文件名，中文/空格合法
+        assert!(is_safe_id("方案 · SIR重采样"));
+        assert!(is_safe_id("从渲染一张图到实时路径追踪"));
+        assert!(is_safe_id("node-1"));
+        assert!(!is_safe_id(""), "空 id 拒绝");
+        assert!(!is_safe_id("../evil"), "路径穿越拒绝");
+        assert!(!is_safe_id("a/b"), "斜杠拒绝");
+        assert!(!is_safe_id("a\\b"), "反斜杠拒绝");
+        assert!(!is_safe_id("a:b"), "冒号拒绝");
+        assert!(!is_safe_id(".hidden"), "点开头拒绝");
+        assert!(!is_safe_id(&"x".repeat(65)), "超长拒绝");
     }
 
     #[test]

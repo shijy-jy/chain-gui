@@ -283,9 +283,12 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
     let created = get("created")
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_else(now_iso8601);
+    // v2.13 修复：updated 缺失时默认空串而非 now——read_node 回报的 updated 必须与文件实际一致，
+    // 否则乐观锁必然 CONFLICT 自伤（dev 宽松文件缺 updated 字段时，此前回报 now 而文件为空）。
+    // 写入路径经 apply_update 落盘时自然会补齐 updated。
     let updated = get("updated")
         .and_then(|v| v.as_str().map(|s| s.to_string()))
-        .unwrap_or_else(now_iso8601);
+        .unwrap_or_default();
     let revision = get("revision")
         .and_then(|v| v.as_u64())
         .filter(|&r| r > 0)
