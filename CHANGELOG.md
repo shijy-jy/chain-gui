@@ -2,6 +2,19 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
+## [Unreleased] - M8'（冲突冻结 + 重复检测 + 蒸馏 + 审计）
+### Added
+- `consolidate(targets?, dry_run=true, k=8)` 工具（契约 v4 第 13 工具；开发模式为主、分析模式共享）：BFS 连通分量聚类（size ≥ 2，targets 过滤，k = 簇数上限）→ 骨架节点（`derived: true` + 标题前缀 `[蒸馏]` + 正文逐条来源引用，骨架而非全文摘要）；dry_run 默认 true（先看计划）；原节点不删；人审摘帽 = 删除 derived 标记
+- 冲突即冻结（ADR 0003）：update_node 乐观锁 CONFLICT → 节点 `[待裁决]` 前缀 + status blocked + `frozen: true` 元数据写入（绝不触碰冲突内容）；冻结期间拒绝一切 MCP 写入（update/link/archive/unlink）；stats 记 CONFLICT 计数（calibrate 区，框架 §6 指标采集点）
+- 重复检测两阶段（T8）：①标题归一化包含关系（公共子串启发式保守形态，零依赖、不误报）②候选存在时嵌入余弦 > 0.9 → `duplicate_hint` + 自动建 `alternative` 竞争边；`force=true` 跳过检测
+- audit.jsonl（T15 最后一个派生物落地）：append-only，动作 = create/update/link/archive/unlink/consolidate/freeze/migrate；追加失败不阻断主写入
+- `CONSOLIDATE_EMPTY:` 错误码（宪法第 7 条）
+### Changed
+- MCP 工具契约 v3 → **v4**（golden 16→18 条，覆盖 13 工具）
+- recall 按需重嵌的 derived 标记随节点走（T9：蒸馏产物检索默认降权 ×0.85 在向量路径生效）
+### Fixed
+- 无
+
 ## [Unreleased] - M7'（记忆层归档/断边 + stale 热重嵌 + schema 1.1）
 ### Added
 - `archive_node(id, reason?)` 工具（契约 v3 第 11 工具，开发模式为主）：`archived: true` + 标题前缀 `[归档]` + 可选 `archived_reason`，文件移入 `.chain/archive/<id>.md`（先原地原子标记再 rename，扫描器按标记处理窗口残留）；90 天未触达为建议阈值（仅提示，不自动执行）

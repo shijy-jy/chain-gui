@@ -236,6 +236,9 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
                 folded: None,
                 archived: false,
                 archived_reason: None,
+                derived: false,
+                frozen: false,
+                freeze_reason: None,
                 content_hash: crate::index::content_hash(content),
             };
         }
@@ -309,6 +312,10 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
     // v2.10 M7'：归档标记（框架 T6）
     let archived = get("archived").and_then(|v| v.as_bool()).unwrap_or(false);
     let archived_reason = get("archived_reason").and_then(|v| v.as_str().map(|s| s.to_string()));
+    // v2.11 M8'：蒸馏标记（T9）与冲突冻结标记（ADR 0003）
+    let derived = get("derived").and_then(|v| v.as_bool()).unwrap_or(false);
+    let frozen = get("frozen").and_then(|v| v.as_bool()).unwrap_or(false);
+    let freeze_reason = get("freeze_reason").and_then(|v| v.as_str().map(|s| s.to_string()));
 
     Node {
         id: stem.to_string(),
@@ -327,6 +334,9 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
         folded: None,
         archived,
         archived_reason,
+        derived,
+        frozen,
+        freeze_reason,
         content_hash: crate::index::content_hash(content),
     }
 }

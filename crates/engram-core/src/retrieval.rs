@@ -96,7 +96,8 @@ fn recall_vector(
                 .collect();
             let vecs = embedder.embed(&texts).map_err(|e| format!("{e}"))?;
             for ((n, _), v) in stale_list.iter().zip(vecs) {
-                ix.upsert(&n.id, &n.content_hash, v, n.archived, false)?;
+                // derived 标记随节点走（T9：蒸馏产物检索默认降权 ×0.85）
+                ix.upsert(&n.id, &n.content_hash, v, n.archived, n.derived)?;
             }
             ix.flush()?;
         }

@@ -1,6 +1,6 @@
 //! golden 契约测试（终版 §5「MCP 契约」的落地形态）：
 //! 用 CARGO_BIN_EXE 拉起真实 engram-mcp 进程，重放 tools/_collect_golden.ps1 的
-//! 16 条工具调用（契约 v3：12 工具），把响应与 docs/test-golden/engram-mcp-golden.json
+//! 18 条工具调用（契约 v4：13 工具），把响应与 docs/test-golden/engram-mcp-golden.json
 //! 做值级归一化对比：
 //!
 //! - 时间戳（RFC3339 +08:00）→ "TS"（每次运行必然不同）
@@ -156,7 +156,7 @@ fn replay_flow(ws: &TempDir) -> Vec<(String, String, String)> {
         entries.push((name.to_string(), request, response));
     };
 
-    // 与 tools/_collect_golden.ps1 完全一致的 16 条（顺序即契约）
+    // 与 tools/_collect_golden.ps1 完全一致的 18 条（顺序即契约）
     tool_call(
         "create_node",
         r##"{"title":"Golden A","body":"# A\nnode A body"}"##,
@@ -188,13 +188,18 @@ fn replay_flow(ws: &TempDir) -> Vec<(String, String, String)> {
     );
     // recall：无索引工作区 → 关键词降级（mode=keyword,degraded=true），确定性无模型依赖
     tool_call("recall", r#"{"query":"Golden"}"#);
-    // ── M7' 契约 v3 新增（12 工具）：断边 → 归档 → 归档可见性两档 ──
+    // ── M8' 契约 v4 新增（13 工具）：consolidate 计划 → 执行（骨架节点）→ 断边/归档 → 可见性 ──
+    tool_call("consolidate", "{}");
+    // 防时序抖动：node-3 骨架节点须跨秒创建，保证后续 recall 的 updated 倒序结果确定
+    // （与 _collect_golden.ps1 的 Start-Sleep 对应，两端必须一致）
+    std::thread::sleep(Duration::from_millis(1100));
+    tool_call("consolidate", r#"{"dry_run":false}"#);
     tool_call("unlink_nodes", r#"{"from":"node-1","to":"node-2"}"#);
     tool_call(
         "archive_node",
         r#"{"id":"node-2","reason":"内容过时"}"#,
     );
-    // 归档后 recall 默认过滤（仅 node-1）→ include_archived=true 找回 node-2（自 L4 起可见）
+    // 归档后 recall 默认过滤（node-1 + 蒸馏骨架 node-3）→ include_archived 找回 node-2
     tool_call("recall", r#"{"query":"Golden"}"#);
     tool_call("recall", r#"{"query":"Golden","include_archived":true}"#);
 

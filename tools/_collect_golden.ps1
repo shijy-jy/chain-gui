@@ -1,4 +1,4 @@
-﻿# _collect_golden.ps1 - 固化 engram-mcp 12 工具的请求/响应对为 golden 契约文件（契约 v3）
+﻿# _collect_golden.ps1 - 固化 engram-mcp 13 工具的请求/响应对为 golden 契约文件（契约 v4）
 # 输出：docs/test-golden/engram-mcp-golden.json（实现 MCP golden 契约测试时直接对照）
 # 路径参数化：本地/CI 可用 -Exe/-Out 覆盖；默认从本脚本所在仓库根推导
 param(
@@ -78,7 +78,12 @@ Tool "update_node" '{"id":"node-1","mode":"append","content":"\nappended note"}'
 Tool "link_nodes" '{"from":"node-1","to":"node-2","rel_type":"bogus"}' | Out-Null
 # recall：golden 工作区无索引 → 关键词降级（mode=keyword,degraded=true），确定性无模型依赖
 Tool "recall" '{"query":"Golden"}' | Out-Null
-# ── M7' 契约 v3 新增（12 工具）：断边 → 归档 → 归档可见性两档 ──
+# ── M8' 契约 v4 新增（13 工具）：consolidate 计划 → 执行（骨架节点）→ 断边/归档 → 可见性 ──
+Tool "consolidate" '{}' | Out-Null
+# 防时序抖动：node-3 骨架节点须跨秒创建，保证后续 recall 的 updated 倒序结果确定
+# （Rust 侧 golden_contract.rs 有相同间隔；两端必须保持一致）
+Start-Sleep -Milliseconds 1100
+Tool "consolidate" '{"dry_run":false}' | Out-Null
 Tool "unlink_nodes" '{"from":"node-1","to":"node-2"}' | Out-Null
 Tool "archive_node" '{"id":"node-2","reason":"内容过时"}' | Out-Null
 Tool "recall" '{"query":"Golden"}' | Out-Null

@@ -34,9 +34,9 @@ rel 三类型（contains / solves / alternative）不扩张；语义细节走 re
 
 稳定错误码 + 文案分离（文案可改，码不可改；i18n 由此预留）。
 
-**已实现**（测试覆盖）：`CONFLICT:`（D3 乐观锁）/ `DUPLICATE_TITLE:`（同名拦截）/ `SCHEMA_TOO_NEW:`（schema 拒绝打开）/ `MIGRATE_FAILED:` / `VERIFY_FAILED:`（幂等迁移）/ `INVALID_REL:`（link_nodes 词表外，M7' 补齐）/ `WORKSPACE_MODE_MISMATCH:`（模式强校验，M7' 补齐：create/link/archive/unlink 的开发模式门禁）。
+**已实现**（测试覆盖）：`CONFLICT:`（D3 乐观锁 + M8' 冲突即冻结：CONFLICT 后节点进入 [待裁决]，status=blocked + frozen 标记，绝不静默覆盖）/ `DUPLICATE_TITLE:`（同名拦截）/ `SCHEMA_TOO_NEW:`（schema 拒绝打开）/ `MIGRATE_FAILED:` / `VERIFY_FAILED:`（幂等迁移）/ `INVALID_REL:`（link_nodes 词表外）/ `WORKSPACE_MODE_MISMATCH:`（模式强校验）/ `CONSOLIDATE_EMPTY:`（无可蒸馏簇，M8'）。
 
-**目标态（待落地时补齐）**：`CONSOLIDATE_EMPTY:` 等 M8' 蒸馏错误码。补齐时同步固化进 golden 契约。
+**目标态（待落地时补齐）**：暂无待补；新增错误码须同步固化进 golden 契约。
 
 ## 8. 工具即契约
 

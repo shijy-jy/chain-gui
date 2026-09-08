@@ -97,6 +97,23 @@ impl Workspace {
         ix.flush()
     }
 
+    /// 审计追加（框架 §4/T15：append-only 派生物；失败不阻断主写入——打 stderr 继续）
+    pub fn audit(&self, action: &str, node_id: &str, detail: &str) {
+        if let Err(e) = crate::audit::append(&self.root, action, node_id, detail) {
+            eprintln!("[engram] audit 写入失败：{e}");
+        }
+    }
+
+    /// CONFLICT 计数（框架 §6 指标采集点，落 stats calibrate 区）
+    pub fn record_conflict(&self) -> Result<(), String> {
+        let mut st = self
+            .stats
+            .lock()
+            .map_err(|e| format!("stats 锁失败：{e}"))?;
+        st.record_conflict()?;
+        st.flush()
+    }
+
     pub fn mode_str(&self) -> &'static str {
         mode_str(self.mode)
     }
@@ -188,6 +205,30 @@ pub fn parse_lenient(raw: &str, node_id: &str) -> Result<(serde_yaml::Mapping, S
 fn fm_get_str(fm: &serde_yaml::Mapping, key: &str) -> Option<String> {
     fm.get(serde_yaml::Value::String(key.into()))
         .and_then(|v| v.as_str().map(|s| s.to_string()))
+}
+
+fn fm_get_bool(fm: &serde_yaml::Mapping, key: &str) -> bool {
+    fm.get(serde_yaml::Value::String(key.into()))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+/// 标题归一化（T8 阶段一用：大小写/空白不敏感）
+fn normalize_title_key(t: &str) -> String {
+    t.chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_lowercase()
+}
+
+/// 冻结门禁（ADR 0003）：frozen 节点拒绝一切 MCP 写入（人工裁决后恢复）
+fn ensure_not_frozen(fm: &serde_yaml::Mapping, id: &str) -> Result<(), String> {
+    if fm_get_bool(fm, "frozen") {
+        return Err(format!(
+            "节点 {id} 已冻结 [待裁决]（并发写冲突待人工裁决，拒绝写入）。恢复方式：编辑节点文件去除 frozen 标记并修正内容，或在 GUI 修改标题/状态"
+        ));
+    }
+    Ok(())
 }
 
 // ── 只读工具 ──────────────────────────────────────────────
@@ -495,12 +536,25 @@ pub fn get_guide(ctx: &Workspace) -> Result<Value, String> {
 
 /// create_node(title, body?, tags?, force?)：开发模式新建知识节点（类型 note）
 /// - title 重复（忽略大小写）时拒绝，force=true 放行；id 冲突永远拒绝
+/// - v2.11 M8' T8 重复检测两阶段：①标题归一化包含关系（公共子串启发式保守形态，零依赖）
+///   ②候选存在时嵌入余弦 > 0.9 → duplicate_hint + alternative 竞争边；force 跳过检测
 pub fn create_node(
     ctx: &Workspace,
     title: &str,
     body: Option<&str>,
     tags: Option<Vec<String>>,
     force: Option<bool>,
+) -> Result<Value, String> {
+    create_node_impl(ctx, title, body, tags, force, None)
+}
+
+pub(crate) fn create_node_impl(
+    ctx: &Workspace,
+    title: &str,
+    body: Option<&str>,
+    tags: Option<Vec<String>>,
+    force: Option<bool>,
+    embedder_override: Option<&dyn crate::embed::Embedder>,
 ) -> Result<Value, String> {
     ctx.bump_clock()?;
     if !ctx.mode.is_dev() {
@@ -528,6 +582,55 @@ pub fn create_node(
             ));
         }
     }
+
+    // ── T8 重复检测两阶段（force 跳过）──
+    let force = force.unwrap_or(false);
+    let mut suspected: Vec<(String, f32)> = Vec::new(); // (id, cosine)
+    if !force {
+        // 阶段一：归一化包含关系（公共子串启发式的保守形态；排除精确同名——已在上方拦截）
+        let key = normalize_title_key(title);
+        let candidates: Vec<&crate::model::node::Node> = snap
+            .nodes
+            .iter()
+            .filter(|n| {
+                let k = normalize_title_key(&n.title);
+                k != key && (k.contains(&key) || key.contains(&k))
+            })
+            .collect();
+        if !candidates.is_empty() {
+            // 阶段二：嵌入余弦 > 0.9（框架 §9 拍板阈值；模型不可用 → 仅阶段一，不误报）
+            let loaded;
+            let embedder: Option<&dyn crate::embed::Embedder> = if let Some(e) = embedder_override {
+                Some(e)
+            } else {
+                loaded = crate::embed::try_load_embedder();
+                loaded.as_deref()
+            };
+            if let Some(e) = embedder {
+                let new_text = format!("{title}\n{}", body.unwrap_or(title));
+                let mut texts = vec![new_text];
+                texts.extend(candidates.iter().map(|n| format!("{}\n{}", n.title, n.body)));
+                if let Ok(vecs) = e.embed(&texts) {
+                    if let Some((qv, rest)) = vecs.split_first() {
+                        for (n, v) in candidates.iter().zip(rest) {
+                            if v.len() == qv.len() {
+                                let s: f32 = qv.iter().zip(v.iter()).map(|(a, b)| a * b).sum();
+                                if s > 0.9 {
+                                    suspected.push((n.id.clone(), s));
+                                }
+                            }
+                        }
+                    }
+                }
+                suspected.sort_by(|a, b| {
+                    b.1.partial_cmp(&a.1)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.0.cmp(&b.0))
+                });
+            }
+        }
+    }
+
     let id = auto_id(&ctx.nodes_dir());
     let path = ctx.node_path(&id);
     if path.exists() {
@@ -540,7 +643,15 @@ pub fn create_node(
     fm.insert(YV::String("id".into()), YV::String(id.clone()));
     fm.insert(YV::String("type".into()), YV::String("note".into()));
     fm.insert(YV::String("title".into()), YV::String(title.to_string()));
-    fm.insert(YV::String("parent".into()), YV::Null);
+    // 疑似重复 → alternative 竞争边（复用 D1 边语义表达竞争，T8）
+    let (parent, rel) = match suspected.first() {
+        Some((dup_id, _)) => (YV::String(dup_id.clone()), Some("alternative")),
+        None => (YV::Null, None),
+    };
+    fm.insert(YV::String("parent".into()), parent);
+    if let Some(r) = rel {
+        fm.insert(YV::String("rel".into()), YV::String(r.to_string()));
+    }
     fm.insert(YV::String("status".into()), YV::String("none".into()));
     fm.insert(YV::String("created".into()), YV::String(now.clone()));
     fm.insert(YV::String("updated".into()), YV::String(now));
@@ -563,18 +674,35 @@ pub fn create_node(
     atomic_write(&path, &content)?;
     ctx.touch_write(&id)?;
     ctx.mark_index_stale(&id)?;
+    ctx.audit("create", &id, &format!("title={title}"));
 
-    Ok(json!({
+    let mut out = json!({
         "created": true,
         "id": id,
         "title": title,
         "file": format!(".chain/nodes/{id}.md"),
         "hint": format!("节点已创建（AI 指南 v{}）。建立链接用 link_nodes（rel_type 仅 contains/solves/alternative）；更新内容用 update_node，建议先 read_node 取 updated 并传 expected_updated 防并发覆盖。完整规范见 get_guide", ctx.guide_version()),
-    }))
+    });
+    if !suspected.is_empty() {
+        let top = &suspected[0];
+        let top_title = snap
+            .nodes
+            .iter()
+            .find(|n| n.id == top.0)
+            .map(|n| n.title.as_str())
+            .unwrap_or("");
+        out["duplicate_hint"] = json!(format!(
+            "疑似重复：与 {}\u{300c}{}\u{300d} 嵌入余弦 {:.2} > 0.9（共 {} 个疑似）——已建 alternative 竞争边指向「{}」；确属同一记忆请考虑 update_node 合并，确认另建传 force=true",
+            top.0, top_title, top.1, suspected.len(), top_title
+        ));
+    }
+    Ok(out)
 }
 
 /// update_node(id, mode=append|replace_body, content, expected_updated?)
-/// D3 乐观锁：expected_updated 与文件当前 updated 不符 → CONFLICT 不落盘
+/// D3 乐观锁：expected_updated 与文件当前 updated 不符 → CONFLICT 不落盘；
+/// v2.11 M8' ADR 0003 冲突即冻结：CONFLICT 后节点进入 [待裁决]（status=blocked + frozen 标记，
+/// 仅元数据写入、绝不触碰冲突内容），冻结期间拒绝一切 MCP 写入，人工裁决后恢复
 pub fn update_node(
     ctx: &Workspace,
     id: &str,
@@ -599,13 +727,47 @@ pub fn update_node(
     } else {
         frontmatter::parse(&raw).map_err(|e| format!("解析 frontmatter 失败：{e}"))?
     };
+    // 冻结门禁：人工裁决前拒绝写入
+    ensure_not_frozen(&fm, id)?;
 
-    // D3 乐观锁：先比对再动手，CONFLICT 不落盘
+    // D3 乐观锁：先比对再动手，CONFLICT 不落盘（内容）；冲突即冻结（元数据，ADR 0003）
     if let Some(expected) = expected_updated {
         let current = fm_get_str(&fm, "updated").unwrap_or_default();
         if current != expected {
+            let old_title = fm_get_str(&fm, "title").unwrap_or_else(|| id.to_string());
+            let new_title = if old_title.starts_with("[待裁决]") {
+                old_title
+            } else {
+                format!("[待裁决]{old_title}")
+            };
+            let fields = UpdateFields {
+                title: Some(new_title),
+                status: Some(crate::model::node::NodeStatus::Blocked),
+                body: None,
+                tags: None,
+                evidence: None,
+                parent: None,
+                rel: None,
+            };
+            crate::model::node::apply_update(&mut fm, &fields)
+                .map_err(|e| format!("应用冻结失败：{e}"))?;
+            use serde_yaml::Value as YV;
+            fm.insert(YV::String("frozen".into()), YV::Bool(true));
+            fm.insert(
+                YV::String("freeze_reason".into()),
+                YV::String(format!(
+                    "并发写冲突（expected={expected}，current={current}），待人工裁决"
+                )),
+            );
+            let new_content = frontmatter::serialize(&fm, &body)
+                .map_err(|e| format!("序列化失败：{e}"))?;
+            atomic_write(&path, &new_content)?;
+            let _ = ctx.record_conflict();
+            let _ = ctx.touch_write(id);
+            ctx.mark_index_stale(id)?;
+            ctx.audit("freeze", id, "并发写冲突 → [待裁决]（status=blocked）");
             return Err(format!(
-                "CONFLICT: 节点 {id} 的 updated 已变为 {current}（你期望 {expected}）——节点被其他方修改过，本次未落盘。请 read_node 获取最新内容后重试"
+                "CONFLICT: 节点 {id} 的 updated 已变为 {current}（你期望 {expected}）——检测到并发写冲突，节点已冻结 [待裁决]（status=blocked，frozen=true），本次未落盘。请人工裁决：read_node 核对双方内容，恢复时编辑节点文件去除 frozen 标记并修正标题/状态"
             ));
         }
     }
@@ -642,6 +804,7 @@ pub fn update_node(
     atomic_write(&path, &new_content)?;
     ctx.touch_write(id)?;
     ctx.mark_index_stale(id)?;
+    ctx.audit("update", id, &format!("mode={mode}"));
 
     Ok(json!({
         "updated": true,
@@ -692,6 +855,7 @@ pub fn link_nodes(
 
     let raw = std::fs::read_to_string(&to_path).map_err(|e| format!("读取失败：{e}"))?;
     let (mut fm, body) = parse_lenient(&raw, to)?;
+    ensure_not_frozen(&fm, to)?; // 冻结门禁（ADR 0003）
     let fields = UpdateFields {
         title: None,
         status: None,
@@ -724,6 +888,7 @@ pub fn link_nodes(
     atomic_write(&to_path, &new_content)?;
     ctx.touch_write(to)?;
     ctx.mark_index_stale(to)?;
+    ctx.audit("link", to, &format!("from={from} rel={rel_type}"));
 
     Ok(json!({
         "linked": true,
@@ -744,6 +909,97 @@ pub fn recall(
 ) -> Result<Value, String> {
     ctx.bump_clock()?;
     crate::retrieval::recall(ctx, query, k, include_archived)
+}
+
+/// consolidate：蒸馏（框架 T9/§5.5/§5.6，契约 v4 第 13 工具；开发模式为主、分析模式共享）。
+/// - dry_run 默认 true（先看计划再执行）；BFS 连通分量聚类（size ≥ 2），targets 过滤，k = 簇数上限
+/// - 产物：骨架节点（derived:true + 标题 [蒸馏] + 正文逐条来源引用），检索默认降权 ×0.85
+/// - 人审摘帽 = 删除 derived 标记后转普通节点；无可蒸馏簇 → CONSOLIDATE_EMPTY:
+pub fn consolidate(
+    ctx: &Workspace,
+    targets: Option<Vec<String>>,
+    dry_run: Option<bool>,
+    k: Option<usize>,
+) -> Result<Value, String> {
+    ctx.bump_clock()?;
+    let snap = ctx.scan()?;
+    let k = k.unwrap_or(8).clamp(1, 100);
+    let plan = crate::consolidate::build_plan(&snap, targets.as_deref(), k);
+    if plan.clusters.is_empty() {
+        return Err(
+            "CONSOLIDATE_EMPTY: 无可蒸馏簇（需 ≥2 个活跃节点组成的连通分量；targets 过滤后成员 <2 也算空）——先用 link_nodes 建链，或检查 targets 是否命中同簇节点"
+                .into(),
+        );
+    }
+    let dry_run = dry_run.unwrap_or(true);
+    let plan_json: Vec<Value> = plan
+        .clusters
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            json!({
+                "cluster_id": format!("cluster-{}", i + 1),
+                "members": c.members,
+                "sources": c.sources,
+                "summary_preview": frontmatter::truncate_utf8(&c.summary, 200),
+            })
+        })
+        .collect();
+
+    let mut created: Vec<Value> = Vec::new();
+    if !dry_run {
+        for c in &plan.clusters {
+            let id = auto_id(&ctx.nodes_dir());
+            let path = ctx.node_path(&id);
+            if path.exists() {
+                return Err(format!("节点 {id} 已存在"));
+            }
+            let title = format!("[蒸馏]{}", c.title);
+            use serde_yaml::Value as YV;
+            let now = frontmatter::now_iso8601();
+            let mut fm = serde_yaml::Mapping::new();
+            fm.insert(YV::String("id".into()), YV::String(id.clone()));
+            fm.insert(YV::String("type".into()), YV::String("note".into()));
+            fm.insert(YV::String("title".into()), YV::String(title.clone()));
+            fm.insert(YV::String("parent".into()), YV::Null);
+            fm.insert(YV::String("status".into()), YV::String("none".into()));
+            fm.insert(YV::String("created".into()), YV::String(now.clone()));
+            fm.insert(YV::String("updated".into()), YV::String(now));
+            fm.insert(YV::String("revision".into()), YV::Number(1u64.into()));
+            fm.insert(YV::String("tags".into()), YV::Sequence(Vec::new()));
+            fm.insert(YV::String("derived".into()), YV::Bool(true));
+            let content = frontmatter::serialize(&fm, &c.summary)
+                .map_err(|e| format!("序列化失败：{e}"))?;
+            atomic_write(&path, &content)?;
+            ctx.touch_write(&id)?;
+            ctx.mark_index_stale(&id)?;
+            ctx.audit("consolidate", &id, &format!("members={}", c.members.join(",")));
+            created.push(json!({ "id": id, "title": title, "derived": true }));
+        }
+    }
+
+    let hint = if dry_run {
+        format!(
+            "蒸馏计划（不落盘，AI 指南 v{}）：{} 个簇。确认后传 dry_run=false 执行——产物为 [蒸馏] 骨架节点（derived:true，逐条来源引用，检索默认降权 ×0.85）；人审摘帽 = 删除 derived 标记。",
+            ctx.guide_version(),
+            plan_json.len()
+        )
+    } else {
+        format!(
+            "已创建 {} 个 [蒸馏] 骨架节点（derived:true，默认降权）。原节点不删；人审摘帽 = 删除 derived 标记后转普通节点（AI 指南 v{}）。",
+            created.len(),
+            ctx.guide_version()
+        )
+    };
+    let mut out = json!({
+        "dry_run": dry_run,
+        "plan": plan_json,
+        "hint": hint,
+    });
+    if !dry_run {
+        out["created"] = json!(created);
+    }
+    Ok(out)
 }
 
 /// archive_node：归档节点（框架 T6 / §5.5，契约 v3 新工具；开发模式为主）。
@@ -780,6 +1036,7 @@ pub fn archive_node(
 
     let raw = std::fs::read_to_string(&src).map_err(|e| format!("读取失败：{e}"))?;
     let (mut fm, body) = parse_lenient(&raw, id)?;
+    ensure_not_frozen(&fm, id)?; // 冻结门禁（ADR 0003）
     let old_title = fm_get_str(&fm, "title").unwrap_or_else(|| id.to_string());
     let new_title = if old_title.starts_with("[归档]") {
         old_title
@@ -816,6 +1073,7 @@ pub fn archive_node(
     })?;
     ctx.touch_write(id)?;
     ctx.mark_index_stale(id)?;
+    ctx.audit("archive", id, "移入 .chain/archive/");
 
     Ok(json!({
         "archived": true,
@@ -860,6 +1118,7 @@ pub fn unlink_nodes(ctx: &Workspace, from: &str, to: &str) -> Result<Value, Stri
     let to_path = ctx.node_path(to);
     let raw = std::fs::read_to_string(&to_path).map_err(|e| format!("读取失败：{e}"))?;
     let (mut fm, body) = parse_lenient(&raw, to)?;
+    ensure_not_frozen(&fm, to)?; // 冻结门禁（ADR 0003）
     let cur_parent = fm_get_str(&fm, "parent");
     if cur_parent.as_deref() != Some(from) {
         return Err(format!(
@@ -886,6 +1145,7 @@ pub fn unlink_nodes(ctx: &Workspace, from: &str, to: &str) -> Result<Value, Stri
     atomic_write(&to_path, &new_content)?;
     ctx.touch_write(to)?;
     ctx.mark_index_stale(to)?;
+    ctx.audit("unlink", to, &format!("from={from} rel_removed={rel_removed}"));
 
     Ok(json!({
         "unlinked": true,
@@ -1289,5 +1549,228 @@ mod tests {
         let d: crate::stats::StatsData = serde_json::from_str(&raw).unwrap();
         assert!(d.per_id.get("a").map(|e| e.reads).unwrap_or(0) >= 3, "a 被 read/expand/path 触达");
         assert!(d.per_id.get("c").map(|e| e.reads).unwrap_or(0) >= 2, "c 被 search/path 触达");
+    }
+
+    // ── v2.11 M8'：冲突冻结 / 重复检测 / 蒸馏 / 审计 ──
+
+    #[test]
+    fn conflict_freezes_node_and_blocks_writes() {
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        create_node(&ctx, "并发目标", Some("原文"), None, None).unwrap();
+        let v = read_node(&ctx, "node-1", None).unwrap();
+        let updated = v["updated"].as_str().unwrap().to_string();
+
+        // 正确 expected → 通过（不冻结）
+        update_node(&ctx, "node-1", "append", "安全追加", Some(&updated)).unwrap();
+
+        // 过期 expected → CONFLICT + 冲突即冻结（ADR 0003：绝不静默覆盖）
+        let err = update_node(
+            &ctx,
+            "node-1",
+            "replace_body",
+            "恶意覆盖",
+            Some("2000-01-01T00:00:00+08:00"),
+        )
+        .unwrap_err();
+        assert!(err.starts_with("CONFLICT"), "{err}");
+        assert!(err.contains("[待裁决]"), "错误应说明已冻结：{err}");
+
+        // 冻结态：title 前缀 + status blocked + frozen 标记；正文未被触碰
+        let v = read_node(&ctx, "node-1", None).unwrap();
+        assert_eq!(v["title"], "[待裁决]并发目标");
+        assert_eq!(v["status"], "blocked");
+        assert_eq!(v["frozen"], true);
+        assert_eq!(
+            v["body"].as_str().unwrap(),
+            "原文\n\n安全追加",
+            "冲突内容绝不落盘"
+        );
+        let raw = fs::read_to_string(tmp.path().join(".chain/nodes/node-1.md")).unwrap();
+        assert!(raw.contains("frozen: true"));
+        assert!(raw.contains("freeze_reason:"));
+
+        // 冻结期间拒绝一切写入
+        let err = update_node(&ctx, "node-1", "append", "x", None).unwrap_err();
+        assert!(err.contains("已冻结"), "{err}");
+        create_node(&ctx, "另一个", None, None, None).unwrap(); // node-2
+        let err = link_nodes(&ctx, "node-2", "node-1", "contains", None).unwrap_err();
+        assert!(err.contains("已冻结"), "{err}");
+        let err = archive_node(&ctx, "node-1", None).unwrap_err();
+        assert!(err.contains("已冻结"), "{err}");
+        let err = unlink_nodes(&ctx, "node-1", "node-1").unwrap_err(); // 自环错误优先，不掩盖
+        assert!(err.contains("不能相同"), "{err}");
+
+        // stats：CONFLICT 计数（框架 §6 指标采集点）
+        let raw_stats = fs::read_to_string(tmp.path().join(".chain/stats.json")).unwrap();
+        let d: crate::stats::StatsData = serde_json::from_str(&raw_stats).unwrap();
+        assert_eq!(d.calibrate.conflicts, 1, "冲突计数应 +1");
+
+        // 人工裁决：编辑文件去除 frozen 并修正标题/状态 → 恢复可写（模拟人工/GUI 侧修复）
+        let raw = fs::read_to_string(tmp.path().join(".chain/nodes/node-1.md")).unwrap();
+        let (mut fm, body) = parse_lenient(&raw, "node-1").unwrap();
+        use serde_yaml::Value as YV;
+        fm.insert(YV::String("frozen".into()), YV::Bool(false));
+        fm.remove(YV::String("freeze_reason".into()));
+        fm.insert(YV::String("title".into()), YV::String("并发目标".into()));
+        fm.insert(YV::String("status".into()), YV::String("none".into()));
+        let fixed = frontmatter::serialize(&fm, &body).unwrap();
+        atomic_write(&tmp.path().join(".chain/nodes/node-1.md"), &fixed).unwrap();
+        update_node(&ctx, "node-1", "append", "恢复后追加", None).unwrap();
+        let v = read_node(&ctx, "node-1", None).unwrap();
+        // frozen=false 时字段不出现在 JSON（skip_serializing_if 零破坏语义）
+        assert!(v.get("frozen").is_none(), "解冻后 frozen 字段应消失：{v}");
+    }
+
+    #[test]
+    fn duplicate_detection_stage2_stub() {
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        create_node(&ctx, "贝叶斯推理", Some("贝叶斯定理与后验更新"), None, None).unwrap();
+        // 阶段一：标题包含关系命中候选；阶段二：stub 同向向量 → 余弦 1.0 > 0.9 → 疑似重复
+        struct Stub;
+        impl crate::embed::Embedder for Stub {
+            fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, crate::embed::EmbedError> {
+                Ok(texts.iter().map(|_| vec![1.0f32, 0.0]).collect())
+            }
+            fn dim(&self) -> usize {
+                2
+            }
+        }
+        let r = create_node_impl(
+            &ctx,
+            "贝叶斯推理笔记",
+            Some("补充内容"),
+            None,
+            None,
+            Some(&Stub),
+        )
+        .unwrap();
+        assert_eq!(r["created"], true);
+        let hint = r["duplicate_hint"].as_str().expect("应含疑似重复提示");
+        assert!(hint.contains("疑似重复"), "{hint}");
+        assert!(hint.contains("node-1"), "{hint}");
+        // alternative 竞争边已建
+        let snap = ctx.scan().unwrap();
+        assert_eq!(snap.edges.len(), 1);
+        assert_eq!(snap.edges[0].parent, "node-1");
+        assert_eq!(snap.edges[0].rel, "alternative");
+        let child = read_node(&ctx, "node-2", None).unwrap();
+        assert_eq!(child["parent"], "node-1");
+        assert_eq!(child["rel"], "alternative");
+
+        // force=true → 跳过检测：无 hint、无边
+        let r2 = create_node_impl(
+            &ctx,
+            "贝叶斯推理详解",
+            None,
+            None,
+            Some(true),
+            Some(&Stub),
+        )
+        .unwrap();
+        assert!(r2.get("duplicate_hint").is_none(), "force 应跳过检测");
+        let child = read_node(&ctx, "node-3", None).unwrap();
+        assert!(child["parent"].is_null(), "force 不应建竞争边");
+    }
+
+    #[test]
+    fn duplicate_detection_no_candidate_no_hint() {
+        // 无包含关系候选 → 不加载模型、无 hint（golden 确定性锚点）
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        create_node(&ctx, "Golden A", None, None, None).unwrap();
+        let r = create_node(&ctx, "Golden B", None, None, None).unwrap();
+        assert!(
+            r.get("duplicate_hint").is_none(),
+            "无候选不得产生疑似提示：{r}"
+        );
+        assert!(r.get("parent").is_none(), "创建响应无 parent 字段");
+        let child = read_node(&ctx, "node-2", None).unwrap();
+        assert!(child["parent"].is_null());
+    }
+
+    #[test]
+    fn consolidate_plan_and_run_flow() {
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        // 标题无包含关系 → 不触发重复检测阶段二（单测零模型依赖）
+        create_node(&ctx, "力导向布局", Some("斥力引力模型"), None, None).unwrap();
+        create_node(&ctx, "稳定化调优", Some("布局稳定化参数"), None, None).unwrap();
+        link_nodes(&ctx, "node-1", "node-2", "solves", None).unwrap();
+
+        // dry_run（默认 true）→ 计划不落盘
+        let p = consolidate(&ctx, None, None, None).unwrap();
+        assert_eq!(p["dry_run"], true);
+        assert_eq!(p["plan"][0]["cluster_id"], "cluster-1");
+        assert_eq!(p["plan"][0]["members"][0], "node-1");
+        assert_eq!(p["plan"][0]["members"][1], "node-2");
+        assert!(p["plan"][0]["summary_preview"]
+            .as_str()
+            .unwrap()
+            .contains("来源：node-1"), "{}", p["plan"][0]["summary_preview"]);
+        assert!(p.get("created").is_none(), "dry_run 不返回 created");
+        assert_eq!(ctx.scan().unwrap().nodes.len(), 2, "dry_run 不落盘");
+
+        // dry_run=false → 创建骨架节点
+        let r = consolidate(&ctx, None, Some(false), None).unwrap();
+        assert_eq!(r["dry_run"], false);
+        assert_eq!(r["created"][0]["id"], "node-3");
+        assert_eq!(r["created"][0]["derived"], true);
+        let t = r["created"][0]["title"].as_str().unwrap();
+        assert!(t.starts_with("[蒸馏]"), "骨架标题带前缀：{t}");
+
+        let v = read_node(&ctx, "node-3", None).unwrap();
+        assert_eq!(v["derived"], true);
+        let body = v["body"].as_str().unwrap();
+        assert!(body.contains("来源：node-1「力导向布局」"), "{body}");
+        assert!(body.contains("斥力引力模型"), "骨架含成员一句话：{body}");
+        let raw = fs::read_to_string(tmp.path().join(".chain/nodes/node-3.md")).unwrap();
+        assert!(raw.contains("derived: true"), "frontmatter 落 derived 标记");
+
+        // 原节点不删
+        let snap = ctx.scan().unwrap();
+        assert_eq!(snap.nodes.len(), 3);
+    }
+
+    #[test]
+    fn consolidate_empty_and_targets_filter() {
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        create_node(&ctx, "孤岛A", None, None, None).unwrap();
+        create_node(&ctx, "孤岛B", None, None, None).unwrap();
+        // 无边 → 无连通分量 ≥2 → CONSOLIDATE_EMPTY
+        let err = consolidate(&ctx, None, None, None).unwrap_err();
+        assert!(err.starts_with("CONSOLIDATE_EMPTY"), "{err}");
+
+        // 建链后 targets 过滤：只取 1 个 → 空；两个 → 1 簇
+        link_nodes(&ctx, "node-1", "node-2", "contains", None).unwrap();
+        let err = consolidate(&ctx, Some(vec!["node-1".into()]), None, None).unwrap_err();
+        assert!(err.starts_with("CONSOLIDATE_EMPTY"), "{err}");
+        let p = consolidate(&ctx, Some(vec!["node-1".into(), "node-2".into()]), None, None).unwrap();
+        assert_eq!(p["plan"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn audit_entries_appended_for_write_actions() {
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        create_node(&ctx, "审计节点", None, None, None).unwrap();
+        update_node(&ctx, "node-1", "append", "追加", None).unwrap();
+        create_node(&ctx, "子节点", None, None, None).unwrap();
+        link_nodes(&ctx, "node-1", "node-2", "contains", None).unwrap();
+        archive_node(&ctx, "node-2", None).unwrap();
+        unlink_nodes(&ctx, "node-1", "node-2").unwrap_err(); // 已归档，无 audit
+        let rows = crate::audit::read_all(tmp.path()).unwrap();
+        let actions: Vec<String> = rows.iter().map(|r| r["action"].as_str().unwrap().to_string()).collect();
+        assert!(actions.contains(&"create".into()), "{actions:?}");
+        assert!(actions.contains(&"update".into()));
+        assert!(actions.contains(&"link".into()));
+        assert!(actions.contains(&"archive".into()));
+        assert_eq!(
+            actions.iter().filter(|a| *a == "create").count(),
+            2,
+            "两次 create 两条审计"
+        );
     }
 }

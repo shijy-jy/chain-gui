@@ -225,6 +225,10 @@ pub fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateReport, MigrateErro
             "写 .schema 失败（已回滚）：{e}"
         )));
     }
+    // v2.11 M8'：迁移动作入审计（append-only 派生物；失败不阻断迁移结果）
+    if let Err(e) = crate::audit::append(root, "migrate", "", &format!("{} → {}", p.from, p.to)) {
+        eprintln!("[engram] audit 写入失败：{e}");
+    }
 
     Ok(MigrateReport {
         backup: backup.map(|b| b.to_string_lossy().into_owned()),

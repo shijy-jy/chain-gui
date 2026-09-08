@@ -73,6 +73,17 @@ pub struct Node {
     /// 归档原因（archive_node 可选入参；仅归档节点非空）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_reason: Option<String>,
+    /// v2.11 M8' 蒸馏标记（框架 T9/ADR 0009）：consolidate 产物骨架节点，
+    /// 检索默认降权（recall ×0.85）、人审摘帽 = 删除此标记。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub derived: bool,
+    /// v2.11 M8' 冲突冻结标记（ADR 0003）：CONFLICT 后 status=blocked + 标题前缀 [待裁决]，
+    /// 冻结期间拒绝一切 MCP 写入，人工裁决后恢复。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub frozen: bool,
+    /// 冻结原因（仅冻结节点非空）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freeze_reason: Option<String>,
     /// 原始文件内容哈希（运行时态，不进 JSON/不入盘）：扫描时由 walker 回填，
     /// recall 用它做索引逐节点新鲜度比对（框架 §4「任一节点文件变更 → 条目 stale」）。
     #[serde(default, skip)]

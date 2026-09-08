@@ -136,6 +136,16 @@ struct UnlinkNodesParams {
     to: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ConsolidateParams {
+    /// 仅蒸馏这些节点参与的簇（可选；缺省 = 全部连通分量）
+    targets: Option<Vec<String>>,
+    /// false 时真正创建 [蒸馏] 骨架节点（默认 true = 只出计划）
+    dry_run: Option<bool>,
+    /// 簇数上限（默认 8，最大 100）
+    k: Option<usize>,
+}
+
 // ── 工具实现（协议映射层，逻辑全在 engram_core::ops）────────────
 
 #[tool_router]
@@ -290,6 +300,17 @@ impl EngramMcp {
         let _guard = self.write_lock.lock().await;
         to_result(mcp::unlink_nodes(&self.ctx, &p.from, &p.to))
     }
+
+    #[tool(
+        description = "蒸馏节点簇为 [蒸馏] 骨架节点（derived:true + 逐条来源引用，检索默认降权；开发模式为主、分析模式共享）。dry_run 默认 true（只出计划）；dry_run=false 真正创建骨架节点，原节点不删。无可蒸馏簇返回 CONSOLIDATE_EMPTY。返回 JSON 文本。"
+    )]
+    async fn consolidate(
+        &self,
+        Parameters(p): Parameters<ConsolidateParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let _guard = self.write_lock.lock().await;
+        to_result(mcp::consolidate(&self.ctx, p.targets, p.dry_run, p.k))
+    }
 }
 
 // D4：握手下发指南版本与写入规范（initialize 响应 instructions 字段）
@@ -301,7 +322,7 @@ impl ServerHandler for EngramMcp {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(si)
             .with_instructions(format!(
-                "Engram MCP server（工作区：{}；模式：{}；AI 指南 v{}）。写入类工具（create_node/update_node/link_nodes/archive_node/unlink_nodes）调用前必须先 get_guide 获取最新规范；update_node 建议先 read_node 取 updated 并传 expected_updated 防并发覆盖（CONFLICT 不落盘）。",
+                "Engram MCP server（工作区：{}；模式：{}；AI 指南 v{}）。写入类工具（create_node/update_node/link_nodes/archive_node/unlink_nodes/consolidate）调用前必须先 get_guide 获取最新规范；update_node 建议先 read_node 取 updated 并传 expected_updated 防并发覆盖（CONFLICT 冲突会触发 [待裁决] 冻结，绝不静默覆盖）。",
                 self.ctx.root.display(),
                 self.ctx.mode_str(),
                 self.ctx.guide_version(),

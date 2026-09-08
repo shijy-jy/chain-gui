@@ -49,6 +49,9 @@ pub struct Calibrate {
     /// 校准计数：命中/未命中反馈（50 次窗口，框架 §9 拍板）
     pub hits: u64,
     pub misses: u64,
+    /// v2.11 M8'：CONFLICT 计数（框架 §6 指标采集点；冲突即冻结 [待裁决] 的可观测性锚点）
+    #[serde(default)]
+    pub conflicts: u64,
 }
 
 impl Default for StatsData {
@@ -64,6 +67,7 @@ impl Default for StatsData {
                 d: DEFAULT_D,
                 hits: 0,
                 misses: 0,
+                conflicts: 0,
             },
         }
     }
@@ -231,6 +235,13 @@ impl StatsStore {
         Ok(())
     }
 
+    /// CONFLICT 计数（框架 §6 指标采集点：冲突即冻结的可观测性锚点，落 calibrate 区）
+    pub fn record_conflict(&mut self) -> Result<(), String> {
+        self.ensure_loaded()?;
+        self.data.as_mut().unwrap().calibrate.conflicts += 1;
+        Ok(())
+    }
+
     pub fn flush(&mut self) -> Result<(), String> {
         self.ensure_loaded()?;
         let d = self.data.as_ref().unwrap();
@@ -277,6 +288,7 @@ mod tests {
                 d: DEFAULT_D,
                 hits: 0,
                 misses: 0,
+                conflicts: 0,
             },
         }
     }
