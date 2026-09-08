@@ -1174,16 +1174,17 @@ dependencies = [
 
 [[package]]
 name = "engram-cli"
-version = "2.9.0"
+version = "2.10.0"
 dependencies = [
  "engram-core",
  "serde_json",
+ "serde_yaml",
  "tempfile",
 ]
 
 [[package]]
 name = "engram-core"
-version = "2.9.0"
+version = "2.10.0"
 dependencies = [
  "anyhow",
  "fastembed",
@@ -1192,12 +1193,14 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tempfile",
+ "tree-sitter",
+ "tree-sitter-rust",
  "walkdir",
 ]
 
 [[package]]
 name = "engram-gui"
-version = "2.9.0"
+version = "2.10.0"
 dependencies = [
  "engram-core",
  "log",
@@ -1213,7 +1216,7 @@ dependencies = [
 
 [[package]]
 name = "engram-mcp"
-version = "2.9.0"
+version = "2.10.0"
 dependencies = [
  "anyhow",
  "engram-core",
@@ -5624,6 +5627,26 @@ dependencies = [
  "serde",
  "thiserror 2.0.20",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tree-sitter"
+version = "0.22.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df7cc499ceadd4dcdf7ec6d4cbc34ece92c3fa07821e287aedecd4416c516dca"
+dependencies = [
+ "cc",
+ "regex",
+]
+
+[[package]]
+name = "tree-sitter-rust"
+version = "0.21.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "277690f420bf90741dea984f3da038ace46c4fe6047cba57a66822226cde1c93"
+dependencies = [
+ "cc",
+ "tree-sitter",
 ]
 
 [[package]]
