@@ -1,6 +1,6 @@
 [package]
 name = "engram-mcp"
-version = "2.9.0"
+version = "2.10.0"
 description = "Engram MCP server（stdio 薄壳适配器：协议翻译，规则全在 engram-core）"
 authors = ["shijy-jy"]
 license = "MIT"
@@ -13,7 +13,7 @@ name = "engram-mcp"
 path = "src/main.rs"
 
 [dependencies]
-engram-core = { path = "../engram-core", version = "2.9.0" }
+engram-core = { path = "../engram-core", version = "2.10.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1"

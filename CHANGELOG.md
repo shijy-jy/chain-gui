@@ -2,59 +2,44 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
-## [Unreleased] - 补丁 1：参数迭代方法论三前置（理论整理与评估 §12/§15–§22）
-### Added
-- **强度时间轴切换到记忆时钟**（§12 硬伤修复，例外项）：per_id 触达时间戳 = 触达时的记忆时钟序数（不再是墙钟秒）；`S = ln(Σ (memory_now − t_j)^(−d))` 且**负值 clamp 到 0**——「昨天用过 < 从未用过」的负值反转惩罚根除（触达过的节点排序永不劣于未触达）；d 读参数区
-- **参数外置可配置**（§16 前置一）：stats.json 新增 `params` 区（recall 常规/放宽阈值、重复检测余弦、derived 降权、ACT-R d、归档建议天数、校准窗口；serde default = 先验值，约束区间见 §20 配方）；全部使用点改读参数区，**契约与参数解耦**（只改数值不改形状，golden 18 条不变）
-- **决策点全程留痕**（§17 前置二）：audit.jsonl 新增 recall 决策行（query/mode/degraded/生效阈值/分数 min-max/top-k id+分）、dup_detect（against/cosine/threshold/action）、dup_force（同名 bypass）
-- **反馈信号**（§18 前置三，隐式标注）：stats.json 新增 `feedback` 区 + 有界样本日志——正样本（recall 后 30s 内 read_node 命中 results，last_recall 跨调用联动防重复计数）、负样本（上一 recall 未采用）、重复真/假阳性（提示 vs force）、归档误判（include_archived 命中归档节点）、蒸馏质量（derived 读取数）；分数→采用样本与余弦样本供 §20 迭代配方校准
-### Changed
-- 无契约 bump（13 工具不变、golden 18 条不变——补丁纪律 §21.6）
-### Fixed
-- §12 最紧迫理论-实现断裂：强度时间轴错用墙钟秒（单位错误，迭代救不了——必须在落地时修复）
+## [2.10.0] - 2026-09-08
 
-## [Unreleased] - M-Code（代码骨架：tree-sitter 提取 + CLI + GUI 加性）
-### Added
-- `code_map.rs`（框架 §5.7/T12–T14，试点语言 Rust 拍板）：tree-sitter-rust 提取公开接口（pub fn/struct/trait/enum/impl + 签名、文件:行:列定位）→ 同文件调用边 → Mermaid flowchart 文本；骨架落 `.chain/code_map/<node-id>.md`（派生物，可重建）；节点 frontmatter `code_map: <源码相对路径>`（文件或目录）挂载；stale 标记文件（watcher 联动，refresh 清除，read_skeleton_md 实时修正 stale 行）
-- `engram-cli sync-code-map --workspace <p> [--lang rust] [--node <id>]`：提取/刷新全库或单节点代码骨架（无挂载节点 exit 0；非试点语言报错）
-- GUI 加性（宪法第 5 条零破坏）：信息栏徽标（已归档/待裁决/蒸馏/代码骨架/stale）；归档视图开关（淡色虚线纳入归档节点，默认关）；M-Code 骨架面板（Mermaid 渲染，库缺失降级源文本）；重嵌索引按钮（本地模型全库重嵌）
-### Changed
-- 无契约 bump（工具集 13 不变；golden 18 条不变）
-### Fixed
-- 无
+### 记忆层 M7'/M8'/M-Code + 参数迭代三前置（§8 四阶段全部落地）
 
-## [Unreleased] - M8'（冲突冻结 + 重复检测 + 蒸馏 + 审计）
-### Added
-- `consolidate(targets?, dry_run=true, k=8)` 工具（契约 v4 第 13 工具；开发模式为主、分析模式共享）：BFS 连通分量聚类（size ≥ 2，targets 过滤，k = 簇数上限）→ 骨架节点（`derived: true` + 标题前缀 `[蒸馏]` + 正文逐条来源引用，骨架而非全文摘要）；dry_run 默认 true（先看计划）；原节点不删；人审摘帽 = 删除 derived 标记
-- 冲突即冻结（ADR 0003）：update_node 乐观锁 CONFLICT → 节点 `[待裁决]` 前缀 + status blocked + `frozen: true` 元数据写入（绝不触碰冲突内容）；冻结期间拒绝一切 MCP 写入（update/link/archive/unlink）；stats 记 CONFLICT 计数（calibrate 区，框架 §6 指标采集点）
-- 重复检测两阶段（T8）：①标题归一化包含关系（公共子串启发式保守形态，零依赖、不误报）②候选存在时嵌入余弦 > 0.9 → `duplicate_hint` + 自动建 `alternative` 竞争边；`force=true` 跳过检测
-- audit.jsonl（T15 最后一个派生物落地）：append-only，动作 = create/update/link/archive/unlink/consolidate/freeze/migrate；追加失败不阻断主写入
-- `CONSOLIDATE_EMPTY:` 错误码（宪法第 7 条）
-### Changed
-- MCP 工具契约 v3 → **v4**（golden 16→18 条，覆盖 13 工具）
-- recall 按需重嵌的 derived 标记随节点走（T9：蒸馏产物检索默认降权 ×0.85 在向量路径生效）
-### Fixed
-- 无
+**M7'（归档/断边 + stale 热重嵌 + schema 1.1）**
+- `archive_node(id, reason?)`（契约 v3 第 11 工具）：`archived: true` + 标题前缀 `[归档]` + 可选 `archived_reason`，先原地原子标记再 rename 移入 `.chain/archive/`（窗口残留由扫描器按标记处理）
+- `unlink_nodes(from,to)`（契约 v3 第 12 工具）：parent 置 null + 清理 rel/rel_desc，返回 rel_removed
+- 扫描器归档分离（`ChainSnapshot.archived` 与活跃图隔离）；recall `include_archived` 向量/关键词两条路径一致（归档自 L4 起可见）
+- stale 热重嵌：写路径标 stale + recall 按需批量重嵌（哈希比对兜底外部编辑）；`rebuild_all` 归档感知
+- stats 读触达全覆盖（T3 字面：写也是触达）；watcher archive 扩展
+- 错误码 `INVALID_REL:` / `WORKSPACE_MODE_MISMATCH:`（宪法第 7 条）
+- schema 1.0 → **1.1**（B 类：派生物格式落地；缺失 .schema 恒为隐式 1.0，migrate 登记 1.0→1.1 步骤）；工具契约 v2 → **v3**（golden 12→16 条）
 
-## [Unreleased] - M7'（记忆层归档/断边 + stale 热重嵌 + schema 1.1）
-### Added
-- `archive_node(id, reason?)` 工具（契约 v3 第 11 工具，开发模式为主）：`archived: true` + 标题前缀 `[归档]` + 可选 `archived_reason`，文件移入 `.chain/archive/<id>.md`（先原地原子标记再 rename，扫描器按标记处理窗口残留）；90 天未触达为建议阈值（仅提示，不自动执行）
-- `unlink_nodes(from,to)` 工具（契约 v3 第 12 工具，开发模式为主）：子节点 parent 置 null 并清理 rel/rel_desc，返回 rel_removed 供回溯
-- 扫描器归档分离：`ChainSnapshot.archived` 与活跃图分离（无边、不计 node_count），`archived: true` 文件不论位置一律按归档处理；`read_node` 可直读归档节点
-- recall 归档可见性：`include_archived=true` 纳入（自 L4 起可见），向量与关键词降级两条路径一致；向量模式候选集门控
-- 嵌入索引 stale 热重嵌：写路径（create/update/link/archive/unlink）成功后标 stale；recall 对 stale/哈希不符/索引缺失条目按需批量重嵌并落盘（外部编辑由哈希比对兜底）
-- `IndexStore::rebuild_all` 扫描 `.chain/archive/`（递归，只收 archived:true），archived/derived 标记读自 frontmatter 不再硬编码
-- 读触达全覆盖：read_node/search/expand/read_path 命中回写 stats；写触达计入强度窗口（T3 字面：写也是节点触达）
-- watcher 扩展：监听 `.chain/archive/`（递归），MCP 侧归档落盘后 GUI 即时感知
-- 错误码补齐：`INVALID_REL:` / `WORKSPACE_MODE_MISMATCH:`（宪法第 7 条）
-### Changed
-- schema 1.0 → **1.1**（B 类：派生物格式落地；缺失 `.schema` 恒为隐式 1.0，`engram-cli migrate` 登记 1.0→1.1 步骤）
-- MCP 工具契约 v2 → **v3**（golden 12→16 条，覆盖 12 工具）
-- Node 序列化加性字段 `archived`/`archived_reason`（false/None 时不出现在输出，存量响应零回归）
+**M8'（冲突冻结 + 重复检测 + 蒸馏 + 审计）**
+- `consolidate(targets?, dry_run=true, k=8)`（契约 v4 第 13 工具；开发为主/分析共享）：BFS 连通分量聚类 → `derived: true` + `[蒸馏]` 骨架节点（逐条来源引用，模板化骨架非 LLM 摘要）；dry_run 默认 true；`CONSOLIDATE_EMPTY:` 错误码
+- 冲突即冻结（ADR 0003）：乐观锁 CONFLICT → `[待裁决]` 前缀 + status blocked + frozen 标记（仅元数据写入），冻结期间拒绝一切写入；stats CONFLICT 计数
+- 重复检测两阶段（T8）：标题归一化包含关系（零依赖）→ 嵌入余弦 > 0.9 → duplicate_hint + alternative 竞争边；force 跳过
+- audit.jsonl（T15 最后派生物落地）：create/update/link/archive/unlink/consolidate/freeze/migrate，append-only、失败不阻断
+- 工具契约 v3 → **v4**（golden 16→18 条，13 工具）
+
+**M-Code（代码骨架）**
+- `code_map.rs`：tree-sitter-rust 提取公开接口/调用边/Mermaid；骨架派生 `.chain/code_map/<id>.md`；frontmatter `code_map` 挂载；stale 标记生命周期
+- `engram-cli sync-code-map` 子命令
+- GUI 加性（宪法第 5 条零破坏）：状态徽标（归档/待裁决/蒸馏/代码骨架/stale）、归档视图开关、M-Code 骨架面板（Mermaid 渲染 + 降级）、重嵌索引按钮
+
+**补丁 1（参数迭代方法论三前置）**
+- §12 硬伤修复：强度时间轴切换**记忆时钟序数** + 负值 clamp 0（「昨天用过 < 从未用过」根除）
+- §16 参数外置：stats.json `params` 区（7 参数先验默认，契约与参数解耦）
+- §17 决策留痕：audit recall / dup_detect / dup_force 行
+- §18 反馈信号：`feedback` 区 + 有界样本（正负样本/重复真假阳性/归档误判/蒸馏质量）
+
+**UI 流畅度**：涟漪/水面动画优化（位置缓存 + 样式旁路收窄 + 波前 class 增量点亮 + 时长节流 30fps）
+
 ### Fixed
-- link_nodes 词表外报错无 `INVALID_REL:` 前缀（审计建议）
-- 模式强校验报错无 `WORKSPACE_MODE_MISMATCH:` 前缀（审计建议）
-- 写触达不计入强度触达窗口（T3 字面偏差，审计建议）
+- link_nodes 词表外/模式强校验报错无错误码前缀（审计建议）
+- 写触达不计入强度触达窗口（T3 字面偏差）
+- strength() f32 精度 bug（epoch 秒精度 128s 吞掉 100s 级年龄）
+- §12 强度时间轴错用墙钟秒（单位错误）
 
 ## [2.9.0] - 2026-09-08
 ### Added

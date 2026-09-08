@@ -63,10 +63,10 @@ mod tests {
 
     #[test]
     fn test_version_info_display_line_shape() {
-        let v = VersionInfo::new("2.9.0");
+        let v = VersionInfo::new("2.10.0");
         let line = v.display_line();
         assert!(
-            line.starts_with("Engram 2.9.0 (git "),
+            line.starts_with("Engram 2.10.0 (git "),
             "格式应为 app+hash 开头：{line}"
         );
         assert!(
