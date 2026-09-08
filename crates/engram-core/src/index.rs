@@ -25,6 +25,14 @@ pub struct IndexEntry {
     pub stale: bool,
 }
 
+/// 节点索引状态（只读查询结果）
+#[derive(Debug, Clone)]
+pub struct IndexStatus {
+    pub stale: bool,
+    pub archived: bool,
+    pub derived: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexMeta {
     pub format: u32,
@@ -153,6 +161,25 @@ impl IndexStore {
             e.stale = true;
         }
         Ok(())
+    }
+
+    /// 节点索引状态（信息栏「检索线索」可视化用，只读）：
+    /// None = 未入索引（首次 reindex 后启用向量召回）；Some = { 陈旧与否（显式标记或哈希不符）、归档、蒸馏 }
+    pub fn entry_status(
+        &mut self,
+        id: &str,
+        current_hash: &str,
+    ) -> Result<Option<IndexStatus>, String> {
+        self.ensure_loaded()?;
+        Ok(self
+            .meta
+            .as_ref()
+            .and_then(|m| m.entries.iter().find(|e| e.id == id))
+            .map(|e| IndexStatus {
+                stale: e.stale || e.hash != current_hash,
+                archived: e.archived,
+                derived: e.derived,
+            }))
     }
 
     /// 写入/更新一个条目（含归档与 derived 标记；维度不匹配返回 Err）

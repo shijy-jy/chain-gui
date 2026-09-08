@@ -955,6 +955,53 @@ pub fn recall(
     crate::retrieval::recall(ctx, query, k, include_archived)
 }
 
+/// 检索线索可视化（信息栏「检索线索」节，只读、零破坏）：
+/// 触发句（正文 `> 触发：` 行）/ 检索词 tags / 记忆状态（强度、上次触达序数、读写数）/
+/// 索引状态（已嵌入/陈旧）。未写 trigger 时前端据此提示补写。
+pub fn node_memory_info(ctx: &Workspace, id: &str) -> Result<Value, String> {
+    let snap = ctx.scan()?;
+    let node = snap
+        .nodes
+        .iter()
+        .find(|n| n.id == id)
+        .or_else(|| snap.archived.iter().find(|n| n.id == id))
+        .ok_or_else(|| format!("节点 {id} 不存在"))?;
+    // 触发句：正文首个 `> 触发` 行
+    let trigger: Option<String> = node
+        .body
+        .lines()
+        .find(|l| l.trim_start().starts_with("> 触发"))
+        .map(|l| {
+            l.trim_start()
+                .trim_start_matches("> 触发")
+                .trim_start_matches(['：', ':', ' '])
+                .to_string()
+        })
+        .filter(|s| !s.is_empty());
+    let mem = {
+        let mut st = ctx.stats.lock().map_err(|e| format!("stats 锁失败：{e}"))?;
+        st.node_memory(id)?
+    };
+    let index = {
+        let mut ix = ctx.index.lock().map_err(|e| format!("索引锁失败：{e}"))?;
+        ix.entry_status(id, &node.content_hash)?
+    };
+    let last_touch_ago = match (mem.memory_now as i64, mem.last_touch) {
+        (now, Some(t)) => (now - t).max(0),
+        _ => -1,
+    };
+    Ok(json!({
+        "trigger": trigger,
+        "tags": node.tags,
+        "reads": mem.reads,
+        "writes": mem.writes,
+        "last_touch_ago": last_touch_ago,   // 记忆时钟序数差（-1 = 从未触达）
+        "strength": mem.strength,           // None = 冷启动
+        "indexed": index.is_some(),
+        "index_stale": index.as_ref().map(|s| s.stale).unwrap_or(false),
+    }))
+}
+
 /// consolidate：蒸馏（框架 T9/§5.5/§5.6，契约 v4 第 13 工具；开发模式为主、分析模式共享）。
 /// - dry_run 默认 true（先看计划再执行）；BFS 连通分量聚类（size ≥ 2），targets 过滤，k = 簇数上限
 /// - 产物：骨架节点（derived:true + 标题 [蒸馏] + 正文逐条来源引用），检索默认降权 ×0.85
@@ -1823,8 +1870,39 @@ mod tests {
     // ── 补丁 1：参数迭代三前置 ──
 
     #[test]
+    fn node_memory_info_visualization() {
+        // 检索线索可视化（只读）：触发句解析 / 记忆状态 / 索引状态
+        let tmp = setup("dev");
+        write_node(&tmp, "a", "力导向布局", "null", "contains");
+        let ctx = ctx_of(&tmp);
+        // 补 trigger 句（直接写文件）
+        let raw = fs::read_to_string(tmp.path().join(".chain/nodes/a.md")).unwrap();
+        let with_trigger = raw.replace("# 力导向布局", "> 触发：图谱自动排列；节点弹簧\n\n# 力导向布局");
+        fs::write(tmp.path().join(".chain/nodes/a.md"), &with_trigger).unwrap();
+
+        let info = node_memory_info(&ctx, "a").unwrap();
+        assert_eq!(
+            info["trigger"].as_str().unwrap(),
+            "图谱自动排列；节点弹簧",
+            "应解析触发句：{info}"
+        );
+        assert_eq!(info["indexed"], false, "未重嵌 → 未入索引");
+        assert!(info["strength"].is_null(), "无触达 → 冷启动");
+
+        // 触达后：读/写计数 + 强度 + 上次触达序数
+        read_node(&ctx, "a", None).unwrap();
+        let info = node_memory_info(&ctx, "a").unwrap();
+        assert_eq!(info["reads"], 1);
+        assert_eq!(info["last_touch_ago"], 0, "刚触达：{info}");
+        assert!(info["strength"].is_f64() || info["strength"].is_number(), "有触达应有强度值：{info}");
+        // 缺 trigger 的节点
+        write_node(&tmp, "b", "孤岛", "null", "contains");
+        let info = node_memory_info(&ctx, "b").unwrap();
+        assert!(info["trigger"].is_null(), "无触发句应显式返回 null");
+    }
+
+    #[test]
     fn recall_then_read_node_positive_sample() {
-        // 补丁 1 §18 正样本联动：recall 后时间窗内 read_node 且 id ∈ results → positives+1
         let tmp = setup("dev");
         write_node(&tmp, "a", "根节点", "null", "contains");
         write_node(&tmp, "b", "贝叶斯推理", "a", "contains");

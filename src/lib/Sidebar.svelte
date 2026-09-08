@@ -60,6 +60,28 @@
   // 证据（v1.8）：文件名列表 + 点击打开 + 文件选择器添加
   let evBusy = $state(false);
 
+  // v2.13 检索线索可视化（只读）：触发句 / 检索词 / 记忆状态 / 索引状态
+  type MemoryInfo = {
+    trigger: string | null;
+    tags: string[];
+    reads: number;
+    writes: number;
+    last_touch_ago: number;
+    strength: number | null;
+    indexed: boolean;
+    index_stale: boolean;
+  };
+  let memInfo = $state<MemoryInfo | null>(null);
+  $effect(() => {
+    const n = node;
+    const dir = chainDir;
+    memInfo = null;
+    if (!n || !dir) return;
+    invoke<MemoryInfo>('get_node_memory_info', { dir, nodeId: n.id })
+      .then((m) => (memInfo = m))
+      .catch(() => {});
+  });
+
   // v2.12 M-Code 骨架（加性）：code_map 挂载节点读取骨架 markdown + Mermaid 渲染
   // （渲染库缺失时降级为源文本展示——检索降级链哲学的 GUI 侧应用）
   let codeMd = $state<string | null>(null);
@@ -475,6 +497,52 @@
       {/if}
       {#if node.code_map}
         <span class="chip chip-code" title={`M-Code：代码骨架挂载（${node.code_map}）`}>代码骨架</span>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- v2.13 检索线索（recall）可视化：触发句 / 检索词 / 记忆与索引状态——recall 能想起它的全部凭据一目了然 -->
+  <button type="button" class="pane-head" onclick={() => (panel.recallOpen = !panel.recallOpen)}>
+    <span class="chev">{panel.recallOpen ? '▾' : '▸'}</span>检索线索（recall）
+    <span class="pane-hint">{memInfo ? (memInfo.trigger ? '已写触发句' : '缺触发句——建议补写') : ''}</span>
+  </button>
+  {#if panel.recallOpen}
+    <div class="pane recall-pane">
+      {#if !memInfo}
+        <div class="ev-empty">加载中…</div>
+      {:else}
+        <div class="recall-row">
+          <span class="recall-label">触发句</span>
+          {#if memInfo.trigger}
+            <span class="recall-trigger">「{memInfo.trigger}」</span>
+          {:else}
+            <span class="recall-missing" title="回忆靠话术：写未来会用哪句话想起它">未写——补到正文开头：`&gt; 触发：〔同义话术〕（；分隔）`</span>
+          {/if}
+        </div>
+        <div class="recall-row">
+          <span class="recall-label">检索词</span>
+          <span class="recall-tags">{memInfo.tags.length > 0 ? memInfo.tags.join(' · ') : '无 tags（补检索同义词，≤5 个）'}</span>
+        </div>
+        <div class="recall-row">
+          <span class="recall-label">记忆</span>
+          <span class="recall-status">
+            {memInfo.strength === null
+              ? '冷启动（无触达）'
+              : `强度 ${memInfo.strength.toFixed(2)}`} ·
+            {memInfo.last_touch_ago < 0
+              ? '从未触达'
+              : `上次触达 ${memInfo.last_touch_ago} 次调用前`} ·
+            读 {memInfo.reads} / 写 {memInfo.writes}
+          </span>
+        </div>
+        <div class="recall-row">
+          <span class="recall-label">索引</span>
+          <span class="recall-status">
+            {memInfo.indexed
+              ? (memInfo.index_stale ? '已嵌入（陈旧：下次召回按需重嵌）' : '已嵌入 ✓（向量召回可用）')
+              : '未嵌入（重嵌索引后启用向量召回）'}
+          </span>
+        </div>
       {/if}
     </div>
   {/if}
@@ -906,6 +974,39 @@
   .code-actions { display: flex; gap: 8px; flex-shrink: 0; }
   .code-detach { background: rgba(248, 113, 113, 0.14); }
   .code-detach:hover { background: rgba(248, 113, 113, 0.24); }
+
+  /* v2.13 检索线索（recall）面板：凭据逐行可视化 */
+  .recall-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .recall-row {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 11px;
+  }
+  .recall-label {
+    flex-shrink: 0;
+    width: 44px;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    color: rgba(255, 255, 255, 0.45);
+    text-transform: uppercase;
+  }
+  .recall-trigger { color: #a5d2ff; }
+  .recall-tags { color: rgba(255, 255, 255, 0.7); }
+  .recall-status { color: rgba(255, 255, 255, 0.55); font-family: 'Consolas', monospace; font-size: 10px; }
+  .recall-missing {
+    color: rgba(251, 191, 36, 0.85);
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px dashed rgba(251, 191, 36, 0.35);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 10px;
+  }
 
   /* 固定小字段区：标题/状态/标签 */
   .fixed-fields { flex-shrink: 0; }

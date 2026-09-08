@@ -51,6 +51,7 @@ pub fn run() {
             commands::attach_code_map,
             commands::sync_code_map,
             commands::detach_code_map,
+            commands::get_node_memory_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

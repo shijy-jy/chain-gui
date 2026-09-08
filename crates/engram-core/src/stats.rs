@@ -19,6 +19,19 @@ pub const DEFAULT_D: f32 = 0.5;
 const TOUCH_WINDOW: usize = 50;
 /// 线索缺口记录上限
 const GAP_CAP: usize = 100;
+/// 节点记忆状态（信息栏可视化只读数据）
+#[derive(Debug, Clone)]
+pub struct NodeMemory {
+    pub reads: u64,
+    pub writes: u64,
+    /// 最近触达的记忆时钟序数（None = 从未触达）
+    pub last_touch: Option<i64>,
+    /// 当前记忆时钟（工具调用总数）
+    pub memory_now: u64,
+    /// ACT-R 强度（序数轴、负值 clamp 0；None = 冷启动无触达）
+    pub strength: Option<f32>,
+}
+
 /// 墙钟 epoch 秒（正样本时间窗判定用；与序数轴互不干扰——时间窗是客观时间概念）
 fn wall_epoch() -> i64 {
     std::time::SystemTime::now()
@@ -379,6 +392,27 @@ impl StatsStore {
         self.ensure_loaded()?;
         self.data.as_mut().unwrap().calibrate.conflicts += 1;
         Ok(())
+    }
+
+    /// 节点记忆状态（信息栏「检索线索」可视化用，只读）：
+    /// 读写计数、最近触达序数（记忆时钟）、当前记忆时钟、强度（序数轴 + 负值归一化）
+    pub fn node_memory(&mut self, id: &str) -> Result<NodeMemory, String> {
+        self.ensure_loaded()?;
+        let d = self.data.as_ref().unwrap();
+        let entry = d.per_id.get(id);
+        let (reads, writes, last_touch) = entry
+            .map(|e| (e.reads, e.writes, e.touches.last().copied()))
+            .unwrap_or((0, 0, None));
+        let touches = entry.map(|e| e.touches.clone()).unwrap_or_default();
+        let strength = Self::raw_strength(d.clocks.memory as i64, &touches, d.params.actr_d)
+            .map(|s| s.max(0.0));
+        Ok(NodeMemory {
+            reads,
+            writes,
+            last_touch,
+            memory_now: d.clocks.memory,
+            strength,
+        })
     }
 
     /// 参数区读取（补丁 1 §16 前置一：外置可配置；无持久化条目 → 先验默认值）

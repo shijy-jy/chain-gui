@@ -229,6 +229,13 @@ pub fn detach_code_map(dir: String, node_id: String) -> Result<ChainSnapshot, St
     scan_chain_dir_mode(&root, mode).map_err(|e| e.to_string())
 }
 
+/// 检索线索可视化（信息栏只读）：触发句 / 检索词 / 记忆状态（强度、上次触达、读写数）/ 索引状态
+#[command]
+pub fn get_node_memory_info(dir: String, node_id: String) -> Result<serde_json::Value, String> {
+    let ctx = engram_core::ops::Workspace::open(PathBuf::from(&dir))?;
+    engram_core::ops::node_memory_info(&ctx, &node_id)
+}
+
 // ── 证据 ──────────────────────────────────────────────────
 
 /// 把绝对路径转成相对工程根的 evidence 相对路径（协议要求相对路径，统一 `/` 分隔）

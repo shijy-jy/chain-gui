@@ -11,6 +11,8 @@ export const panel = $state({
   evidenceOpen: true,
   logOpen: true,
   codeOpen: false,
+  // v2.13 检索线索面板（默认展开：可视化 recall 凭据）
+  recallOpen: true,
 });
 
 export const SIDEBAR_COLLAPSED_WIDTH = 44;   // 收起态细条宽度（与 Sidebar.svelte CSS 保持一致）
