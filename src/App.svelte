@@ -657,13 +657,25 @@
     const rip = ripple;
     if (!rip) return;
     cyRef.batch(() => {
-      cyRef.nodes().forEach((n) => {
-        const d = rip.layers.depth.get(n.id());
-        n.removeClass('rip-dim rip-d0 rip-d1 rip-d2 rip-d3 rip-d4 rip-d5 rip-d6');
-        // v2.4 分析模式 maxDepth=1：波前虽扩满全场，超过直接相连层的节点永不点亮
-        if (d !== undefined && d <= activeDepth && d <= rip.maxDepth) n.addClass(`rip-d${d}`);
-        else n.addClass('rip-dim');   // 波外、波前未达或超出响应层：压暗等待
-      });
+      if (activeDepth === 0) {
+        // 首次：全图归一——波源点亮，其余压暗（v2.13 起只在波前推进时增量点亮新层，
+        // 不再每 350ms 全图重写 class——大图扩散期减少无谓样式抖动）
+        cyRef.nodes().forEach((n) => {
+          n.removeClass('rip-dim rip-d0 rip-d1 rip-d2 rip-d3 rip-d4 rip-d5 rip-d6');
+          const d = rip.layers.depth.get(n.id());
+          if (d === 0) n.addClass('rip-d0');
+          else n.addClass('rip-dim');   // 波外或波前未达：压暗等待
+        });
+      } else {
+        // 增量：只点亮本层刚到达的节点（此前各层状态已在上一 tick 落定）
+        cyRef.nodes().forEach((n) => {
+          const d = rip.layers.depth.get(n.id());
+          if (d === activeDepth && d <= rip.maxDepth) {
+            n.removeClass('rip-dim');
+            n.addClass(`rip-d${d}`);
+          }
+        });
+      }
       // v2.2 涟漪期间连线整体淡出（transition 0.2s 平滑），联系改由亮度层级+波纹表达
       cyRef.edges().addClass('rip-hide');
     });
@@ -740,7 +752,36 @@
   // ── v2.3 细环涟漪水面（开发模式）：深海军蓝基底，无波峰波谷着色 ──
   // 点击节点 = 波源（先"沉一下水"再起波），细线同心圆环持续向四周扩散（周期可调）；
   // 环只在以波源为圆心、到最远节点为半径的圆形域内；波传到哪个节点，哪个节点
-  // 周围泛起局部小涟漪（相位随层级滞后）；节点只上下轻颤（不斜向）。
+  // 周围泛起局部小涟漪（相位随层级滞后）。
+  // v2.13 流畅度优化：
+  //  - 节点渲染位置缓存（renderedPosition 只在平移/缩放/力模拟时重算——静止大图零矩阵开销）
+  //  - 每帧 cytoscape 样式旁路收窄到「波源呼吸 + 沉水」少数元素（原全图脉冲每帧重绘是卡顿主因；
+  //    受影响节点的"礁石颤"改由 canvas 局部小环承担，涟漪语义不变）
+  //  - 固定描边色 + globalAlpha（省去每环 rgba 字符串分配）；按时长节流 ~30fps（120Hz 屏不翻倍）
+  let posCache = new Map<string, { x: number; y: number }>();
+  let posKey = '';
+  function ensurePositions(cyRef: Core | null) {
+    if (!cyRef) {
+      if (posCache.size) posCache = new Map();
+      posKey = '';
+      return;
+    }
+    const pan = cyRef.pan();
+    // 平移/缩放/力模拟运行中 → 位置变化，需重算；否则复用缓存（静止大图每帧零开销）
+    const key = `${pan.x.toFixed(1)}|${pan.y.toFixed(1)}|${cyRef.zoom().toFixed(3)}|${forceRun !== null ? 1 : 0}`;
+    if (key === posKey) return;
+    posKey = key;
+    const m = new Map<string, { x: number; y: number }>();
+    cyRef.nodes().forEach((n: any) => {
+      const p = n.renderedPosition();
+      m.set(n.id(), { x: p.x, y: p.y });
+    });
+    posCache = m;
+  }
+  function nodePos(id: string): { x: number; y: number } {
+    return posCache.get(id) ?? { x: 0, y: 0 };
+  }
+
   function drawWater(cyRef: Core | null, t: number, frame: number) {
     if (!waterCanvas) return;
     if (!waterCtx) waterCtx = waterCanvas.getContext('2d');
@@ -761,9 +802,6 @@
       g.addColorStop(1, '#060b13');
       waterBaseGrad = g;
     }
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = waterBaseGrad;
-    ctx.fillRect(0, 0, w, h);
 
     // ── 波源生命周期 ──
     const active: typeof waveSources = [];
@@ -779,26 +817,27 @@
     if (dips.length > 0) {
       dips = dips.filter((d) => nowMs - d.t0 < 820);
     }
-    if (cyRef) {
-      for (const s of active) {
-        const ele = cyRef.getElementById(s.id);
-        if (!ele.empty()) {
-          const p = ele.renderedPosition();
-          s.gx = p.x;
-          s.gy = p.y;
-        }
-      }
+    // v2.13：闲置零绘制——无波源时上一帧已是干净底色，直接跳过（省全屏 fill + 一切重活）
+    if (active.length === 0) return;
+    ensurePositions(cyRef);
+    for (const s of active) {
+      const p = nodePos(s.id);
+      s.gx = p.x;
+      s.gy = p.y;
     }
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = waterBaseGrad;
+    ctx.fillRect(0, 0, w, h);
 
     const period = Math.max(0.2, waveParams.period);
     const fadePow = Math.max(0.3, waveParams.fade);
     const energyK = waveParams.energy / 0.55;
     const lw = Math.max(0.5, Math.min(2.5, waveParams.lineWidth));
 
-    if (active.length === 0) return;
-
     // ── 细环：每个波源 3 圈同心细环持续扩散（圆内，边界 80% 起淡）──
     ctx.lineWidth = lw;
+    ctx.strokeStyle = '#a5d2ff';   // v2.13：固定描边色，透明度走 globalAlpha（省字符串分配）
     for (const s of active) {
       for (let k = 0; k < 3; k++) {
         const ph = ((t / period) + k / 3) % 1;
@@ -806,9 +845,9 @@
         const edgeFade = r > s.radPx * 0.8 ? Math.max(0, 1 - (r / s.radPx - 0.8) / 0.2) : 1;
         const alpha = Math.pow(1 - ph, fadePow) * 0.5 * s.level * energyK * edgeFade;
         if (alpha <= 0.01) continue;
+        ctx.globalAlpha = alpha;
         ctx.beginPath();
         ctx.arc(s.gx, s.gy, r, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(165, 210, 255, ${alpha.toFixed(3)})`;
         ctx.stroke();
       }
     }
@@ -823,58 +862,43 @@
         const d = rip.layers.depth.get(n.id());
         if (d === undefined || d === 0 || d > rip.maxDepth) return;
         const strength = ripplePulseAmp(d) / 0.1;
-        const p = n.renderedPosition();
+        const p = nodePos(n.id());   // v2.13：缓存位置（静止时零矩阵开销）
         for (let k = 0; k < 2; k++) {
           const ph = ((t / nodePeriod) + d * 0.18 + k * 0.5) % 1;
           const r = ph * (18 + strength * 20);
           const alpha = Math.pow(1 - ph, fadePow) * 0.4 * strength * mainLevel * energyK;
           if (alpha <= 0.01) continue;
+          ctx.globalAlpha = alpha;
           ctx.beginPath();
           ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-          ctx.strokeStyle = `rgba(165, 210, 255, ${alpha.toFixed(3)})`;
           ctx.stroke();
         }
       });
     }
+    ctx.globalAlpha = 1;
 
-    // ── 节点运动（俯视语义）：一切"浮沉"都是缩放——源节点慢速深呼吸（向水里沉进浮出），
-    //    受影响节点快而小的缩放脉冲（礁石式小涟漪）；点击瞬间沉水 = 额外缩小 ──
+    // ── 节点运动（俯视语义）：v2.13 收窄为「波源深呼吸 + 点击沉水」——
+    //    原「受影响节点每帧缩放脉冲」是对全图元素每帧写样式（卡顿主因），
+    //    该语义改由上方 canvas 礁石环承担；波源数量极少（通常 1-3），成本可忽略 ──
     if (!cyRef) return;
     const scaledNow = new Set<string>();
     cyRef.batch(() => {
-      cyRef.nodes().forEach((n: any) => {
-        const id = n.id();
-        let strength = 0;
-        let slowSrc = false;
-        const src = active.find((s) => s.id === id);
-        if (src) {
-          strength = src.main ? 1.0 : 0.55;
-          slowSrc = true;
-        } else if (rip) {
-          const d = rip.layers.depth.get(id);
-          if (d === undefined || d > rip.maxDepth) return;
-          strength = ripplePulseAmp(d) / 0.1;
-        } else {
-          return;
-        }
-        let scale: number;
-        if (slowSrc) {
-          scale = 1 + Math.sin((t / (period * 1.6)) * Math.PI * 2) * 0.13 * strength * energyK;
-        } else {
-          scale = 1 + Math.sin((t / period) * Math.PI * 2 - (rip?.layers.depth.get(id) ?? 0) * 0.5) * 0.1 * strength * energyK;
-        }
-        const dip = dips.find((dd) => dd.id === id);
+      for (const s of active) {
+        const ele = cyRef.getElementById(s.id);
+        if (ele.empty()) continue;
+        const base = nodeSize(ele);
+        let scale = 1 + Math.sin((t / (period * 1.6)) * Math.PI * 2) * 0.13 * (s.main ? 1.0 : 0.55) * energyK;
+        const dip = dips.find((dd) => dd.id === s.id);
         if (dip) {
           const dt = (nowMs - dip.t0) / 620;
           if (dt < 1) scale *= 1 - Math.sin(Math.PI * dt) * 0.35;   // 沉水：再缩小至 0.65
         }
-        const base = nodeSize(n);
-        n.style('width', `${base * scale}px`);
-        n.style('height', `${base * scale}px`);
-        scaledNow.add(id);
-      });
+        ele.style('width', `${base * scale}px`);
+        ele.style('height', `${base * scale}px`);
+        scaledNow.add(s.id);
+      }
     });
-    // 清理上一帧仍在缩放、本帧已不再参与涟漪的节点
+    // 清理上一帧仍在缩放、本帧已退出涟漪的波源
     for (const id of rippleScaled) {
       if (!scaledNow.has(id)) {
         const ele = cyRef.getElementById(id);
@@ -887,15 +911,18 @@
     rippleScaled = scaledNow;
   }
 
-  // 水面动画循环（约 30fps，开发模式常驻）
+  // 水面动画循环（按时长节流 ~30fps——120Hz 屏上不翻倍重活；开发模式常驻）
   function startWaterLoop() {
     if (waterRaf !== null) return;
     const t0 = performance.now();
+    let lastDraw = 0;
     const tick = () => {
       waterRaf = null;
-      waterFrame += 1;
-      if (waterFrame % 2 === 0) {
-        drawWater(cy, (performance.now() - t0) / 1000, waterFrame);
+      const now = performance.now();
+      if (now - lastDraw >= 33) {
+        lastDraw = now;
+        waterFrame += 1;
+        drawWater(cy, (now - t0) / 1000, waterFrame);
       }
       waterRaf = requestAnimationFrame(tick);
     };
