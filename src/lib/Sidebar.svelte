@@ -523,7 +523,7 @@
     top: 0;
     right: 0;
     height: 100vh;
-    background: #111111;
+    background: rgba(17, 17, 17, 0.94);
     color: rgba(255, 255, 255, 0.85);
     border-left: 1px solid rgba(255, 255, 255, 0.08);
     padding: 20px 24px 16px;
@@ -533,6 +533,9 @@
     display: flex;
     flex-direction: column;
     min-width: 320px;
+    backdrop-filter: blur(18px);
+    box-shadow: -10px 0 34px rgba(0, 0, 0, 0.4);
+    animation: sidebar-in 0.26s var(--ease-out);
   }
 
   /* v2.6 常驻信息栏空态 */
@@ -543,7 +546,7 @@
     align-items: center;
     justify-content: center;
     gap: 10px;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.45);
     text-align: center;
     padding: 0 20px;
     position: relative;
@@ -553,8 +556,12 @@
     top: 12px;
     right: 14px;
   }
-  .panel-empty-icon { font-size: 34px; opacity: 0.6; }
-  .panel-empty-title { font-size: 14px; color: rgba(255, 255, 255, 0.5); margin: 0; }
+  .panel-empty-icon {
+    font-size: 34px;
+    opacity: 0.6;
+    animation: hint-float 3.2s ease-in-out infinite;
+  }
+  .panel-empty-title { font-size: 14px; color: rgba(255, 255, 255, 0.65); margin: 0; }
   .panel-empty-sub { font-size: 11px; line-height: 1.7; margin: 0; }
 
   /* v2.4 收起态：细条停靠右缘，保留节点身份与展开入口 */
@@ -627,6 +634,7 @@
     height: 10px;
     border-radius: 50%;
     flex-shrink: 0;
+    box-shadow: 0 0 8px currentColor;
   }
   header h2 {
     margin: 0;
@@ -661,7 +669,7 @@
   .meta-item {
     font-size: 10px;
     font-family: 'Consolas', monospace;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.5);
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.07);
     padding: 2px 8px;
@@ -676,7 +684,7 @@
     font-size: 10px;
     letter-spacing: 1.5px;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.5);
     margin-bottom: 6px;
   }
   input, select, textarea {
@@ -689,12 +697,13 @@
     font-size: 13px;
     font-family: inherit;
     box-sizing: border-box;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    transition: border-color 0.2s var(--ease-soft), background 0.2s var(--ease-soft), box-shadow 0.2s var(--ease-soft);
   }
   input:focus, select:focus, textarea:focus {
     outline: none;
-    border-color: rgba(255, 255, 255, 0.35);
+    border-color: rgba(167, 139, 250, 0.55);
     background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.14);
   }
   textarea {
     font-family: 'Consolas', 'Monaco', monospace;
@@ -714,7 +723,7 @@
     font-family: inherit;
     letter-spacing: 1.2px;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.55);
     background: none;
     border: none;
     width: 100%;
@@ -722,15 +731,16 @@
     cursor: pointer;
     user-select: none;
     flex-shrink: 0;
+    transition: color 0.15s var(--ease-soft);
   }
-  .pane-head:hover { color: rgba(255, 255, 255, 0.75); }
+  .pane-head:hover { color: rgba(255, 255, 255, 0.85); }
   .chev { font-size: 9px; width: 10px; }
   .pane-hint {
     margin-left: auto;
     font-size: 9px;
     letter-spacing: 0;
     text-transform: none;
-    color: rgba(255, 255, 255, 0.22);
+    color: rgba(255, 255, 255, 0.32);
   }
 
   /* v1.8 内容区：固定高度（由拖拽调整），内部滚动 */
@@ -775,11 +785,14 @@
     text-transform: none;
     padding: 2px 9px;
     border-radius: 999px;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.5);
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.14);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition:
+      background 0.18s var(--ease-soft),
+      color 0.18s var(--ease-soft),
+      border-color 0.18s var(--ease-soft);
   }
   .mode-btn:hover { color: rgba(255, 255, 255, 0.85); border-color: rgba(255, 255, 255, 0.3); }
   .mode-btn.active {

@@ -1004,6 +1004,9 @@
         'font-size': '11px',
         'color': 'rgba(255,255,255,0.92)',
         'text-opacity': 1,
+        // v2.8 UI 打磨：标签暗色描边，任意背景下可读（黑底/节点/水面）
+        'text-outline-width': 2,
+        'text-outline-color': '#0a0a0a',
         'text-valign': 'bottom',
         'text-margin-y': 8,
         'text-wrap': 'wrap',
@@ -1052,7 +1055,7 @@
         'border-style': 'dashed',
       },
     },
-    { selector: 'node:selected', style: { 'border-width': 2, 'border-color': '#ffffff', 'border-opacity': 0.95, 'border-style': 'solid' } },
+    { selector: 'node:selected', style: { 'border-width': 2, 'border-color': '#ffffff', 'border-opacity': 0.95, 'border-style': 'solid', 'shadow-blur': 14, 'shadow-opacity': 0.35, 'shadow-color': '#ffffff' } },
     // v2.0 边：粗细与节点大小挂钩（用户反馈：边应随节点大小，且要细）——
     // 小节点(14px) 0.8px → 大节点(38px) 2.0px；曲率收敛（52→30px 控制距离，短边不再鼓大包）；
     // 渐变按 cytoscape 官方性能建议在大图（>300 边）降级为实线
@@ -1064,12 +1067,12 @@
         'control-point-distances': '30px',
         'control-point-weights': 0.5,
         'line-cap': 'round',
-        'line-color': 'rgba(148,163,184,0.45)',   // 实线兜底色
+        'line-color': 'rgba(148,163,184,0.5)',    // 实线兜底色
         'line-fill': 'linear-gradient',           // 停靠点颜色/位置由逐边内联样式提供（见 chainToElements）
         'target-arrow-shape': 'triangle',
-        'target-arrow-color': 'rgba(255,255,255,0.35)',   // 兜底（每条边都有逐边样式覆盖为目标色）
+        'target-arrow-color': 'rgba(255,255,255,0.4)',   // 兜底（每条边都有逐边样式覆盖为目标色）
         'arrow-scale': 0.55,
-        'opacity': 0.5,
+        'opacity': 0.55,
         // v1.4 聚焦过渡
         'transition-property': 'opacity, width',
         'transition-duration': '0.2s',
@@ -2053,7 +2056,12 @@
     pointer-events: none;
     z-index: 1;
   }
-  .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
+  .empty-icon {
+    font-size: 40px;
+    margin-bottom: 12px;
+    opacity: 0.5;
+    animation: hint-float 3.2s ease-in-out infinite;
+  }
   .empty-hint p { font-size: 13px; margin: 0; letter-spacing: 0.5px; }
   .sub-hint { font-size: 11px !important; color: rgba(255, 255, 255, 0.2); margin-top: 6px !important; }
 

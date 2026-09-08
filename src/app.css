@@ -96,6 +96,25 @@ input:focus-visible {
     opacity: 1;
   }
 }
+@keyframes sidebar-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes hint-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
 
 /* ── 动效可及性：用户系统开启「减少动态效果」时全部降级 ── */
 @media (prefers-reduced-motion: reduce) {
