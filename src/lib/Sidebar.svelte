@@ -1089,4 +1089,37 @@
   }
   .del-btn { color: #f87171; border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.1); }
   .del-btn:hover:not(:disabled) { background: rgba(248, 113, 113, 0.2); }
+
+  /* v2.8 UI 打磨：面板内按钮微交互统一（悬浮上移 / 按压缩放，零交互语义变化） */
+  footer button,
+  .fold-btn,
+  .ev-add,
+  .ev-del,
+  .log-append,
+  .parent-apply,
+  .del-btn {
+    transition:
+      background 0.18s var(--ease-soft),
+      color 0.18s var(--ease-soft),
+      border-color 0.18s var(--ease-soft),
+      transform 0.14s var(--ease-out);
+  }
+  footer button:hover:not(:disabled),
+  .fold-btn:hover:not(:disabled),
+  .ev-add:hover:not(:disabled),
+  .ev-del:hover:not(:disabled),
+  .log-append:hover:not(:disabled),
+  .parent-apply:hover:not(:disabled),
+  .del-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+  footer button:active:not(:disabled),
+  .fold-btn:active:not(:disabled),
+  .ev-add:active:not(:disabled),
+  .ev-del:active:not(:disabled),
+  .log-append:active:not(:disabled),
+  .parent-apply:active:not(:disabled),
+  .del-btn:active:not(:disabled) {
+    transform: translateY(0) scale(0.96);
+  }
 </style>
