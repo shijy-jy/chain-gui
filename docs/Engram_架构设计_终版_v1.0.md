@@ -163,12 +163,12 @@ git tag v2.8.0 → GitHub Actions：
 
 | 序 | 动作 | 解锁 | 状态 |
 |---|---|---|---|
-| ① | 推送本地全部提交 | CI/协作前提 | ✅ 本机 credential manager 可用，随本文一并补推 |
-| ② | cargo workspace 化 + core 下沉（= 规划第 1 步「唯一写路径」的架构形态） | 写路径统一、core 可单测、双模式 profile 化 | 待启动 |
-| ③ | ADR 补录 + ARCHITECTURE.md 摘录 + golden 契约测试 | 决策留档、契约防漂移 | 待 ② |
-| ④ | CI 发布管线（版本注入 + NSIS + audit/deny） | 发布工程闭环 | 待 ② |
-| ⑤ | `.schema` 版本 + 迁移工具（engram-cli migrate） | 数据可升级 | 可并行 |
-| ⑥ | 安全模型文档（HTTP 启动前） | 信任边界明确 | HTTP 前 |
+| ① | 推送本地全部提交 | CI/协作前提 | ✅ 已推送 |
+| ② | cargo workspace 化 + core 下沉（= 规划第 1 步「唯一写路径」的架构形态） | 写路径统一、core 可单测、双模式 profile 化 | ✅ 已完成（0e3d5d8） |
+| ③ | ADR 补录 + ARCHITECTURE.md 摘录 + golden 契约测试 | 决策留档、契约防漂移 | ✅ 已完成（99cf5c5） |
+| ④ | CI 发布管线（版本注入 + NSIS + audit/deny） | 发布工程闭环 | ✅ 已完成（205140e） |
+| ⑤ | `.schema` 版本 + 迁移工具（engram-cli migrate） | 数据可升级 | ✅ 已完成（682fc1a） |
+| ⑥ | 安全模型文档（HTTP 启动前） | 信任边界明确 | ✅ 已完成（《Engram 安全模型 v1》，HTTP 未启用） |
 
 ---
 
