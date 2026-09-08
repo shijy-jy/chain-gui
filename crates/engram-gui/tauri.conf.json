@@ -6,9 +6,7 @@
   "mainBinaryName": "app",
   "build": {
     "frontendDist": "../../dist",
-    "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "npm --prefix ../.. run dev",
-    "beforeBuildCommand": "npm --prefix ../.. run build"
+    "devUrl": "http://localhost:1420"
   },
   "app": {
     "windows": [
