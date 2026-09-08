@@ -2,6 +2,17 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
+## [Unreleased] - 补丁 1：参数迭代方法论三前置（理论整理与评估 §12/§15–§22）
+### Added
+- **强度时间轴切换到记忆时钟**（§12 硬伤修复，例外项）：per_id 触达时间戳 = 触达时的记忆时钟序数（不再是墙钟秒）；`S = ln(Σ (memory_now − t_j)^(−d))` 且**负值 clamp 到 0**——「昨天用过 < 从未用过」的负值反转惩罚根除（触达过的节点排序永不劣于未触达）；d 读参数区
+- **参数外置可配置**（§16 前置一）：stats.json 新增 `params` 区（recall 常规/放宽阈值、重复检测余弦、derived 降权、ACT-R d、归档建议天数、校准窗口；serde default = 先验值，约束区间见 §20 配方）；全部使用点改读参数区，**契约与参数解耦**（只改数值不改形状，golden 18 条不变）
+- **决策点全程留痕**（§17 前置二）：audit.jsonl 新增 recall 决策行（query/mode/degraded/生效阈值/分数 min-max/top-k id+分）、dup_detect（against/cosine/threshold/action）、dup_force（同名 bypass）
+- **反馈信号**（§18 前置三，隐式标注）：stats.json 新增 `feedback` 区 + 有界样本日志——正样本（recall 后 30s 内 read_node 命中 results，last_recall 跨调用联动防重复计数）、负样本（上一 recall 未采用）、重复真/假阳性（提示 vs force）、归档误判（include_archived 命中归档节点）、蒸馏质量（derived 读取数）；分数→采用样本与余弦样本供 §20 迭代配方校准
+### Changed
+- 无契约 bump（13 工具不变、golden 18 条不变——补丁纪律 §21.6）
+### Fixed
+- §12 最紧迫理论-实现断裂：强度时间轴错用墙钟秒（单位错误，迭代救不了——必须在落地时修复）
+
 ## [Unreleased] - M-Code（代码骨架：tree-sitter 提取 + CLI + GUI 加性）
 ### Added
 - `code_map.rs`（框架 §5.7/T12–T14，试点语言 Rust 拍板）：tree-sitter-rust 提取公开接口（pub fn/struct/trait/enum/impl + 签名、文件:行:列定位）→ 同文件调用边 → Mermaid flowchart 文本；骨架落 `.chain/code_map/<node-id>.md`（派生物，可重建）；节点 frontmatter `code_map: <源码相对路径>`（文件或目录）挂载；stale 标记文件（watcher 联动，refresh 清除，read_skeleton_md 实时修正 stale 行）

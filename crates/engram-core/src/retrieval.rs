@@ -68,6 +68,11 @@ fn recall_vector(
     if include_archived {
         candidates.extend(snap.archived.iter());
     }
+    // 参数区（补丁 1 §16 前置一：阈值/降权外置，先验默认；契约与参数解耦——只改数值不改形状）
+    let params = ctx.params()?;
+    let thr = params.recall_threshold;
+    let thr_widen = params.recall_widen;
+    let derived_weight = params.derived_weight;
 
     // 按需重嵌（框架 §4/§5.10，M6' 审核建议 #2）：stale 标记 / 哈希不符 / 索引缺失的
     // 候选节点在 recall 时批量重嵌并落盘；写路径已显式 mark_stale，此处兜底外部编辑。
@@ -122,7 +127,7 @@ fn recall_vector(
         }
         let mut s: f32 = qv.iter().zip(v.iter()).map(|(a, b)| a * b).sum();
         if e.derived {
-            s *= 0.85; // 蒸馏产物默认降权（框架 T9）
+            s *= derived_weight as f32; // 蒸馏产物默认降权（框架 T9；系数参数外置，补丁 1 §16）
         }
         scored.push((s, e.id.clone(), e.derived));
     }
@@ -143,9 +148,10 @@ fn recall_vector(
             "cold-start",
             true,
             Some("冷启动：强度为空，按创建时间+图谱度数排序（框架 T4）"),
+            None,
         )
     } else {
-        // 强度加成：score × (1 + 0.3 × life)，life = strength（无触达 0）
+        // 强度加成：score × (1 + 0.3 × life)，life = strength（§12 时间轴修复后恒 ≥ 0——触达永不惩罚）
         let life: Vec<Option<f32>> = {
             let mut st = ctx.stats.lock().map_err(|e| format!("stats 锁失败：{e}"))?;
             scored
@@ -157,27 +163,43 @@ fn recall_vector(
             .into_iter()
             .zip(life)
             .map(|((s, id, _), l)| {
-                let boosted = s * (1.0 + 0.3 * l.unwrap_or(0.0).clamp(-10.0, 10.0));
+                let boosted = s * (1.0 + 0.3 * l.unwrap_or(0.0).clamp(0.0, 10.0));
                 (boosted, id)
             })
             .collect();
         ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-        // 阈值两档：0.35 常规；不足 k 时放宽到 0.2（L4/L5 放宽）
-        let mut top: Vec<(f32, String)> =
-            ranked.iter().filter(|(s, _)| *s >= 0.35).cloned().collect();
+        // 阈值两档（参数外置，补丁 1 §16）：常规档不足 k 时放宽到第二档（L4/L5 放宽）
+        let mut top: Vec<(f32, String)> = ranked
+            .iter()
+            .filter(|(s, _)| *s >= thr as f32)
+            .cloned()
+            .collect();
         let widened = top.len() < k;
         if widened {
-            top = ranked.iter().filter(|(s, _)| *s >= 0.2).cloned().collect();
+            top = ranked
+                .iter()
+                .filter(|(s, _)| *s >= thr_widen as f32)
+                .cloned()
+                .collect();
         }
         top.truncate(k);
         let results = build_results(&candidates, top, k);
         let reason = if widened {
-            Some("相似度放宽至 0.2（阶梯 L4/L5 逐级放宽）")
+            Some("相似度放宽至第二档（阶梯 L4/L5 逐级放宽）")
         } else {
             None
         };
-        finish_recall(ctx, snap, q, results, "vector", false, reason)
+        finish_recall(
+            ctx,
+            snap,
+            q,
+            results,
+            "vector",
+            false,
+            reason,
+            Some(if widened { thr_widen } else { thr }),
+        )
     }
 }
 
@@ -305,7 +327,7 @@ fn keyword_fallback_reason(
         results.truncate(k);
     }
     let total = results.len();
-    finish_recall(ctx, snap, q, results, "keyword", true, Some(reason)).unwrap_or_else(|e| {
+    finish_recall(ctx, snap, q, results, "keyword", true, Some(reason), None).unwrap_or_else(|e| {
         json!({
             "query": q,
             "total": total,
@@ -318,7 +340,9 @@ fn keyword_fallback_reason(
     })
 }
 
-/// 收尾：命中触达回写 / 未命中记缺口 / 校准计数 / 落盘
+/// 收尾：命中触达回写 / 未命中记缺口 / 校准计数 / 反馈信号（补丁 1 §18）/
+/// 决策留痕（补丁 1 §17 audit recall）/ 落盘。
+/// `threshold` = 本次生效的分数阈值（向量模式；关键词/冷启动为 None）。
 fn finish_recall(
     ctx: &Workspace,
     snap: &ChainSnapshot,
@@ -327,11 +351,31 @@ fn finish_recall(
     mode: &str,
     degraded: bool,
     reason: Option<&str>,
+    threshold: Option<f64>,
 ) -> Result<Value, String> {
     let top_id = results
         .first()
         .and_then(|r| r["id"].as_str())
         .map(|s| s.to_string());
+    let ids: Vec<String> = results
+        .iter()
+        .filter_map(|r| r["id"].as_str().map(|s| s.to_string()))
+        .collect();
+    let scores: Vec<f64> = results
+        .iter()
+        .filter_map(|r| r["score"].as_f64())
+        .collect();
+    let archived_ids: std::collections::HashSet<&str> =
+        snap.archived.iter().map(|n| n.id.as_str()).collect();
+    let archived_hits = results
+        .iter()
+        .filter(|r| {
+            r["id"]
+                .as_str()
+                .map(|id| archived_ids.contains(id))
+                .unwrap_or(false)
+        })
+        .count() as u64;
     {
         let mut st = ctx.stats.lock().map_err(|e| format!("stats 锁失败：{e}"))?;
         if let Some(id) = &top_id {
@@ -341,9 +385,33 @@ fn finish_recall(
             st.touch("", crate::stats::TouchKind::RecallMiss)?;
             st.record_gap(q)?;
         }
+        // 补丁 1 §18 反馈信号：上次 recall 采用判定 + 本次快照；向量模式记分数样本
+        st.set_last_recall(q, ids)?;
+        if mode == "vector" {
+            let samples: Vec<(f64, bool)> = scores.iter().map(|s| (*s, false)).collect();
+            let _ = st.record_score_samples(&samples);
+        }
+        if archived_hits > 0 {
+            let _ = st.record_archive_recalled(archived_hits);
+        }
         st.flush()?;
     }
-    let _ = snap;
+    // 补丁 1 §17 决策留痕：audit recall（query/mode/degraded/阈值/分数分布/top-k）
+    let score_min = scores.iter().cloned().fold(f64::INFINITY, f64::min);
+    let score_max = scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let detail = serde_json::to_string(&json!({
+        "query": q,
+        "mode": mode,
+        "degraded": degraded,
+        "threshold": threshold,
+        "score_min": if scores.is_empty() { Value::Null } else { json!(score_min) },
+        "score_max": if scores.is_empty() { Value::Null } else { json!(score_max) },
+        "top": results.iter().map(|r| json!({
+            "id": r["id"], "score": r["score"],
+        })).collect::<Vec<Value>>(),
+    }))
+    .unwrap_or_default();
+    ctx.audit("recall", "", &detail);
     Ok(json!({
         "query": q,
         "total": results.len(),

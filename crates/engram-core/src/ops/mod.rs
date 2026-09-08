@@ -89,6 +89,27 @@ impl Workspace {
         st.flush()
     }
 
+    /// 读触达 + 反馈联动（补丁 1 §18 正样本：read_node 命中上次 recall 结果 → positives；
+    /// derived 节点读取 → 蒸馏质量信号），单锁一次落盘
+    pub fn touch_read_feedback(&self, id: &str, derived: bool) -> Result<(), String> {
+        let mut st = self
+            .stats
+            .lock()
+            .map_err(|e| format!("stats 锁失败：{e}"))?;
+        st.touch(id, crate::stats::TouchKind::ReadHit)?;
+        st.record_read_feedback(id, derived)?;
+        st.flush()
+    }
+
+    /// 参数区（补丁 1 §16 前置一：外置可配置，先验默认）
+    pub fn params(&self) -> Result<crate::stats::Params, String> {
+        let mut st = self
+            .stats
+            .lock()
+            .map_err(|e| format!("stats 锁失败：{e}"))?;
+        st.params()
+    }
+
     /// 写路径标 index 条目 stale + 落盘（框架 §5.10：写入成功后触发 index 条目标 stale；
     /// 缺失条目无副作用——recall 的「索引中无此 id → 按需重嵌」路径覆盖新建节点）
     pub fn mark_index_stale(&self, id: &str) -> Result<(), String> {
@@ -345,7 +366,8 @@ pub fn read_node(
         .find(|n| n.id == id)
         .or_else(|| snap.archived.iter().find(|n| n.id == id))
         .ok_or_else(|| format!("节点 {id} 不存在"))?;
-    let _ = ctx.touch_read(&node.id); // 读触达（T3；失败不吞读取结果）
+    // 读触达（T3）+ 正样本反馈联动（补丁 1 §18；失败不吞读取结果）
+    let _ = ctx.touch_read_feedback(&node.id, node.derived);
     let mut v = serde_json::to_value(node).map_err(|e| format!("序列化失败：{e}"))?;
     // MCP 输出规范化：serialize 落盘会在 body 尾加 \n、parse 原样读回——对 AI 隐藏文件格式噪音
     if let Some(b) = v.get("body").and_then(|b| b.as_str()) {
@@ -581,10 +603,20 @@ pub(crate) fn create_node_impl(
                 dup.id, dup.title
             ));
         }
+        // 补丁 1 §18 重复-假阳性信号：同名仍坚持另建（force）→ 假阳性样本
+        if let Ok(mut st) = ctx.stats.lock() {
+            let _ = st.record_dup(-1.0, true);
+        }
+        ctx.audit(
+            "dup_force",
+            "",
+            &format!("title={title}（同名 bypass：假阳性信号）"),
+        );
     }
 
     // ── T8 重复检测两阶段（force 跳过）──
     let force = force.unwrap_or(false);
+    let dup_cosine_threshold = ctx.params().map(|p| p.dup_cosine).unwrap_or(0.9); // 补丁 1 §16 参数外置
     let mut suspected: Vec<(String, f32)> = Vec::new(); // (id, cosine)
     if !force {
         // 阶段一：归一化包含关系（公共子串启发式的保守形态；排除精确同名——已在上方拦截）
@@ -598,7 +630,7 @@ pub(crate) fn create_node_impl(
             })
             .collect();
         if !candidates.is_empty() {
-            // 阶段二：嵌入余弦 > 0.9（框架 §9 拍板阈值；模型不可用 → 仅阶段一，不误报）
+            // 阶段二：嵌入余弦 > 阈值（参数外置，先验 0.9；模型不可用 → 仅阶段一，不误报）
             let loaded;
             let embedder: Option<&dyn crate::embed::Embedder> = if let Some(e) = embedder_override {
                 Some(e)
@@ -615,7 +647,7 @@ pub(crate) fn create_node_impl(
                         for (n, v) in candidates.iter().zip(rest) {
                             if v.len() == qv.len() {
                                 let s: f32 = qv.iter().zip(v.iter()).map(|(a, b)| a * b).sum();
-                                if s > 0.9 {
+                                if (s as f64) > dup_cosine_threshold {
                                     suspected.push((n.id.clone(), s));
                                 }
                             }
@@ -692,9 +724,21 @@ pub(crate) fn create_node_impl(
             .map(|n| n.title.as_str())
             .unwrap_or("");
         out["duplicate_hint"] = json!(format!(
-            "疑似重复：与 {}\u{300c}{}\u{300d} 嵌入余弦 {:.2} > 0.9（共 {} 个疑似）——已建 alternative 竞争边指向「{}」；确属同一记忆请考虑 update_node 合并，确认另建传 force=true",
-            top.0, top_title, top.1, suspected.len(), top_title
+            "疑似重复：与 {}\u{300c}{}\u{300d} 嵌入余弦 {:.2} > {:.2}（共 {} 个疑似）——已建 alternative 竞争边指向「{}」；确属同一记忆请考虑 update_node 合并，确认另建传 force=true",
+            top.0, top_title, top.1, dup_cosine_threshold, suspected.len(), top_title
         ));
+        // 补丁 1 §18 重复-真阳性信号 + §17 决策留痕（阈值参数外置，样本供假阳性率校准）
+        if let Ok(mut st) = ctx.stats.lock() {
+            let _ = st.record_dup(top.1 as f64, false);
+        }
+        ctx.audit(
+            "dup_detect",
+            &id,
+            &format!(
+                "against={} cosine={:.3} threshold={:.2} action=hinted",
+                top.0, top.1, dup_cosine_threshold
+            ),
+        );
     }
     Ok(out)
 }
@@ -1074,6 +1118,8 @@ pub fn archive_node(
     ctx.touch_write(id)?;
     ctx.mark_index_stale(id)?;
     ctx.audit("archive", id, "移入 .chain/archive/");
+    // 归档建议阈值（补丁 1 §16 参数外置；仅提示，不自动执行）
+    let archive_days = ctx.params().map(|p| p.archive_days).unwrap_or(90.0);
 
     Ok(json!({
         "archived": true,
@@ -1082,8 +1128,8 @@ pub fn archive_node(
         "archived_to": format!(".chain/archive/{id}.md"),
         "reason": reason.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
         "hint": format!(
-            "节点已归档（AI 指南 v{}）。归档节点全文保留、默认不进图与检索，recall 传 include_archived=true 可自 L4 起找回；read_node 仍可直读。90 天未触达为建议归档阈值（仅提示，不自动执行）。",
-            ctx.guide_version()
+            "节点已归档（AI 指南 v{}）。归档节点全文保留、默认不进图与检索，recall 传 include_archived=true 可自 L4 起找回；read_node 仍可直读。{:.0} 天未触达为建议归档阈值（仅提示，不自动执行）。",
+            ctx.guide_version(), archive_days
         ),
     }))
 }
@@ -1772,5 +1818,48 @@ mod tests {
             2,
             "两次 create 两条审计"
         );
+    }
+
+    // ── 补丁 1：参数迭代三前置 ──
+
+    #[test]
+    fn recall_then_read_node_positive_sample() {
+        // 补丁 1 §18 正样本联动：recall 后时间窗内 read_node 且 id ∈ results → positives+1
+        let tmp = setup("dev");
+        write_node(&tmp, "a", "根节点", "null", "contains");
+        write_node(&tmp, "b", "贝叶斯推理", "a", "contains");
+        let ctx = ctx_of(&tmp);
+        recall(&ctx, "贝叶斯", None, false).unwrap(); // 关键词降级命中 b
+        read_node(&ctx, "b", None).unwrap();
+        let raw = fs::read_to_string(tmp.path().join(".chain/stats.json")).unwrap();
+        let d: crate::stats::StatsData = serde_json::from_str(&raw).unwrap();
+        assert_eq!(d.feedback.positives, 1, "recall→read 命中结果 → 正样本");
+        assert!(d.last_recall.as_ref().unwrap().adopted);
+        // 决策留痕（补丁 1 §17）：recall audit 行含 query/mode/threshold
+        let rows = crate::audit::read_all(tmp.path()).unwrap();
+        let recall_rows: Vec<_> = rows
+            .iter()
+            .filter(|r| r["action"] == "recall")
+            .collect();
+        assert_eq!(recall_rows.len(), 1, "recall 决策应留痕：{rows:?}");
+        let detail = recall_rows[0]["detail"].as_str().unwrap();
+        assert!(detail.contains("贝叶斯"), "{detail}");
+        assert!(detail.contains("keyword"), "{detail}");
+        assert!(detail.contains("threshold"), "{detail}");
+    }
+
+    #[test]
+    fn dup_feedback_tp_and_fp_counters() {
+        // 补丁 1 §18：疑似提示 → dup_tp；同名 force → dup_fp
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        create_node(&ctx, "同名标题", None, None, None).unwrap();
+        // 同名 force → 假阳性样本
+        create_node(&ctx, "同名标题", None, None, Some(true)).unwrap();
+        let raw = fs::read_to_string(tmp.path().join(".chain/stats.json")).unwrap();
+        let d: crate::stats::StatsData = serde_json::from_str(&raw).unwrap();
+        assert_eq!(d.feedback.dup_fp, 1, "force 另建 → 假阳性信号");
+        assert_eq!(d.feedback.samples.dup_cosine.len(), 1);
+        assert!(d.feedback.samples.dup_cosine[0].forced);
     }
 }
