@@ -1862,7 +1862,7 @@
   .dir {
     font-family: 'Consolas', monospace;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.45);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1878,7 +1878,7 @@
     align-items: center;
     gap: 6px;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.6);
     white-space: nowrap;
   }
   .slider-val {
@@ -1978,7 +1978,7 @@
   .snap-msg {
     font-size: 10px;
     font-family: 'Consolas', monospace;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.5);
     max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2049,7 +2049,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.35);
     pointer-events: none;
     z-index: 1;
   }
@@ -2090,7 +2090,7 @@
     font-size: 12px;
     min-width: 0;
   }
-  .ns-input::placeholder { color: rgba(255, 255, 255, 0.35); }
+  .ns-input::placeholder { color: rgba(255, 255, 255, 0.45); }
   .ns-clear {
     background: transparent;
     border: none;
@@ -2114,7 +2114,7 @@
   .ns-empty {
     padding: 10px 12px;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.5);
   }
   .ns-item {
     display: flex;
@@ -2148,7 +2148,7 @@
   .ns-id {
     font-size: 10px;
     font-family: 'Consolas', monospace;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.5);
     flex: none;
   }
 
@@ -2195,7 +2195,7 @@
   .wp-val {
     font-family: 'Consolas', monospace;
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.6);
     text-align: right;
   }
   .wp-row input[type="range"] {
@@ -2281,7 +2281,7 @@
     margin: 3px 0;
   }
   .legend-label { font-size: 11px; color: rgba(255, 255, 255, 0.72); white-space: nowrap; }
-  .legend-label.small { font-size: 10px; color: rgba(255, 255, 255, 0.4); }
+  .legend-label.small { font-size: 10px; color: rgba(255, 255, 255, 0.5); }
   /* v2.4 递进关系线型样例 */
   .rel-sample {
     display: inline-block;
@@ -2313,17 +2313,5 @@
     height: 1px;
     background: rgba(255, 255, 255, 0.08);
     margin: 8px 0;
-  }
-
-  /* v2.8 UI 打磨：浮层/提示统一进出场（快出慢停，从 6px 下方淡入） */
-  @keyframes fade-slide-in {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
   }
 </style>

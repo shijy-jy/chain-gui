@@ -102,18 +102,21 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(6px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 2000;
+    animation: mask-in 0.2s ease-out;
   }
   .dialog {
     width: min(420px, 90vw);
     background: #161618;
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 20px 22px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    animation: dialog-in 0.26s var(--ease-out);
   }
   header {
     display: flex;
@@ -136,7 +139,7 @@
     font-size: 10px;
     letter-spacing: 1.5px;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.5);
     margin-bottom: 6px;
   }
   input, select {
@@ -149,8 +152,13 @@
     font-size: 13px;
     font-family: inherit;
     box-sizing: border-box;
+    transition: border-color 0.2s var(--ease-soft), box-shadow 0.2s var(--ease-soft);
   }
-  input:focus, select:focus { outline: none; border-color: rgba(255, 255, 255, 0.35); }
+  input:focus, select:focus {
+    outline: none;
+    border-color: rgba(167, 139, 250, 0.55);
+    box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.14);
+  }
   select option { background: #161618; }
   .error {
     color: #f87171;
@@ -169,12 +177,20 @@
     border-radius: 999px;
     cursor: pointer;
     font-size: 13px;
+    transition:
+      background 0.2s var(--ease-soft),
+      transform 0.15s var(--ease-out),
+      border-color 0.2s var(--ease-soft);
   }
+  footer button:hover:not(:disabled) { transform: translateY(-1px); }
+  footer button:active:not(:disabled) { transform: translateY(0) scale(0.97); }
   .cancel {
     background: transparent;
     color: rgba(255, 255, 255, 0.55);
     border: 1px solid rgba(255, 255, 255, 0.15);
   }
+  .cancel:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.8); }
   .save { background: rgba(255, 255, 255, 0.92); color: #0a0a0a; font-weight: 500; }
+  .save:hover:not(:disabled) { background: #fff; }
   .save:disabled, .cancel:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>

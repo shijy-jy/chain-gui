@@ -67,6 +67,36 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
+/* ── 全局动效 keyframes（跨组件共用；组件内同名会被 Svelte 作用域隔离） ── */
+@keyframes fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes mask-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* ── 动效可及性：用户系统开启「减少动态效果」时全部降级 ── */
 @media (prefers-reduced-motion: reduce) {
   *,

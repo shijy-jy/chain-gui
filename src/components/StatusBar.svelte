@@ -222,11 +222,13 @@
     justify-content: space-between;
     height: 32px;
     padding: 0 20px;
-    background: #111;
+    background: rgba(17, 17, 17, 0.92);
+    backdrop-filter: blur(14px);
     border-top: 1px solid rgba(255, 255, 255, 0.07);
     font-size: 11px;
     letter-spacing: 0.5px;
-    color: rgba(255, 255, 255, 0.4);
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.5);
     flex-shrink: 0;
   }
   .left, .right {
@@ -234,7 +236,7 @@
     align-items: center;
     gap: 12px;
   }
-  .muted { color: rgba(255, 255, 255, 0.25); }
+  .muted { color: rgba(255, 255, 255, 0.32); }
   .rescan-btn {
     background: none;
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -243,9 +245,17 @@
     padding: 2px 10px;
     border-radius: 999px;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition:
+      border-color 0.2s var(--ease-soft),
+      color 0.2s var(--ease-soft),
+      transform 0.15s var(--ease-out);
   }
-  .rescan-btn:hover { border-color: rgba(255, 255, 255, 0.25); color: rgba(255, 255, 255, 0.8); }
+  .rescan-btn:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.8);
+    transform: translateY(-1px);
+  }
+  .rescan-btn:active { transform: translateY(0) scale(0.96); }
   .validation-btn {
     display: flex;
     align-items: center;
@@ -267,15 +277,17 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .dot-ok { background: #34d399; }
-  .dot-error { background: #f87171; }
-  .dot-warn { background: #fbbf24; }
+  .dot-ok { background: #34d399; box-shadow: 0 0 6px rgba(52, 211, 153, 0.5); }
+  .dot-error { background: #f87171; box-shadow: 0 0 6px rgba(248, 113, 113, 0.5); }
+  .dot-warn { background: #fbbf24; box-shadow: 0 0 6px rgba(251, 191, 36, 0.5); }
   .drawer {
-    background: #111;
+    background: rgba(17, 17, 17, 0.94);
+    backdrop-filter: blur(14px);
     border-top: 1px solid rgba(255, 255, 255, 0.07);
     max-height: 200px;
     overflow-y: auto;
     flex-shrink: 0;
+    animation: fade-slide-in 0.22s var(--ease-out);
   }
   .drawer-header {
     display: flex;
@@ -288,12 +300,12 @@
     font-size: 10px;
     letter-spacing: 1px;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.5);
   }
   .drawer-close {
     background: none;
     border: none;
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.4);
     cursor: pointer;
     font-size: 12px;
     padding: 0 4px;
@@ -345,7 +357,7 @@
     border-radius: 999px;
   }
   .health-chip.in-progress { color: #22d3ee; }
-  .health-chip.pending { color: rgba(255, 255, 255, 0.45); }
+  .health-chip.pending { color: rgba(255, 255, 255, 0.55); }
   .health-chip.failed { color: #f87171; }
   .health-chip.blocked { color: #fbbf24; }
   .health-chip.success { color: #34d399; }
@@ -363,6 +375,6 @@
   .snap-meta {
     font-size: 10px;
     font-family: 'Consolas', monospace;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.45);
   }
 </style>

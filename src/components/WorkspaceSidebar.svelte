@@ -134,6 +134,7 @@
     font-size: 14px;
     cursor: pointer;
     padding: 8px;
+    transition: color 0.15s var(--ease-soft);
   }
   .expand-btn { margin-top: 8px; }
   .expand-btn:hover, .collapse-btn:hover { color: rgba(255, 255, 255, 0.9); }
@@ -159,7 +160,7 @@
   .ws-title {
     font-size: 11px;
     letter-spacing: 2px;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.62);
     font-weight: 500;
   }
 
@@ -184,11 +185,15 @@
     background: transparent;
     border: none;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition: background 0.18s var(--ease-soft), color 0.18s var(--ease-soft);
   }
   .mode-tab + .mode-tab { border-left: 1px solid rgba(255, 255, 255, 0.12); }
   .mode-tab:hover { color: rgba(255, 255, 255, 0.9); }
-  .mode-tab.active { background: rgba(255, 255, 255, 0.14); color: #fff; }
+  .mode-tab.active {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    box-shadow: inset 0 -1.5px 0 rgba(167, 139, 250, 0.7);
+  }
   .count {
     font-size: 10px;
     font-family: 'Consolas', monospace;
@@ -213,7 +218,7 @@
   .ws-empty-sub {
     margin: 8px 0 0;
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.22);
+    color: rgba(255, 255, 255, 0.3);
     line-height: 1.6;
   }
   .ws-row {
@@ -223,11 +228,23 @@
     padding: 8px 10px;
     border-radius: 7px;
     cursor: pointer;
-    transition: background 0.12s ease;
+    transition: background 0.15s var(--ease-soft);
     position: relative;
   }
-  .ws-row:hover { background: rgba(255, 255, 255, 0.06); }
+  .ws-row:hover { background: rgba(255, 255, 255, 0.08); }
   .ws-row.active { background: rgba(255, 255, 255, 0.11); }
+  /* 激活行左侧强调条（现代列表惯例，纯视觉） */
+  .ws-row.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 22%;
+    bottom: 22%;
+    width: 2.5px;
+    border-radius: 2px;
+    background: #a78bfa;
+    box-shadow: 0 0 8px rgba(167, 139, 250, 0.6);
+  }
   .ws-name {
     font-size: 12.5px;
     color: rgba(255, 255, 255, 0.88);
