@@ -2,6 +2,20 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
+## [未发布] - M6'（记忆层 L2 基建）
+### Added
+- 嵌入后端：fastembed 6.0.3 + BGE-small-zh-v1.5 本地模型（`%LOCALAPPDATA%\Engram\models\bge-small-zh-v1.5`），Embedder trait 可插拔，加载失败走降级链
+- 嵌入索引 `.chain/index/`（meta.json + embeddings.bin、content_hash 变更检测、upsert/remove/flush、`engram-cli reindex` 全库重嵌）
+- 记忆统计 `.chain/stats/`（双时钟、TouchKind、ACT-R 强度、gap 截断、calibrate、flush）
+- 检索阶梯 `recall` 工具（契约 v2 第 10 工具）：向量 + 强度加成 + 两档阈值（0.35/0.2）+ derived×0.85 + 归档过滤；无索引/无模型降级关键词检索（degraded:true 显式声明）；冷启动按创建时间+图谱度数排序
+- `engram-cli reindex --workspace <path>` 子命令
+### Changed
+- AI 指南 v8 / 开发指南 v3（检索阶梯与 trigger 编码规范、知识库维护与触发线索）
+- MCP 工具契约 v1 → v2（新增 recall；golden 12 条）
+- 全工具入口接入全局记忆时钟；create_node/update_node/link_nodes 写后触达回写
+- search 排序同秒 tie 增加 id 升序次级键（跨平台 golden 确定性）
+- golden 契约测试 11 → 12 条
+
 ## [2.8.0] - 2026-09-08
 ### Changed
 - cargo workspace 化 + engram-core 下沉（唯一写路径重构，GUI/MCP 入口全部经 core 守门）

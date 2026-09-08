@@ -1,4 +1,4 @@
-﻿# _collect_golden.ps1 - 固化 engram-mcp 9 工具的请求/响应对为 golden 契约文件
+﻿# _collect_golden.ps1 - 固化 engram-mcp 10 工具的请求/响应对为 golden 契约文件
 # 输出：docs/test-golden/engram-mcp-golden.json（实现 MCP golden 契约测试时直接对照）
 # 路径参数化：本地/CI 可用 -Exe/-Out 覆盖；默认从本脚本所在仓库根推导
 param(
@@ -57,6 +57,8 @@ Tool "read_path" '{"from":"node-1","to":"node-2"}' | Out-Null
 Tool "get_guide" '{}' | Out-Null
 Tool "update_node" '{"id":"node-1","mode":"append","content":"\nappended note"}' | Out-Null
 Tool "link_nodes" '{"from":"node-1","to":"node-2","rel_type":"bogus"}' | Out-Null
+# recall：golden 工作区无索引 → 关键词降级（mode=keyword,degraded=true），确定性无模型依赖
+Tool "recall" '{"query":"Golden"}' | Out-Null
 
 $p.Kill(); $p.WaitForExit()
 $json = $golden | ConvertTo-Json -Depth 8; [System.IO.File]::WriteAllText((Join-Path $out "engram-mcp-golden.json"), $json, [System.Text.UTF8Encoding]::new($false))

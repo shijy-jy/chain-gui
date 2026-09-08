@@ -16,6 +16,8 @@ anyhow = "1"
 walkdir = "2"
 # watcher 事件循环（纯回调构造，Tauri 发射留在 GUI 侧）
 notify = "8.2.0"
+# 本地嵌入（记忆层 L2 语义召回；精确锁防 rc 漂移，框架文档 T10）
+fastembed = "=6.0.3"
 
 [dev-dependencies]
 tempfile = "3"

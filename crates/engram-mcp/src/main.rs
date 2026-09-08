@@ -110,6 +110,16 @@ struct LinkNodesParams {
     desc: Option<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RecallParams {
+    /// 语义检索查询（自然语言描述要找的记忆）
+    query: String,
+    /// 返回条数上限（默认 10，最大 100）
+    k: Option<usize>,
+    /// true 时纳入已归档节点（默认 false 过滤）
+    include_archived: Option<bool>,
+}
+
 // ── 工具实现（协议映射层，逻辑全在 engram_core::ops）────────────
 
 #[tool_router]
@@ -224,6 +234,22 @@ impl EngramMcp {
             &p.to,
             &p.rel_type,
             p.desc.as_deref(),
+        ))
+    }
+
+    #[tool(
+        description = "语义召回记忆节点（记忆层 L2）：索引未建立或模型不可用时自动降级为关键词检索（degraded:true 显式声明），向量模式叠加使用强度加成并过滤归档。返回 JSON 文本。"
+    )]
+    async fn recall(
+        &self,
+        Parameters(p): Parameters<RecallParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // recall 只读（stats 回写为内部派生状态，不受 D3 写锁约束）
+        to_result(mcp::recall(
+            &self.ctx,
+            &p.query,
+            p.k,
+            p.include_archived.unwrap_or(false),
         ))
     }
 }

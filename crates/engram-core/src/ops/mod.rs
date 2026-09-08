@@ -24,10 +24,13 @@ use crate::workspace::read_mode_tag;
 
 // ── server 上下文 ─────────────────────────────────────────
 
-/// 工作区上下文：入口（MCP --workspace / GUI 命令）打开时建立，全程只读
+/// 工作区上下文：入口（MCP --workspace / GUI 命令）打开时建立，结构只读；
+/// stats/index 经 Mutex 内部可变（惰性派生物状态，框架 §5.10）
 pub struct Workspace {
     pub root: PathBuf,
     pub mode: ScanMode,
+    pub(crate) stats: std::sync::Mutex<crate::stats::StatsStore>,
+    pub(crate) index: std::sync::Mutex<crate::index::IndexStore>,
 }
 
 impl Workspace {
@@ -48,7 +51,32 @@ impl Workspace {
         })?;
         // 宪法第 9 条：旧软件遇更高 major 一律拒绝打开（MCP 只读 .schema，不 adoption 写）
         crate::schema::check_openable(&root)?;
-        Ok(Self { root, mode })
+        let stats = crate::stats::StatsStore::open(&root)?;
+        let index = crate::index::IndexStore::open(&root)?;
+        Ok(Self {
+            root,
+            mode,
+            stats: std::sync::Mutex::new(stats),
+            index: std::sync::Mutex::new(index),
+        })
+    }
+
+    /// 全局记忆时钟：每次工具调用 +1（ADR 0008；由各工具入口调用）
+    pub fn bump_clock(&self) -> Result<(), String> {
+        self.stats
+            .lock()
+            .map_err(|e| format!("stats 锁失败：{e}"))?
+            .bump_memory_clock()
+    }
+
+    /// 写入触达回写 + 落盘（写工具成功后调用）
+    pub fn touch_write(&self, id: &str) -> Result<(), String> {
+        let mut st = self
+            .stats
+            .lock()
+            .map_err(|e| format!("stats 锁失败：{e}"))?;
+        st.touch(id, crate::stats::TouchKind::Write)?;
+        st.flush()
     }
 
     pub fn mode_str(&self) -> &'static str {
@@ -67,7 +95,7 @@ impl Workspace {
         self.nodes_dir().join(format!("{id}.md"))
     }
 
-    fn scan(&self) -> Result<crate::model::chain::ChainSnapshot, String> {
+    pub(crate) fn scan(&self) -> Result<crate::model::chain::ChainSnapshot, String> {
         walker::scan_chain_dir_mode(&self.root, self.mode).map_err(|e| format!("扫描失败：{e}"))
     }
 }
@@ -79,6 +107,22 @@ impl Workspace {
 /// 由测试 update_append_then_replace（连续两次写同一文件）覆盖验证。
 /// 唯一写路径原语：GUI 侧写入也走这里。
 pub fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
+    let file_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("非法文件路径：{}", path.display()))?;
+    let tmp = path.with_file_name(format!(".{file_name}.tmp"));
+    std::fs::write(&tmp, content).map_err(|e| format!("写临时文件失败：{e}"))?;
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("原子替换失败：{e}")
+    })?;
+    Ok(())
+}
+
+/// 二进制原子写（同 atomic_write 的 tmp/rename 语义；索引向量等非 UTF-8 数据专用，
+/// 严禁经 String 转换——from_utf8_lossy 会改写字节破坏数据）
+pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
     let file_name = path
         .file_name()
         .and_then(|s| s.to_str())
@@ -124,6 +168,7 @@ fn fm_get_str(fm: &serde_yaml::Mapping, key: &str) -> Option<String> {
 
 /// get_overview()：全局概览——规模 + 活跃链 + 健康度 + 模式与指南版本
 pub fn get_overview(ctx: &Workspace) -> Result<Value, String> {
+    ctx.bump_clock()?;
     let snap = ctx.scan()?;
     Ok(json!({
         "workspace": ctx.root.display().to_string(),
@@ -138,6 +183,7 @@ pub fn get_overview(ctx: &Workspace) -> Result<Value, String> {
 
 /// search(query, limit=10)：title/tags/body 大小写不敏感子串匹配
 pub fn search(ctx: &Workspace, query: &str, limit: Option<usize>) -> Result<Value, String> {
+    ctx.bump_clock()?;
     let q = query.trim().to_lowercase();
     if q.is_empty() {
         return Err("query 不能为空".into());
@@ -175,13 +221,20 @@ pub fn search(ctx: &Workspace, query: &str, limit: Option<usize>) -> Result<Valu
             ));
         }
     }
-    // 命中字段权重优先，同级按 updated 倒序
+    // 命中字段权重优先，同级按 updated 倒序；同秒再按 id 升序（跨平台确定性，避免
+    // 文件系统枚举顺序差异导致 golden 漂移——recall 关键词降级复用本排序）
     hits.sort_by(|a, b| {
-        b.0.cmp(&a.0).then_with(|| {
-            let ua = a.1["updated"].as_str().unwrap_or("").to_string();
-            let ub = b.1["updated"].as_str().unwrap_or("").to_string();
-            ub.cmp(&ua)
-        })
+        b.0.cmp(&a.0)
+            .then_with(|| {
+                let ua = a.1["updated"].as_str().unwrap_or("").to_string();
+                let ub = b.1["updated"].as_str().unwrap_or("").to_string();
+                ub.cmp(&ua)
+            })
+            .then_with(|| {
+                let ia = a.1["id"].as_str().unwrap_or("");
+                let ib = b.1["id"].as_str().unwrap_or("");
+                ia.cmp(ib)
+            })
     });
     let total = hits.len();
     let results: Vec<Value> = hits.into_iter().take(limit).map(|(_, v)| v).collect();
@@ -194,6 +247,7 @@ pub fn read_node(
     id: &str,
     include_neighbors: Option<bool>,
 ) -> Result<Value, String> {
+    ctx.bump_clock()?;
     if !is_safe_id(id) {
         return Err("节点 id 非法（仅允许字母/数字/连字符/下划线）".into());
     }
@@ -228,6 +282,7 @@ pub fn read_node(
 
 /// expand(id, depth=1..2)：以 id 为中心无向 BFS 扩展，返回局部子图（摘要级）
 pub fn expand(ctx: &Workspace, id: &str, depth: Option<u32>) -> Result<Value, String> {
+    ctx.bump_clock()?;
     let depth = depth.unwrap_or(1);
     if !(1..=2).contains(&depth) {
         return Err(format!(
@@ -287,6 +342,7 @@ pub fn expand(ctx: &Workspace, id: &str, depth: Option<u32>) -> Result<Value, St
 
 /// read_path(from, to)：无向 BFS 最短路径，返回节点序列 + 关系叙述化 narrative
 pub fn read_path(ctx: &Workspace, from: &str, to: &str) -> Result<Value, String> {
+    ctx.bump_clock()?;
     let snap = ctx.scan()?;
     let by_id: HashMap<&str, &crate::model::node::Node> =
         snap.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
@@ -375,6 +431,7 @@ pub fn read_path(ctx: &Workspace, from: &str, to: &str) -> Result<Value, String>
 
 /// get_guide()：当前模式的 AI 使用指南全文 + 版本号
 pub fn get_guide(ctx: &Workspace) -> Result<Value, String> {
+    ctx.bump_clock()?;
     let mode = ctx.mode_str();
     Ok(json!({
         "mode": mode,
@@ -394,6 +451,7 @@ pub fn create_node(
     tags: Option<Vec<String>>,
     force: Option<bool>,
 ) -> Result<Value, String> {
+    ctx.bump_clock()?;
     if !ctx.mode.is_dev() {
         return Err("仅开发模式工作区可自由新建节点；分析模式的链由 AI 按协议维护（本工作区可用 update_node）".into());
     }
@@ -452,6 +510,7 @@ pub fn create_node(
     let content =
         frontmatter::serialize(&fm, &body_text).map_err(|e| format!("序列化失败：{e}"))?;
     atomic_write(&path, &content)?;
+    ctx.touch_write(&id)?;
 
     Ok(json!({
         "created": true,
@@ -471,6 +530,7 @@ pub fn update_node(
     content: &str,
     expected_updated: Option<&str>,
 ) -> Result<Value, String> {
+    ctx.bump_clock()?;
     if !matches!(mode, "append" | "replace_body") {
         return Err(format!("mode 仅支持 append / replace_body，收到：{mode}"));
     }
@@ -528,6 +588,7 @@ pub fn update_node(
     let new_content =
         frontmatter::serialize(&fm, &new_body).map_err(|e| format!("序列化失败：{e}"))?;
     atomic_write(&path, &new_content)?;
+    ctx.touch_write(id)?;
 
     Ok(json!({
         "updated": true,
@@ -549,6 +610,7 @@ pub fn link_nodes(
     rel_type: &str,
     desc: Option<&str>,
 ) -> Result<Value, String> {
+    ctx.bump_clock()?;
     if !ctx.mode.is_dev() {
         return Err("仅开发模式工作区可自由建链；分析模式的链由 AI 按协议维护".into());
     }
@@ -604,6 +666,7 @@ pub fn link_nodes(
     };
     let new_content = frontmatter::serialize(&fm, &body).map_err(|e| format!("序列化失败：{e}"))?;
     atomic_write(&to_path, &new_content)?;
+    ctx.touch_write(to)?;
 
     Ok(json!({
         "linked": true,
@@ -613,6 +676,17 @@ pub fn link_nodes(
         "rel_desc": rel_desc_out,
         "hint": format!("链接已建立（rel 写入子节点 frontmatter 单值，AI 指南 v{}）。rel_type 仅 contains/solves/alternative，语义详见 get_guide", ctx.guide_version()),
     }))
+}
+
+/// recall：语义召回（记忆层 L2，契约 v2 新工具；框架 §5.4）
+pub fn recall(
+    ctx: &Workspace,
+    query: &str,
+    k: Option<usize>,
+    include_archived: bool,
+) -> Result<Value, String> {
+    ctx.bump_clock()?;
+    crate::retrieval::recall(ctx, query, k, include_archived)
 }
 
 // ── 测试 ─────────────────────────────────────────────────

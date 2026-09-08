@@ -1,6 +1,7 @@
 //! engram-cli：工作区维护工具（终版 §1.1）。当前命令：
 //! - `engram-cli migrate --workspace <path> [--to <ver>] [--dry-run] [--no-backup] [--json]`
 //!   幂等迁移（detect → backup → transform → verify → write，失败回滚；宪法第 9 条）
+//! - `engram-cli reindex --workspace <path>`：全库重嵌（记忆层 L2；框架 §5.2）
 //! - `engram-cli --version`：四版本矩阵 + git 短哈希（ADR 0011）
 //!
 //! 退出码（《schema v1 定义与迁移接口》§5.2）：
@@ -11,7 +12,7 @@ use engram_core::migrate::{self, MigrateClass, MigrateError, MigrateOpts};
 use engram_core::version::VersionInfo;
 use std::path::Path;
 
-const USAGE: &str = "用法：engram-cli migrate --workspace <工作区目录> [--to <ver>] [--dry-run] [--no-backup] [--json]";
+const USAGE: &str = "用法：engram-cli migrate --workspace <工作区目录> [--to <ver>] [--dry-run] [--no-backup] [--json]\n       engram-cli reindex --workspace <工作区目录>";
 
 fn main() {
     std::process::exit(run());
@@ -28,8 +29,15 @@ fn run() -> i32 {
         return 0;
     }
 
-    if args.first().map(String::as_str) != Some("migrate") {
-        eprintln!("缺少子命令（当前仅 migrate）\n{USAGE}");
+    let Some(sub) = args.first() else {
+        eprintln!("缺少子命令（migrate / reindex）\n{USAGE}");
+        return 5;
+    };
+    if sub == "reindex" {
+        return run_reindex(&args[1..]);
+    }
+    if sub != "migrate" {
+        eprintln!("未知子命令：{sub}\n{USAGE}");
         return 5;
     }
 
@@ -117,6 +125,53 @@ fn run() -> i32 {
                 MigrateError::NotAWorkspace => 5,
                 MigrateError::MigrateFailed(_) | MigrateError::Io(_) => 1,
             }
+        }
+    }
+}
+
+/// reindex 子命令：全库重嵌（记忆层 L2，框架 §5.2）。
+/// 退出码：0 成功；5 非工作区/参数非法；1 模型加载失败（EMBED_FAILED）或重嵌失败。
+fn run_reindex(args: &[String]) -> i32 {
+    const REINDEX_USAGE: &str = "用法：engram-cli reindex --workspace <工作区目录>";
+    let mut workspace: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--workspace" | "-w" => workspace = it.next().cloned(),
+            other => {
+                eprintln!("未知参数：{other}\n{REINDEX_USAGE}");
+                return 5;
+            }
+        }
+    }
+    let Some(ws) = workspace else {
+        eprintln!("缺少 --workspace <工作区目录>\n{REINDEX_USAGE}");
+        return 5;
+    };
+    let root = Path::new(&ws);
+    // 工作区校验与 migrate 一致：必须已打标（不给来历不明目录建索引）
+    if !root.join(".chain").is_dir() || engram_core::workspace::read_mode_tag(root).is_none() {
+        eprintln!("不是 Engram 工作区：{}", root.display());
+        return 5;
+    }
+    let embedder = match engram_core::embed::load_local_embedder(None) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    match engram_core::index::IndexStore::rebuild_all(root, embedder.as_ref()) {
+        Ok(report) => {
+            println!(
+                "reindex 完成：重嵌 {} 个节点（跳过 {} 个），耗时 {} ms",
+                report.re_embedded, report.skipped, report.elapsed_ms
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("EMBED_FAILED: {e}");
+            1
         }
     }
 }

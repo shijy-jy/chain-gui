@@ -11,10 +11,10 @@ pub const AI_GUIDE: &str = include_str!("../../../resources/AI_GUIDE.md");
 pub const AI_GUIDE_DEV: &str = include_str!("../../../resources/AI_GUIDE_DEV.md");
 
 /// 分析模式指南版本号（与 resources/AI_GUIDE.md 首行标记一致；改指南时必须同步 +1）
-pub const AI_GUIDE_VERSION: u32 = 7;
+pub const AI_GUIDE_VERSION: u32 = 8;
 
 /// 开发模式指南版本号（与 resources/AI_GUIDE_DEV.md 首行 CHAIN_GUIDE_DEV_VERSION 标记一致）
-pub const AI_GUIDE_DEV_VERSION: u32 = 2;
+pub const AI_GUIDE_DEV_VERSION: u32 = 3;
 
 /// 从指南文本解析版本标记（首行 `<!-- CHAIN_GUIDE_VERSION: N -->` 或 `<!-- CHAIN_GUIDE_DEV_VERSION: N -->`）。
 /// 返回 None = 无标记（旧版指南或人工编辑过）。

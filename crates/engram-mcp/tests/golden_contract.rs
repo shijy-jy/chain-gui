@@ -1,6 +1,6 @@
 //! golden 契约测试（终版 §5「MCP 契约」的落地形态）：
 //! 用 CARGO_BIN_EXE 拉起真实 engram-mcp 进程，重放 tools/_collect_golden.ps1 的
-//! 11 条工具调用，把响应与 docs/test-golden/engram-mcp-golden.json 做值级归一化对比：
+//! 12 条工具调用，把响应与 docs/test-golden/engram-mcp-golden.json 做值级归一化对比：
 //!
 //! - 时间戳（RFC3339 +08:00）→ "TS"（每次运行必然不同）
 //! - 临时工作区路径（*engram_golden_<pid>）→ "WS"（跨机器/CI 路径不同）
@@ -101,7 +101,7 @@ fn send_notification(stdin: &mut impl Write, req_id: &mut u32, method: &str) {
     stdin.flush().expect("flush stdin 失败");
 }
 
-/// 拉起 engram-mcp 进程，重放 11 条调用，返回 (tool, request, response) 列表。
+/// 拉起 engram-mcp 进程，重放 12 条调用，返回 (tool, request, response) 列表。
 /// reader 线程独立收 stdout 行，主线程发请求 + recv_timeout 收响应（防死锁/挂死）。
 fn replay_flow(ws: &TempDir) -> Vec<(String, String, String)> {
     let exe = env!("CARGO_BIN_EXE_engram-mcp");
@@ -155,7 +155,7 @@ fn replay_flow(ws: &TempDir) -> Vec<(String, String, String)> {
         entries.push((name.to_string(), request, response));
     };
 
-    // 与 tools/_collect_golden.ps1 完全一致的 11 条（顺序即契约）
+    // 与 tools/_collect_golden.ps1 完全一致的 12 条（顺序即契约）
     tool_call(
         "create_node",
         r##"{"title":"Golden A","body":"# A\nnode A body"}"##,
@@ -185,6 +185,8 @@ fn replay_flow(ws: &TempDir) -> Vec<(String, String, String)> {
         "link_nodes",
         r#"{"from":"node-1","to":"node-2","rel_type":"bogus"}"#,
     );
+    // recall：无索引工作区 → 关键词降级（mode=keyword,degraded=true），确定性无模型依赖
+    tool_call("recall", r#"{"query":"Golden"}"#);
 
     drop(stdin);
     let _ = child.kill();

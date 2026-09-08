@@ -222,13 +222,15 @@ engram-cli sync-code-map --workspace <p> [--lang rust] [--node <id>]
 4. **M-Code**：code_map.rs（tree-sitter 试点语言）+ CLI sync-code-map + GUI Mermaid/徽标；
 5. **记忆图网络 4.1→4.2**：图注意力检索（接口已留，本框架不展开）。
 
-## 9 · 待用户定夺清单
+## 9 · 待定清单的裁定（实现启动时已按建议拍板）
 
-1. **模型分发**：随安装包内置（+92MB，建议）vs 首启下载 vs 用户手动放置；
-2. **M-Code 试点语言**：建议 Rust；
-3. 归档阈值 90 天、重复检测余弦阈值 0.9、d 校准窗口 50 次——均为初值，真实数据回归后调；
-4. `[归档]`/`[蒸馏]` 标题前缀字面与 status 值（归档用 `archived: true` 布尔 + 前缀，蒸馏用 `derived: true`）；
-5. schema 版本：派生文件落地记为 **1.1**（minor，B 类）是否认可。
+> 以下 5 项按建议值拍板（2026-09-08，用户确认），实现以此为准：
+
+1. 模型分发：**随安装包内置**（+92MB，本地优先；发布脚本把模型目录并入 bundle resources）；
+2. M-Code 试点语言：**Rust**（tree-sitter-rust；用 Engram 自身验证）；
+3. 阈值初值：归档建议 **90 天**、重复检测余弦 **0.9**、d 校准窗口 **50 次**——真实数据回归后调；
+4. 前缀字面：归档 = `archived: true` + 标题前缀 `[归档]`；蒸馏 = `derived: true` + 标题前缀 `[蒸馏]`；冲突冻结 = status `blocked` + 标题前缀 `[待裁决]`；
+5. schema 版本：派生文件落地记为 **1.1**（minor，B 类迁移）。
 
 ## 10 · 与宪法/ADR 对应
 

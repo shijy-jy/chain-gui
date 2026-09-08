@@ -35,7 +35,12 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 
 /// 解析节点文件，返回 frontmatter Mapping 和 body 正文
 pub fn parse(content: &str) -> Result<(serde_yaml::Mapping, String)> {
-    let content = content.trim_start();
+    // Windows 工具（PowerShell Set-Content -Encoding UTF8）会给文件写 BOM：
+    // trim_start 不剥 U+FEFF，必须显式剥离，否则 starts_with("---") 判失败
+    let content = content
+        .strip_prefix('\u{feff}')
+        .unwrap_or(content)
+        .trim_start();
     if !content.starts_with("---") {
         anyhow::bail!("节点文件必须以 --- 开头的 frontmatter 起始");
     }
@@ -128,6 +133,15 @@ mod tests {
         let content = "# 没有 frontmatter 的文件\n正文内容";
         let result = parse_node_file(content);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_node_with_utf8_bom() {
+        // PowerShell Set-Content -Encoding UTF8 会写 BOM（Windows 陷阱）：必须显式剥离后正常解析
+        let content = "\u{feff}---\nid: t-001\ntype: task\ntitle: BOM 节点\nparent: null\nstatus: pending\ncreated: 2026-08-13T10:00:00+08:00\nupdated: 2026-08-13T10:00:00+08:00\nrevision: 1\ntags: []\n---\n\n# BOM\n";
+        let (node, _) = parse_node_file(content).unwrap();
+        assert_eq!(node.id, "t-001");
+        assert_eq!(node.title, "BOM 节点");
     }
 
     #[test]
