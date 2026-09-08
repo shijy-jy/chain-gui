@@ -1,4 +1,4 @@
-<!-- CHAIN_GUIDE_DEV_VERSION: 3 -->
+<!-- CHAIN_GUIDE_DEV_VERSION: 4 -->
 # 开发模式 AI 使用指南（知识库搭建）
 
 > 本指南适用于 `.chain/.mode = dev` 的开发模式工作区：自由知识图谱、个人知识库搭建。
@@ -121,3 +121,13 @@ evidence: [artifacts/贝叶斯定理/推导笔记.pdf]   ← 可省略
 - **recall 工具**：语义召回；索引未建立或模型缺失时自动退化关键词检索并在返回中显式声明（degraded 字段）。
 - **归档**：长期不用的节点可用 archive_node 归档（保留全文，检索默认不显示，可 include_archived 找回）；断边修正用 unlink_nodes。
 - **蒸馏**：知识库长到维护吃力时用 consolidate（默认 dry_run，先看计划再执行）；产物标记 derived，人审后摘帽。
+
+## 7. 代码工程：骨架内化（M-Code，v4）
+
+**对有代码的工程**，代码模块是最高价值的知识——必须把它们内化成节点骨架：
+
+- **挂载**：为代码模块建节点，frontmatter 加一行 `code_map: <源码相对路径>`（相对工程根，单个文件或目录均可），**正文只放一句概述**——公开接口与调用关系由骨架派生文件承载，正文不抄代码
+- **生成/刷新**：`engram-cli sync-code-map --workspace <工程根>`（全库）或 `--node <id>`（单节点）→ 提取公开接口（pub fn/struct/trait/enum/impl + 签名 + 文件:行:列）与调用边 + Mermaid 图，落 `.chain/code_map/<id>.md`
+- **检索语义**：模块名/函数名/签名进入 recall 与关键词检索；骨架正文即该模块的「大意」
+- **stale 兜底**：源码变更后骨架标 `stale: true`——AI 进场发现 stale，**先重跑 sync-code-map 刷新再基于最新骨架工作**（安静优先），绝不基于过期骨架做判断
+- 骨架是**派生物**（可重建、可删除——重跑即恢复），不进事实源；改源码不改骨架不是知识变更，同步一下即可
