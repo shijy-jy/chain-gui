@@ -195,6 +195,40 @@ pub fn reindex_embeddings(dir: String) -> Result<String, String> {
     ))
 }
 
+/// 代码栏：挂载源码（abs 绝对路径 → 后端算相对路径并校验）→ 写 code_map frontmatter + 生成骨架。
+/// 返回重扫后的快照（前端据此刷新节点信息）。
+#[command]
+pub fn attach_code_map(
+    dir: String,
+    node_id: String,
+    abs_source: String,
+) -> Result<ChainSnapshot, String> {
+    let root = PathBuf::from(&dir);
+    let rel = engram_core::evidence::evidence_rel_path(&dir, &abs_source)?;
+    engram_core::code_map::attach_code_map(&root, &node_id, &rel)?;
+    let mode = engram_core::workspace::read_mode_tag(&root)
+        .unwrap_or(engram_core::model::ScanMode::Analysis);
+    scan_chain_dir_mode(&root, mode).map_err(|e| e.to_string())
+}
+
+/// 代码栏：刷新骨架（源码变更后重新提取；返回最新骨架 markdown，含实时 stale 状态）
+#[command]
+pub fn sync_code_map(dir: String, node_id: String) -> Result<Option<String>, String> {
+    let root = PathBuf::from(&dir);
+    engram_core::code_map::refresh_code_map(&root, &node_id)?;
+    Ok(engram_core::code_map::read_skeleton_md(&root, &node_id))
+}
+
+/// 代码栏：移除挂载（清 code_map 字段 + 删骨架派生物）。返回重扫后的快照。
+#[command]
+pub fn detach_code_map(dir: String, node_id: String) -> Result<ChainSnapshot, String> {
+    let root = PathBuf::from(&dir);
+    engram_core::code_map::detach_code_map(&root, &node_id)?;
+    let mode = engram_core::workspace::read_mode_tag(&root)
+        .unwrap_or(engram_core::model::ScanMode::Analysis);
+    scan_chain_dir_mode(&root, mode).map_err(|e| e.to_string())
+}
+
 // ── 证据 ──────────────────────────────────────────────────
 
 /// 把绝对路径转成相对工程根的 evidence 相对路径（协议要求相对路径，统一 `/` 分隔）

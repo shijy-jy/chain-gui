@@ -35,7 +35,7 @@
 
 **UI 流畅度**：涟漪/水面动画优化（位置缓存 + 样式旁路收窄 + 波前 class 增量点亮 + 时长节流 30fps）
 
-**指南 v9/v4（协议补全）**：两份 AI 指南新增「代码骨架内化（M-Code）」章节——有代码工程必须把模块骨架挂载进节点（`code_map` frontmatter + `sync-code-map` + stale 刷新兜底），MCP 接入的 AI 经 get_guide 自服务获取
+**指南 v10/v5（协议补全）**：两份 AI 指南新增「代码骨架内化（M-Code）」章节——骨架**挂理论/概念节点**（信息栏「代码」栏），不另建骨架节点群；`code_map` frontmatter + `sync-code-map` + stale 刷新兜底；MCP 接入的 AI 经 get_guide 自服务获取
 
 ### Fixed
 - link_nodes 词表外/模式强校验报错无错误码前缀（审计建议）

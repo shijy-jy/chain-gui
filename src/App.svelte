@@ -1260,6 +1260,13 @@
     if (nodeData) selectedNode = nodeData;
   }
 
+  // v2.13 代码栏：挂载/移除后重扫（后端返回新快照，刷新信息栏的 code_map 状态）
+  function handleCodeMapChange(newSnapshot: ChainSnapshot, nodeId: string) {
+    snapshot = newSnapshot;
+    const nodeData = newSnapshot.nodes.find((x) => x.id === nodeId) ?? null;
+    if (nodeData) selectedNode = nodeData;
+  }
+
   // v1.3：折叠子链（两段式确认在 Sidebar 内完成，这里只执行；v2.0 仅分析模式）
   async function handleFold() {
     if (!chainDir || !selectedNode) return;
@@ -1844,6 +1851,7 @@
       onFold={handleFold}
       onDelete={handleDeleteNode}
       onSetParent={handleSetParent}
+      onCodeMapChange={handleCodeMapChange}
       collapsed={sidebarCollapsed}
       onExpand={() => (sidebarCollapsed = false)}
     />

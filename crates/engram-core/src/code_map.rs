@@ -492,6 +492,86 @@ pub fn refresh_code_map(root: &Path, node_id: &str) -> Result<Skeleton, String> 
     Ok(sk)
 }
 
+/// 挂载代码骨架（GUI「代码栏」/CLI 通用）：写节点 frontmatter `code_map: <相对路径>`，
+/// 校验源码路径存在，经核心唯一写路径（revision+1）落盘后提取骨架。
+/// 语义：骨架挂在**理论/概念节点**上（节点信息栏「代码」节），不鼓励独立骨架节点群。
+pub fn attach_code_map(root: &Path, node_id: &str, rel: &str) -> Result<Skeleton, String> {
+    let node_file = root.join(".chain").join("nodes").join(format!("{node_id}.md"));
+    if !node_file.exists() {
+        return Err(format!("节点 {node_id} 不存在"));
+    }
+    let rel = rel
+        .trim()
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .to_string();
+    if rel.is_empty() {
+        return Err("code_map 路径不能为空".into());
+    }
+    let src = root.join(&rel);
+    if !src.is_file() && !src.is_dir() {
+        return Err(format!(
+            "源码路径不存在（相对工作区根 {root}）：{rel}",
+            root = root.display()
+        ));
+    }
+    let raw =
+        std::fs::read_to_string(&node_file).map_err(|e| format!("读节点失败：{e}"))?;
+    let (mut fm, body) = crate::ops::parse_lenient(&raw, node_id)?;
+    fm.insert(
+        serde_yaml::Value::String("code_map".into()),
+        serde_yaml::Value::String(rel.clone()),
+    );
+    let fields = crate::model::UpdateFields {
+        title: None,
+        status: None,
+        body: None,
+        tags: None,
+        evidence: None,
+        parent: None,
+        rel: None,
+    };
+    crate::model::node::apply_update(&mut fm, &fields).map_err(|e| format!("应用更新失败：{e}"))?;
+    let content =
+        crate::scanner::frontmatter::serialize(&fm, &body).map_err(|e| format!("序列化失败：{e}"))?;
+    atomic_write(&node_file, &content)?;
+    refresh_code_map(root, node_id)
+}
+
+/// 移除代码挂载（GUI「代码栏」移除按钮）：清 code_map 字段 + 删除骨架派生物（含 stale 标记）
+pub fn detach_code_map(root: &Path, node_id: &str) -> Result<(), String> {
+    let node_file = root.join(".chain").join("nodes").join(format!("{node_id}.md"));
+    if !node_file.exists() {
+        return Err(format!("节点 {node_id} 不存在"));
+    }
+    let raw =
+        std::fs::read_to_string(&node_file).map_err(|e| format!("读节点失败：{e}"))?;
+    let (mut fm, body) = crate::ops::parse_lenient(&raw, node_id)?;
+    if fm
+        .get(serde_yaml::Value::String("code_map".into()))
+        .is_none()
+    {
+        return Ok(()); // 未挂载：幂等
+    }
+    fm.remove(serde_yaml::Value::String("code_map".into()));
+    let fields = crate::model::UpdateFields {
+        title: None,
+        status: None,
+        body: None,
+        tags: None,
+        evidence: None,
+        parent: None,
+        rel: None,
+    };
+    crate::model::node::apply_update(&mut fm, &fields).map_err(|e| format!("应用更新失败：{e}"))?;
+    let content =
+        crate::scanner::frontmatter::serialize(&fm, &body).map_err(|e| format!("序列化失败：{e}"))?;
+    atomic_write(&node_file, &content)?;
+    let _ = std::fs::remove_file(skeleton_path(root, node_id));
+    let _ = std::fs::remove_file(stale_marker(root, node_id));
+    Ok(())
+}
+
 /// watcher 联动（T14）：代码目录变化 → 对应骨架标 stale（AI 进场调 refresh_code_map 兜底）
 pub fn mark_stale(root: &Path, node_id: &str) -> Result<(), String> {
     std::fs::create_dir_all(code_map_dir(root)).map_err(|e| format!("创建 code_map/ 失败：{e}"))?;
@@ -668,6 +748,39 @@ pub enum Color {
         // read_skeleton_md 只读
         let fresh = read_skeleton_md(tmp.path(), "n1").unwrap();
         assert!(fresh.contains("stale: false"), "{fresh}");
+    }
+
+    #[test]
+    fn attach_and_detach_code_map_roundtrip() {
+        // 骨架挂概念节点：attach 写 frontmatter + 生成骨架；detach 清理 + 删除派生物
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join(".chain").join("nodes")).unwrap();
+        fs::write(tmp.path().join(".chain").join(".mode"), "dev").unwrap();
+        fs::write(tmp.path().join("lib.rs"), SAMPLE).unwrap();
+        fs::write(
+            tmp.path().join(".chain/nodes/n1.md"),
+            "---\nid: n1\ntype: note\ntitle: 概念节点\nparent: null\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\n---\n\n# 概念节点\n\n一句概述。\n",
+        )
+        .unwrap();
+
+        let sk = attach_code_map(tmp.path(), "n1", "lib.rs").unwrap();
+        assert_eq!(sk.node_id, "n1");
+        assert!(sk.exports.iter().any(|e| e.name == "compute"));
+        let raw = fs::read_to_string(tmp.path().join(".chain/nodes/n1.md")).unwrap();
+        assert!(raw.contains("code_map: lib.rs"), "frontmatter 应挂载：{raw}");
+        assert!(raw.contains("revision: 2"), "走唯一写路径 revision+1");
+        assert!(skeleton_path(tmp.path(), "n1").exists());
+
+        // 路径不存在 → 拒绝
+        let err = attach_code_map(tmp.path(), "n1", "ghost.rs").unwrap_err();
+        assert!(err.contains("不存在"), "{err}");
+
+        // detach：清字段 + 删派生物（幂等）
+        detach_code_map(tmp.path(), "n1").unwrap();
+        let raw = fs::read_to_string(tmp.path().join(".chain/nodes/n1.md")).unwrap();
+        assert!(!raw.contains("code_map"), "detach 应清挂载：{raw}");
+        assert!(!skeleton_path(tmp.path(), "n1").exists());
+        detach_code_map(tmp.path(), "n1").unwrap(); // 幂等
     }
 
     #[test]

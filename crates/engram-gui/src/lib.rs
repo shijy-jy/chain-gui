@@ -48,6 +48,9 @@ pub fn run() {
             commands::remove_workspace,
             commands::get_code_map,
             commands::reindex_embeddings,
+            commands::attach_code_map,
+            commands::sync_code_map,
+            commands::detach_code_map,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

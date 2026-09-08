@@ -3,9 +3,9 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import { renderBody } from './body_render';
   import { panel } from './panel_state.svelte.ts';
-  import type { ChainNode, NodeStatus, NodeType, ScanMode } from './types';
+  import type { ChainNode, ChainSnapshot, NodeStatus, NodeType, ScanMode } from './types';
 
-  let { node, chainDir, mode, allNodes, onSave, onCancel, onFold, onDelete, onSetParent, collapsed = false, onExpand }: {
+  let { node, chainDir, mode, allNodes, onSave, onCancel, onFold, onDelete, onSetParent, onCodeMapChange, collapsed = false, onExpand }: {
     node: ChainNode | null;
     chainDir: string | null;
     mode: ScanMode;
@@ -15,6 +15,7 @@
     onFold?: () => Promise<void>;
     onDelete?: (nodeId: string) => Promise<void>;
     onSetParent?: (nodeId: string, parent: string | null, rel: string) => Promise<void>;
+    onCodeMapChange?: (snap: ChainSnapshot, nodeId: string) => void;
     collapsed?: boolean;
     onExpand?: () => void;
   } = $props();
@@ -64,6 +65,9 @@
   let codeMd = $state<string | null>(null);
   let codeStale = $state(false);
   let mermaidHtml = $state<string | null>(null);
+  let codeBusy = $state(false);
+  let codeMessage = $state<string | null>(null);
+  let detachArmed = $state(false);
 
   $effect(() => {
     const n = node;
@@ -71,25 +75,111 @@
     codeMd = null;
     codeStale = false;
     mermaidHtml = null;
-    if (!n?.code_map || !dir) return;
-    invoke<string | null>('get_code_map', { dir, nodeId: n.id })
-      .then(async (md) => {
-        if (!md) return;
-        codeMd = md;
-        codeStale = md.includes('stale: true');
-        const mm = md.match(/```mermaid\n([\s\S]*?)\n```/);
-        if (!mm) return;
-        try {
-          const m = (await import('mermaid')).default;
-          m.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
-          const { svg } = await m.render(`engram-code-${n.id}-${Date.now()}`, mm[1].trim());
-          mermaidHtml = svg;
-        } catch {
-          mermaidHtml = null; // 库缺失/渲染失败 → 降级为源文本（面板已提示）
-        }
-      })
-      .catch(() => {});
+    codeMessage = null;
+    detachArmed = false;
+    if (!n || !dir) return;
+    if (n.code_map) {
+      panel.codeOpen = true;   // 已挂载的概念节点：自动展开「代码」栏
+      invoke<string | null>('get_code_map', { dir, nodeId: n.id })
+        .then(async (md) => {
+          if (!md) return;
+          codeMd = md;
+          codeStale = md.includes('stale: true');
+          const mm = md.match(/```mermaid\n([\s\S]*?)\n```/);
+          if (!mm) return;
+          try {
+            const m = (await import('mermaid')).default;
+            m.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+            const { svg } = await m.render(`engram-code-${n.id}-${Date.now()}`, mm[1].trim());
+            mermaidHtml = svg;
+          } catch {
+            mermaidHtml = null; // 库缺失/渲染失败 → 降级为源文本（面板已提示）
+          }
+        })
+        .catch(() => {});
+    }
   });
+
+  function applyCodeMd(md: string | null) {
+    codeMd = md;
+    codeStale = md?.includes('stale: true') ?? false;
+    mermaidHtml = null;
+    if (!md) return;
+    const mm = md.match(/```mermaid\n([\s\S]*?)\n```/);
+    if (!mm) return;
+    import('mermaid')
+      .then((m) => {
+        m.default.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+        return m.default.render(`engram-code-${node?.id ?? 'x'}-${Date.now()}`, mm[1].trim());
+      })
+      .then(({ svg }) => {
+        mermaidHtml = svg;
+      })
+      .catch(() => {
+        mermaidHtml = null;
+      });
+  }
+
+  // 挂载源码：文件选择器 → 后端算相对路径 + 写 frontmatter + 生成骨架 → 父组件重扫
+  // （重扫后 node.code_map 更新，$effect 自动加载骨架并展开「代码」栏）
+  async function attachCode() {
+    if (!chainDir || !node || codeBusy) return;
+    codeMessage = null;
+    const selected = await open({ multiple: false });
+    if (!selected) return;
+    const abs = Array.isArray(selected) ? selected[0] : selected;
+    codeBusy = true;
+    try {
+      const snap = await invoke<ChainSnapshot>('attach_code_map', {
+        dir: chainDir,
+        nodeId: node.id,
+        absSource: abs,
+      });
+      onCodeMapChange?.(snap, node.id);
+    } catch (e) {
+      codeMessage = String(e);
+    } finally {
+      codeBusy = false;
+    }
+  }
+
+  async function refreshCode() {
+    if (!chainDir || !node || codeBusy) return;
+    codeMessage = null;
+    codeBusy = true;
+    try {
+      const md = await invoke<string | null>('sync_code_map', { dir: chainDir, nodeId: node.id });
+      applyCodeMd(md);
+      codeMessage = md?.includes('stale: false') ? '已刷新为最新骨架' : null;
+    } catch (e) {
+      codeMessage = String(e);
+    } finally {
+      codeBusy = false;
+    }
+  }
+
+  async function detachCode() {
+    if (!chainDir || !node || codeBusy) return;
+    if (!detachArmed) {
+      detachArmed = true;
+      codeMessage = '再次点击确认移除代码挂载（骨架派生文件一并删除）';
+      return;
+    }
+    codeBusy = true;
+    try {
+      const snap = await invoke<ChainSnapshot>('detach_code_map', { dir: chainDir, nodeId: node.id });
+      onCodeMapChange?.(snap, node.id);
+      codeMd = null;
+      codeStale = false;
+      mermaidHtml = null;
+      detachArmed = false;
+      codeMessage = null;
+    } catch (e) {
+      codeMessage = String(e);
+    } finally {
+      codeBusy = false;
+    }
+  }
   let evMessage = $state<string | null>(null);
 
   // v1.8 VSCode 式分栏：面板宽度 + 各内容区高度/折叠状态。
@@ -496,28 +586,42 @@
     <div class="h-handle" role="separator" aria-orientation="horizontal" onpointerdown={resizeSection('evidenceH')} title="拖拽调整证据区高度"><span class="grip"></span></div>
   {/if}
 
-  <!-- v2.12 M-Code 代码骨架面板（加性）：code_map 挂载节点显示提取骨架（Mermaid + 接口 + 调用边） -->
-  {#if node.code_map}
-    <button type="button" class="pane-head" onclick={() => (panel.codeOpen = !panel.codeOpen)}>
-      <span class="chev">{panel.codeOpen ? '▾' : '▸'}</span>代码骨架（M-Code）
-      <span class="pane-hint">{codeStale ? 'stale：源已变更，请重跑 sync-code-map' : 'engram-cli sync-code-map 生成'}</span>
-      {#if codeStale}<span class="chip chip-stale">stale</span>{/if}
-    </button>
-    {#if panel.codeOpen}
-      <div class="pane code-pane" style:height="{panel.codeH}px">
-        {#if !codeMd}
-          <div class="ev-empty">骨架未生成：运行 `engram-cli sync-code-map --workspace 工作区目录` 后重新打开本节点</div>
+  <!-- v2.12 M-Code 代码栏（加性）：骨架挂理论/概念节点本身，不另建骨架节点——
+       未挂载显示挂载入口，已挂载显示骨架（Mermaid + 接口 + 调用边）+ 刷新/移除 -->
+  <button type="button" class="pane-head" onclick={() => (panel.codeOpen = !panel.codeOpen)}>
+    <span class="chev">{panel.codeOpen ? '▾' : '▸'}</span>代码（M-Code）
+    <span class="pane-hint">{node.code_map ? `已挂载：${node.code_map}` : '未挂载'}</span>
+    {#if codeStale}<span class="chip chip-stale">stale</span>{/if}
+  </button>
+  {#if panel.codeOpen}
+    <div class="pane code-pane" style:height="{panel.codeH}px">
+      {#if !node.code_map}
+        <div class="ev-empty">把本概念的源码挂到这里：公开接口与调用关系由骨架承载，正文只放一句概述（不为代码模块另建骨架节点）。</div>
+        <button class="ev-add" onclick={attachCode} disabled={codeBusy || !chainDir}>
+          {codeBusy ? '挂载中…' : '📎 挂载源码文件…'}
+        </button>
+        {#if codeMessage}<p class="ev-msg">⚠ {codeMessage}</p>{/if}
+      {:else if !codeMd}
+        <div class="ev-empty">骨架生成中…（或运行 `engram-cli sync-code-map` 后重新打开本节点）</div>
+      {:else}
+        {#if mermaidHtml}
+          <div class="code-mermaid">{@html mermaidHtml}</div>
         {:else}
-          {#if mermaidHtml}
-            <div class="code-mermaid">{@html mermaidHtml}</div>
-          {:else}
-            <div class="ev-empty">Mermaid 渲染库未加载（离线环境）：以下为骨架源文本</div>
-          {/if}
-          <pre class="code-md">{codeMd}</pre>
+          <div class="ev-empty">Mermaid 渲染库未加载（离线环境）：以下为骨架源文本</div>
         {/if}
-      </div>
-      <div class="h-handle" role="separator" aria-orientation="horizontal" onpointerdown={resizeSection('codeH')} title="拖拽调整骨架区高度"><span class="grip"></span></div>
-    {/if}
+        <pre class="code-md">{codeMd}</pre>
+        <div class="code-actions">
+          <button class="log-append" onclick={refreshCode} disabled={codeBusy || !chainDir} title="源码变更后重新提取骨架（stale 兜底）">
+            {codeBusy ? '刷新中…' : '↻ 刷新骨架'}
+          </button>
+          <button class="log-append code-detach" onclick={detachCode} disabled={codeBusy || !chainDir} title={detachArmed ? '再次点击确认移除' : '移除代码挂载（骨架派生文件一并删除）'}>
+            {detachArmed ? '确认移除？' : '移除挂载'}
+          </button>
+        </div>
+        {#if codeMessage}<p class="ev-msg">{codeMessage}</p>{/if}
+      {/if}
+    </div>
+    <div class="h-handle" role="separator" aria-orientation="horizontal" onpointerdown={resizeSection('codeH')} title="拖拽调整骨架区高度"><span class="grip"></span></div>
   {/if}
 
   <!-- v1.8 日志区：可折叠 + 可拖边界调高度 -->
@@ -798,6 +902,10 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
+  /* v2.13 代码栏操作行 */
+  .code-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .code-detach { background: rgba(248, 113, 113, 0.14); }
+  .code-detach:hover { background: rgba(248, 113, 113, 0.24); }
 
   /* 固定小字段区：标题/状态/标签 */
   .fixed-fields { flex-shrink: 0; }
