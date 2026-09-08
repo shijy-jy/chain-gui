@@ -5,6 +5,7 @@ use crate::guide::{parse_guide_version, AI_GUIDE, AI_GUIDE_DEV, AI_GUIDE_VERSION
 use crate::model::chain::{ChainSnapshot, SnapshotMeta};
 use crate::model::node::{FoldedInfo, Node, NodeStatus};
 use crate::model::ScanMode;
+use crate::ops::atomic_write;
 use crate::scanner::frontmatter::{now_iso8601, parse, serialize, truncate_utf8};
 use crate::scanner::walker::{scan_chain_dir, scan_chain_dir_mode};
 use crate::workspace::{check_mode, write_mode_tag};
@@ -36,9 +37,8 @@ pub fn init_chain(root: &Path, mode: ScanMode) -> Result<ChainSnapshot, String> 
         let content = format!(
             "---\nid: g-001\ntype: goal\nstatus: pending\ntitle: 示例目标（改我）\ncreated: {now}\nupdated: {now}\nrevision: 1\ntags: []\nparent: null\n---\n\n这是初始化向导生成的示例节点，在侧栏编辑或直接用编辑器改这个文件。\n"
         );
-        fs::write(&example, content).map_err(|e| format!("写示例节点失败：{e}"))?;
+        atomic_write(&example, &content).map_err(|e| format!("写示例节点失败：{e}"))?;
     }
-
     // AI 使用指南：分析模式版本对比刷新（v1.2）；开发模式写知识库指南（v2.1，缺省才写、不刷新）
     if !mode.is_dev() {
         refresh_ai_guide_if_stale(root)?;
@@ -341,7 +341,8 @@ pub fn fold_chain(dir: &Path, node_id: &str, mode: ScanMode) -> Result<ChainSnap
     );
 
     let new_content = serialize(&fm, &summary).map_err(|e| format!("序列化摘要节点失败：{e}"))?;
-    fs::write(&target_path, new_content).map_err(|e| format!("写摘要节点失败：{e}"))?;
+    // 节点写一律走原子写原语（唯一写路径，宪法第 4/5 条）
+    atomic_write(&target_path, &new_content).map_err(|e| format!("写摘要节点失败：{e}"))?;
 
     // 8. 重扫返回
     scan_chain_dir_mode(dir, mode).map_err(|e| format!("重扫失败：{e}"))

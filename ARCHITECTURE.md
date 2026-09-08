@@ -32,7 +32,11 @@ rel 三类型（contains / solves / alternative）不扩张；语义细节走 re
 
 ## 7. 错误码契约
 
-**目标态（当前未实现，待落地时补齐）**：稳定错误码 + 文案分离：`CONFLICT:` / `DUPLICATE_TITLE:` / `INVALID_REL:` / `WORKSPACE_MODE_MISMATCH:`。文案可改，码不可改；i18n 由此预留。当前 server 返回的错误文案尚不含统一前缀，实现错误码分层时同步固化进 golden 契约。
+稳定错误码 + 文案分离（文案可改，码不可改；i18n 由此预留）。
+
+**已实现**（测试覆盖）：`CONFLICT:`（D3 乐观锁）/ `DUPLICATE_TITLE:`（同名拦截）/ `SCHEMA_TOO_NEW:`（schema 拒绝打开）/ `MIGRATE_FAILED:` / `VERIFY_FAILED:`（幂等迁移）。
+
+**目标态（待落地时补齐）**：`INVALID_REL:`（link_nodes 词表外报错当前无前缀）/ `WORKSPACE_MODE_MISMATCH:`（模式强校验当前无前缀）。补齐时同步固化进 golden 契约。
 
 ## 8. 工具即契约
 

@@ -32,7 +32,7 @@
 
 | 通道 | 形态 | 信任级别 | 权限 |
 |---|---|---|---|
-| 人类 GUI | Tauri 桌面应用（本机进程） | 本机可信 | 全量（19 命令，经 core 守门；GUI 是唯一可写 .mode/.schema 的入口） |
+| 人类 GUI | Tauri 桌面应用（本机进程） | 本机可信 | 全量（20 命令，经 core 守门；GUI 是唯一可写 .mode/.schema 的入口） |
 | 本地 AI | engram-mcp stdio（本机进程，用户显式启动并指定 `--workspace`） | 本机可信（信任=启动者） | 9 工具按工作区模式限权：create/link 仅 dev 模式；写入受 D3 乐观锁 + 原子写 + write_lock 串行 |
 | 云 AI（未来） | HTTP + token，经**本地 relay** 转发 | 半可信（云不可信，relay 本机可信） | 目标态：与 MCP 9 工具同面，token 按工作区鉴权，默认仅 localhost |
 

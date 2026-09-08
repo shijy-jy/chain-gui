@@ -23,7 +23,7 @@ pub struct VersionInfo {
     pub guide_analysis: u32,
     /// 开发模式指南版本
     pub guide_dev: u32,
-    /// 数据 schema 格式版本（None = 未实现）
+    /// 数据 schema 格式版本（None = 未实现；当前已实现，见 crate::schema）
     pub schema: Option<String>,
 }
 
@@ -50,7 +50,7 @@ impl VersionInfo {
             self.tool_contract,
             self.guide_analysis,
             self.guide_dev,
-            self.schema.as_deref().unwrap_or("n/a（§10⑤ 待实现）"),
+            self.schema.as_deref().unwrap_or("n/a（未实现）"),
         )
     }
 }

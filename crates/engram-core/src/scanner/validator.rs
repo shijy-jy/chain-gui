@@ -1,5 +1,4 @@
 use crate::model::node::{Node, NodeType};
-use crate::model::validation::ValidationReport;
 use serde_yaml::Value as YamlValue;
 use std::collections::HashSet;
 
@@ -29,20 +28,16 @@ pub fn validate_fields(filename: &str, fm: &serde_yaml::Mapping, errors: &mut Ve
         ));
     }
 
-    // type
+    // type（词表唯一数据源：profile::ANALYSIS，终版 §1.4）
     match get_str(fm, "type") {
-        Some(t) if matches!(t.as_str(), "goal" | "design" | "task" | "verification") => {}
+        Some(t) if crate::profile::ANALYSIS.type_vocab.contains(&t.as_str()) => {}
         Some(t) => errors.push(format!("[{}] type: 非法枚举值 '{}'", filename, t)),
         None => errors.push(format!("[{}] type: 字段缺失", filename)),
     }
 
-    // status
+    // status（词表唯一数据源：profile::ANALYSIS）
     match get_str(fm, "status") {
-        Some(s)
-            if matches!(
-                s.as_str(),
-                "pending" | "in_progress" | "success" | "failed" | "blocked"
-            ) => {}
+        Some(s) if crate::profile::ANALYSIS.status_vocab.contains(&s.as_str()) => {}
         Some(s) => errors.push(format!("[{}] status: 非法枚举值 '{}'", filename, s)),
         None => errors.push(format!("[{}] status: 字段缺失", filename)),
     }
@@ -238,20 +233,6 @@ pub fn validate_structure(
                 _ => break,
             }
         }
-    }
-}
-
-/// 组合校验：字段级 + 结构级，返回 ValidationReport
-pub fn validate(nodes_with_files: &[(&str, &Node)]) -> ValidationReport {
-    let mut errors = Vec::new();
-    let mut warnings = Vec::new();
-
-    validate_structure(nodes_with_files, &mut errors, &mut warnings);
-
-    ValidationReport {
-        valid: errors.is_empty(),
-        errors,
-        warnings,
     }
 }
 

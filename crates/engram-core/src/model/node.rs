@@ -63,12 +63,6 @@ pub struct Node {
     pub folded: Option<FoldedInfo>,
 }
 
-impl Node {
-    pub fn short_id(&self) -> &str {
-        &self.id
-    }
-}
-
 /// 把 UpdateFields 里的 Some 字段应用到 frontmatter map
 /// 自动更新 updated 时间和 revision+1
 pub fn apply_update(

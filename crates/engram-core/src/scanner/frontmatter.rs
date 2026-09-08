@@ -1,4 +1,3 @@
-use crate::model::node::Node;
 use anyhow::{Context, Result};
 
 /// 当前时间的 RFC3339 字符串（固定 +08:00 本地时区，手写 civil 算法，不引 chrono 依赖）
@@ -78,20 +77,19 @@ pub fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
     &s[..end]
 }
 
-pub fn parse_node_file(content: &str) -> Result<(Node, String)> {
-    let (fm, body) = parse(content)?;
-
-    let mut node: Node = serde_yaml::from_str(&serde_yaml::to_string(&fm).unwrap())
-        .context("frontmatter YAML 解析失败")?;
-    node.body = body.clone();
-
-    Ok((node, body))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::node::{NodeStatus, NodeType};
+    use crate::model::node::{Node, NodeStatus, NodeType};
+
+    /// 测试辅助：解析整文件为 Node（生产路径走 parse + walker 直解，不经过此函数）
+    fn parse_node_file(content: &str) -> Result<(Node, String)> {
+        let (fm, body) = parse(content)?;
+        let mut node: Node = serde_yaml::from_str(&serde_yaml::to_string(&fm).unwrap())
+            .context("frontmatter YAML 解析失败")?;
+        node.body = body.clone();
+        Ok((node, body))
+    }
 
     #[test]
     fn test_parse_simple_node() {

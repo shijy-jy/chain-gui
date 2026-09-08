@@ -80,35 +80,41 @@ profile 词表差异（非 schema 差异，属校验规则）：分析模式拒�
 
 ## 5 · 迁移工具接口草案（engram-cli migrate）
 
-### 5.1 core 接口（未来 `engram_core::schema` / `engram_core::migrate`）
+### 5.1 core 接口（`engram_core::schema` / `engram_core::migrate`，§10⑤ 已实现，签名以本节为准）
 
 ```rust
 // schema：版本读写与判断
-pub fn read_schema(root: &Path) -> SchemaVersion;   // 缺失 → 1.0
-pub fn ensure_schema(root: &Path) -> Result<(), Error>; // adoption 写（仅 GUI/CLI 调用）
-pub fn is_supported(found: SchemaVersion) -> bool;  // major 不高于当前支持
+pub fn read_schema(root: &Path) -> Result<SchemaVersion, String>;  // 缺失 → 隐式当前版本；坏文件 → Err
+pub fn write_schema(root: &Path, v: SchemaVersion) -> Result<(), String>; // 原子写
+pub fn ensure_schema(root: &Path) -> Result<SchemaVersion, String>; // adoption 写（仅 GUI/CLI 调用），幂等
+pub fn is_supported(found: SchemaVersion) -> bool;                  // major 不高于当前支持
+pub fn check_openable(root: &Path) -> Result<SchemaVersion, String>; // 更高 major → SCHEMA_TOO_NEW:；更高 minor 放行
 
 // migrate：幂等迁移
 pub fn plan(root: &Path) -> Result<MigratePlan, MigrateError>;   // 只读探测，不落盘
-pub fn run(root: &Path, opts: MigrateOpts) -> Result<MigrateReport, MigrateError>;
+pub fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateReport, MigrateError>;
 
-pub struct MigrateOpts { pub dry_run: bool, pub auto_backup: bool }  // 默认备份
+pub struct MigratePlan { pub from: SchemaVersion, pub to: SchemaVersion,
+    pub class: MigrateClass, pub steps: Vec<String> }           // steps：迁移步骤描述（未来版本登记）
+pub struct MigrateOpts { pub dry_run: bool, pub auto_backup: bool }  // Default：备份开
 pub struct MigrateReport {
-    pub from: SchemaVersion,       // 未打标按 1.0 报告
-    pub to: SchemaVersion,
-    pub class: MigrateClass,       // A（改写事实源）| B（重建派生物）
-    pub transformed: Vec<String>,  // A 类：被改写文件（相对 .chain）
-    pub rebuilt: Vec<String>,      // B 类：重建的派生物
-    pub backup: Option<PathBuf>,
+    pub from: String,             // 未打标按当前版本报告（序列化友好）
+    pub to: String,
+    pub class: MigrateClass,      // A（改写事实源）| B（重建派生物）
+    pub transformed: Vec<String>, // A 类：被改写文件（相对 .chain）
+    pub rebuilt: Vec<String>,     // B 类：重建的派生物
+    pub backup: Option<String>,
     pub warnings: Vec<String>,
+    pub changed: bool,            // 本次运行是否发生磁盘变更（dry-run 语义锚点；§5.2 之后新增）
 }
 pub enum MigrateError {
     SchemaTooNew { found: SchemaVersion, supported: SchemaVersion },
-    MigrateFailed(String),   // backup/transform/write 相失败 → MIGRATE_FAILED:，exit 1
-    VerifyFailed { reason: String }, // verify 相失败 → VERIFY_FAILED:，exit 3（已回滚）
-    NotAWorkspace,
+    MigrateFailed(String),    // backup/transform/write 相失败 → MIGRATE_FAILED:，exit 1
+    VerifyFailed(String),     // verify 相失败 → VERIFY_FAILED:，exit 3（已回滚）
+    NotAWorkspace,            // 缺少 .chain/ → exit 5
     Io(String),
 }
+// 同 major 更高 minor：可打开可读，plan 返回空步骤，run 只警告「不降级」不动盘
 ```
 
 ### 5.2 CLI 接口

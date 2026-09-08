@@ -202,9 +202,9 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
         Some(YamlValue::String(p)) if !p.trim().is_empty() => Some(p),
         _ => None,
     };
-    // v2.4 递进关系类型：contains（默认）/ solves / alternative，非法值回落 contains
+    // v2.4 递进关系类型（词表唯一数据源：profile::REL_TYPES）；非法值回落 contains（rel=None 语义同 contains）
     let rel = match get("rel").and_then(|v| v.as_str().map(|s| s.to_string())) {
-        Some(s) if matches!(s.as_str(), "contains" | "solves" | "alternative") => Some(s),
+        Some(s) if crate::profile::REL_TYPES.contains(&s.as_str()) => Some(s),
         _ => None,
     };
     let created = get("created")

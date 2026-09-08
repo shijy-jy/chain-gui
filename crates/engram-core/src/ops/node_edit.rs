@@ -13,7 +13,7 @@ use crate::ops::{atomic_write, parse_lenient};
 use crate::profile::DEV;
 use crate::scanner::{frontmatter, walker};
 use crate::workspace::check_mode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::path::Path;
 
 /// 新建节点入参
@@ -36,16 +36,10 @@ pub struct CreateNodeInput {
     pub rel: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct DevEditResult {
-    pub created: bool,
-}
-
-/// rel 归一（开发模式宽容：词表外 → contains 默认值）
+/// rel 归一（开发模式宽容：词表唯一数据源 profile::REL_TYPES，词表外 → contains 默认值）
 fn normalize_rel(r: &Option<String>) -> &str {
     match r.as_deref() {
-        Some("solves") => "solves",
-        Some("alternative") => "alternative",
+        Some(v) if crate::profile::REL_TYPES.contains(&v) => v,
         _ => "contains",
     }
 }
