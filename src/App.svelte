@@ -1811,11 +1811,13 @@
     background: rgba(167, 139, 250, 0.1);
     border: 1px solid rgba(167, 139, 250, 0.3);
     letter-spacing: 1px;
+    box-shadow: 0 0 14px rgba(167, 139, 250, 0.12);
   }
   .mode-chip.dev {
     color: #34d399;
     background: rgba(52, 211, 153, 0.1);
     border-color: rgba(52, 211, 153, 0.3);
+    box-shadow: 0 0 14px rgba(52, 211, 153, 0.12);
   }
   .toolbar {
     display: flex;
@@ -1825,9 +1827,11 @@
     min-height: 52px;
     height: auto;
     padding: 8px 20px;
-    background: #0f0f0f;
+    background: rgba(15, 15, 15, 0.92);
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(14px);
     flex-shrink: 0;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
   }
   .logo {
     font-weight: 500;
@@ -1843,9 +1847,17 @@
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 999px;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition:
+      background 0.2s var(--ease-soft),
+      border-color 0.2s var(--ease-soft),
+      transform 0.15s var(--ease-out);
   }
-  .pick:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
+  .pick:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.22);
+    transform: translateY(-1px);
+  }
+  .pick:active:not(:disabled) { transform: translateY(0) scale(0.97); }
   .pick:disabled { opacity: 0.4; cursor: not-allowed; }
   .dir {
     font-family: 'Consolas', monospace;
@@ -1935,8 +1947,17 @@
     background: rgba(52, 211, 153, 0.12);
     border: 1px dashed rgba(52, 211, 153, 0.4);
     color: #34d399;
+    transition:
+      background 0.2s var(--ease-soft),
+      border-color 0.2s var(--ease-soft),
+      transform 0.15s var(--ease-out);
   }
-  .create-btn:hover:not(:disabled) { background: rgba(52, 211, 153, 0.2); }
+  .create-btn:hover:not(:disabled) {
+    background: rgba(52, 211, 153, 0.2);
+    border-color: rgba(52, 211, 153, 0.65);
+    transform: translateY(-1px);
+  }
+  .create-btn:active:not(:disabled) { transform: translateY(0) scale(0.97); }
   .snap-group {
     display: flex;
     align-items: center;
@@ -2007,16 +2028,19 @@
   .hover-tip {
     position: absolute;
     transform: translate(-50%, -100%);
-    padding: 4px 8px;
+    padding: 5px 9px;
     font-size: 10px;
     font-family: 'Consolas', monospace;
     color: rgba(255, 255, 255, 0.9);
     background: rgba(25, 25, 28, 0.92);
     border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 6px;
+    border-radius: 8px;
     pointer-events: none;
     z-index: 20;
     white-space: nowrap;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    animation: fade-slide-in 0.15s var(--ease-out);
   }
   .empty-hint {
     position: absolute;
@@ -2045,11 +2069,16 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    background: rgba(20, 24, 32, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 8px;
-    padding: 5px 8px;
-    backdrop-filter: blur(6px);
+    background: var(--bg-float);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px 10px;
+    backdrop-filter: blur(14px);
+    box-shadow: var(--shadow-float);
+    transition: border-color 0.2s var(--ease-soft);
+  }
+  .ns-input-row:focus-within {
+    border-color: rgba(167, 139, 250, 0.45);
   }
   .ns-icon { color: rgba(255, 255, 255, 0.45); font-size: 13px; }
   .ns-input {
@@ -2072,13 +2101,15 @@
   }
   .ns-clear:hover { color: rgba(255, 255, 255, 0.85); }
   .ns-results {
-    margin-top: 6px;
-    background: rgba(20, 24, 32, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 8px;
+    margin-top: 8px;
+    background: var(--bg-float);
+    border: 1px solid var(--line);
+    border-radius: 10px;
     max-height: 300px;
     overflow-y: auto;
-    backdrop-filter: blur(6px);
+    backdrop-filter: blur(14px);
+    box-shadow: var(--shadow-float);
+    animation: fade-slide-in 0.22s var(--ease-out);
   }
   .ns-empty {
     padding: 10px 12px;
@@ -2128,10 +2159,13 @@
     right: 16px;
     z-index: 10;
     width: 218px;
-    background: rgba(15, 15, 17, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
-    padding: 8px 12px;
+    background: var(--bg-float);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 14px;
+    backdrop-filter: blur(14px);
+    box-shadow: var(--shadow-float);
+    animation: fade-slide-in 0.25s var(--ease-out);
   }
   .wp-head {
     width: 100%;
@@ -2205,9 +2239,18 @@
     border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 8px;
     cursor: pointer;
-    transition: all 0.15s ease;
+    backdrop-filter: blur(8px);
+    transition:
+      background 0.2s var(--ease-soft),
+      color 0.2s var(--ease-soft),
+      transform 0.15s var(--ease-out);
   }
-  .zc-btn:hover { background: rgba(45, 45, 50, 0.9); color: #fff; }
+  .zc-btn:hover {
+    background: rgba(45, 45, 50, 0.9);
+    color: #fff;
+    transform: translateY(-1px);
+  }
+  .zc-btn:active { transform: translateY(0) scale(0.94); }
 
   /* v1.4 颜色图例（左下角） */
   .legend {
@@ -2215,11 +2258,14 @@
     left: 16px;
     bottom: 34px;
     padding: 12px 14px;
-    background: rgba(15, 15, 17, 0.88);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
+    background: var(--bg-float);
+    border: 1px solid var(--line);
+    border-radius: 12px;
     z-index: 10;
     max-width: 220px;
+    backdrop-filter: blur(14px);
+    box-shadow: var(--shadow-float);
+    animation: fade-slide-in 0.3s var(--ease-out);
   }
   .legend-title {
     font-size: 11px;
@@ -2267,5 +2313,17 @@
     height: 1px;
     background: rgba(255, 255, 255, 0.08);
     margin: 8px 0;
+  }
+
+  /* v2.8 UI 打磨：浮层/提示统一进出场（快出慢停，从 6px 下方淡入） */
+  @keyframes fade-slide-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 </style>

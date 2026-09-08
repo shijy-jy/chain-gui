@@ -1,8 +1,22 @@
 :root {
+  /* ── 设计令牌（v2.8 UI 打磨）：全局唯一数据源 ── */
+  --bg: #0a0a0a;
+  --bg-panel: #0f0f0f;
+  --bg-float: rgba(17, 20, 28, 0.94);
+  --text-1: rgba(255, 255, 255, 0.88);
+  --text-2: rgba(255, 255, 255, 0.55);
+  --text-3: rgba(255, 255, 255, 0.35);
+  --line: rgba(255, 255, 255, 0.08);
+  --accent: #a78bfa;
+  /* 高级缓动：快出慢停（面板/弹层）与对称缓动（常态过渡） */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --shadow-float: 0 8px 28px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+
   font-family: system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   line-height: 1.5;
-  color: rgba(255, 255, 255, 0.85);
-  background-color: #0a0a0a;
+  color: var(--text-1);
+  background-color: var(--bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -22,4 +36,44 @@ body,
 
 button {
   font-family: inherit;
+}
+
+/* ── 暗色滚动条（全局统一，替代刺眼系统滚动条） ── */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.13);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+  background-clip: padding-box;
+}
+
+/* ── 选中色与焦点环（可访问性） ── */
+::selection {
+  background: rgba(167, 139, 250, 0.35);
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid rgba(167, 139, 250, 0.55);
+  outline-offset: 2px;
+}
+
+/* ── 动效可及性：用户系统开启「减少动态效果」时全部降级 ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
