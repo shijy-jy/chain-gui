@@ -1,0 +1,1 @@
+占位：tauri bundle resources 引用 resources/models（T11 模型随包内置）；模型本体由本地打包脚本从 %LOCALAPPDATA%\Engram\models 拷贝，不入库。

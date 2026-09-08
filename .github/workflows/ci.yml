@@ -29,6 +29,15 @@ jobs:
       - name: fmt
         run: cargo fmt --all -- --check
 
+      # tauri-build 校验 bundle resources 必须存在：干净 checkout 无 exe（构建产物）
+      # 与模型（本地打包脚本拷贝），先放占位再编译，避免 workspace 构建假红
+      - name: Prepare bundle resource placeholders
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force crates/engram-gui/resources | Out-Null
+          New-Item -ItemType File -Force crates/engram-gui/resources/engram-mcp.exe | Out-Null
+          New-Item -ItemType Directory -Force crates/engram-gui/resources/models | Out-Null
+
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 

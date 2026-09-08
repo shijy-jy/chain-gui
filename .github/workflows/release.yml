@@ -43,6 +43,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force crates/engram-gui/resources | Out-Null
           Copy-Item target/release/engram-mcp.exe crates/engram-gui/resources/engram-mcp.exe
+          # models 占位：模型本体（+92MB）不入库，CI 安装包不含模型，运行时回退
+          # %LOCALAPPDATA%\Engram\models（本地发布脚本会拷入完整模型）
+          New-Item -ItemType Directory -Force crates/engram-gui/resources/models | Out-Null
 
       - name: Verify version stamp (drift anchor)
         shell: pwsh
@@ -62,6 +65,6 @@ jobs:
           releaseName: 'Engram ${{ github.ref_name }}'
           releaseBody: |
             自动发布（cargo workspace：engram-core / engram-mcp / engram-gui）。
-            未覆盖项声明：GUI 端到端（WebDriver 冒烟）尚未自动化；MCP 11 工具已由 golden 契约测试覆盖（CI golden job）；真实目录端到端验证为 ignored 测试，需手动执行 `cargo test -p engram-core --test real_dir_verify -- --ignored`。
+            未覆盖项声明：GUI 端到端（WebDriver 冒烟）尚未自动化；MCP 10 工具已由 golden 契约测试覆盖（CI golden job，12 条调用）；真实目录端到端验证为 ignored 测试，需手动执行 `cargo test -p engram-core --test real_dir_verify -- --ignored`；嵌入模型（+92MB）不入库，CI 安装包不含模型，运行时回退 %LOCALAPPDATA%\Engram\models。
           releaseDraft: true
           prerelease: false

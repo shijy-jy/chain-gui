@@ -1,7 +1,7 @@
 //! 嵌入后端封装（框架 §5.1 / T10）：fastembed 6.0.3 + BGE-small-zh-v1.5 本地模型。
 //! 可插拔 trait：召回侧只依赖 Embedder，模型加载失败走降级链（宪法第 6 条）。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub trait Embedder: Send + Sync {
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, EmbedError>;
@@ -44,14 +44,31 @@ impl Embedder for FastEmbed {
     }
 }
 
-/// 默认模型目录：%LOCALAPPDATA%\Engram\models\bge-small-zh-v1.5
-/// （T11 拍板：随安装包内置；打包版可传入安装目录相对路径覆盖）
-pub fn default_model_dir() -> PathBuf {
+/// 模型目录解析（框架 T11 拍板：随安装包内置；落地为双路兜底）：
+/// 1. exe 同级 `models/bge-small-zh-v1.5`（安装包把模型并入 bundle resources，与
+///    engram-mcp.exe 一起装到安装目录 → 安装版零网络可用）；
+/// 2. `%LOCALAPPDATA%\Engram\models\bge-small-zh-v1.5`（手动放置/独立部署兜底）。
+fn resolve_model_dir(exe_dir: Option<&Path>) -> PathBuf {
+    const MODEL_SUBDIR: &str = "bge-small-zh-v1.5";
+    if let Some(dir) = exe_dir {
+        let adjacent = dir.join("models").join(MODEL_SUBDIR);
+        if adjacent.join("model_optimized.onnx").exists() {
+            return adjacent;
+        }
+    }
     let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| String::from("."));
     PathBuf::from(base)
         .join("Engram")
         .join("models")
-        .join("bge-small-zh-v1.5")
+        .join(MODEL_SUBDIR)
+}
+
+/// 默认模型目录（见 resolve_model_dir：exe 旁路优先，LOCALAPPDATA 兜底）
+pub fn default_model_dir() -> PathBuf {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+    resolve_model_dir(exe_dir.as_deref())
 }
 
 /// 从本地目录加载 fastembed 模型；dim 以实际探针嵌入长度为准（不硬编码）。
@@ -122,5 +139,32 @@ mod tests {
             Some("bge-small-zh-v1.5"),
             "默认模型目录应为 bge-small-zh-v1.5"
         );
+    }
+
+    #[test]
+    fn resolve_prefers_exe_adjacent_model() {
+        // exe 旁路有完整模型 → 优先（T11 安装包内置）
+        let tmp = TempDir::new().unwrap();
+        let model = tmp.path().join("models/bge-small-zh-v1.5");
+        std::fs::create_dir_all(&model).unwrap();
+        std::fs::write(model.join("model_optimized.onnx"), b"fake").unwrap();
+        let p = resolve_model_dir(Some(tmp.path()));
+        assert_eq!(p, model, "exe 旁路模型应优先");
+
+        // exe 旁路无模型 → LOCALAPPDATA 兜底
+        let empty = TempDir::new().unwrap();
+        let p2 = resolve_model_dir(Some(empty.path()));
+        assert!(
+            p2.ends_with(
+                ["Engram", "models", "bge-small-zh-v1.5"]
+                    .iter()
+                    .collect::<PathBuf>()
+            ),
+            "无旁路模型应回退 LOCALAPPDATA：{}",
+            p2.display()
+        );
+        // 无 exe 目录（纯库调用）→ 同样兜底
+        let p3 = resolve_model_dir(None);
+        assert_eq!(p3, p2, "None 与空目录应同样兜底");
     }
 }
