@@ -2,7 +2,7 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
-## [未发布]
+## [2.8.0] - 2026-09-08
 ### Changed
 - cargo workspace 化 + engram-core 下沉（唯一写路径重构，GUI/MCP 入口全部经 core 守门）
 - 双模式差异收为 core profile 配置包（rel 词表/指南指针/type·status 词表/校验开关）
