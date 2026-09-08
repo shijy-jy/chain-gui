@@ -72,7 +72,8 @@ profile 词表差异（非 schema 差异，属校验规则）：分析模式拒�
 
 - **v1.0 = 无派生物索引**：检索/统计均为扫描现算（`walker::scan_chain_dir_mode`）。
 - **v1.1（B 类，M7' 已落地）**：`.chain/index/`（嵌入索引，meta.json + embeddings.bin）与 `.chain/stats.json`（双时钟统计）成为正式派生物；`archive/` 增加直接归档布局（`archive/<id>.md`，frontmatter `archived: true`，与 fold 的 `fold_<id>/` 子目录并存，扫描器只收 `archived: true` 的文件）。
-- 终版 §1.3 的 `code_map/`、`audit.jsonl` 尚未落地；各自落地时以 **minor 递增**记录派生物格式变更。
+- **M8'/M-Code 落地**：`.chain/audit.jsonl`（append-only 审计）与 `.chain/code_map/<node-id>.md`（代码骨架，+ `.stale` 标记文件）随 1.1 派生物体制落地，不构成版本变更源。
+- 终版 §1.3 的派生物清单至此全部落地；各自格式变更时以 **minor 递增**记录。
 
 ## 4 · 版本号规则
 

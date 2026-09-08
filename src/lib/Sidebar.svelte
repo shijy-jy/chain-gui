@@ -58,6 +58,38 @@
 
   // 证据（v1.8）：文件名列表 + 点击打开 + 文件选择器添加
   let evBusy = $state(false);
+
+  // v2.12 M-Code 骨架（加性）：code_map 挂载节点读取骨架 markdown + Mermaid 渲染
+  // （渲染库缺失时降级为源文本展示——检索降级链哲学的 GUI 侧应用）
+  let codeMd = $state<string | null>(null);
+  let codeStale = $state(false);
+  let mermaidHtml = $state<string | null>(null);
+
+  $effect(() => {
+    const n = node;
+    const dir = chainDir;
+    codeMd = null;
+    codeStale = false;
+    mermaidHtml = null;
+    if (!n?.code_map || !dir) return;
+    invoke<string | null>('get_code_map', { dir, nodeId: n.id })
+      .then(async (md) => {
+        if (!md) return;
+        codeMd = md;
+        codeStale = md.includes('stale: true');
+        const mm = md.match(/```mermaid\n([\s\S]*?)\n```/);
+        if (!mm) return;
+        try {
+          const m = (await import('mermaid')).default;
+          m.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+          const { svg } = await m.render(`engram-code-${n.id}-${Date.now()}`, mm[1].trim());
+          mermaidHtml = svg;
+        } catch {
+          mermaidHtml = null; // 库缺失/渲染失败 → 降级为源文本（面板已提示）
+        }
+      })
+      .catch(() => {});
+  });
   let evMessage = $state<string | null>(null);
 
   // v1.8 VSCode 式分栏：面板宽度 + 各内容区高度/折叠状态。
@@ -70,7 +102,7 @@
   let bodyHtml = $derived(bodyMode === 'preview' ? renderBody(body) : '');
 
   // —— 布局拖拽：横向边界条调整上方内容区高度（VSCode 分栏手感）——
-  function resizeSection(which: 'bodyH' | 'evidenceH' | 'logH') {
+  function resizeSection(which: 'bodyH' | 'evidenceH' | 'logH' | 'codeH') {
     return (e: PointerEvent) => {
       e.preventDefault();
       const startY = e.clientY;
@@ -339,6 +371,24 @@
     <span class="meta-item" title="父节点">父 {node.parent ?? '无（根）'}</span>
   </div>
 
+  <!-- v2.12 徽标行（加性）：归档/待裁决/蒸馏/代码骨架状态一目了然 -->
+  {#if node.archived || node.frozen || node.derived || node.code_map}
+    <div class="badge-row">
+      {#if node.archived}
+        <span class="chip chip-arch" title={node.archived_reason ? `已归档：${node.archived_reason}` : '已归档：默认不进图与检索（recall include_archived 可找回）'}>已归档</span>
+      {/if}
+      {#if node.frozen}
+        <span class="chip chip-frozen" title={node.freeze_reason ?? '并发写冲突，待人工裁决（冻结期间拒绝写入）'}>待裁决</span>
+      {/if}
+      {#if node.derived}
+        <span class="chip chip-derived" title="蒸馏产物：检索默认降权（×0.85），人审摘帽 = 删除 derived 标记">蒸馏</span>
+      {/if}
+      {#if node.code_map}
+        <span class="chip chip-code" title={`M-Code：代码骨架挂载（${node.code_map}）`}>代码骨架</span>
+      {/if}
+    </div>
+  {/if}
+
   <!-- 固定小字段区（不参与分栏拖拽） -->
   <div class="fixed-fields">
     <div class="field">
@@ -444,6 +494,30 @@
       {#if evMessage}<p class="ev-msg">⚠ {evMessage}</p>{/if}
     </div>
     <div class="h-handle" role="separator" aria-orientation="horizontal" onpointerdown={resizeSection('evidenceH')} title="拖拽调整证据区高度"><span class="grip"></span></div>
+  {/if}
+
+  <!-- v2.12 M-Code 代码骨架面板（加性）：code_map 挂载节点显示提取骨架（Mermaid + 接口 + 调用边） -->
+  {#if node.code_map}
+    <button type="button" class="pane-head" onclick={() => (panel.codeOpen = !panel.codeOpen)}>
+      <span class="chev">{panel.codeOpen ? '▾' : '▸'}</span>代码骨架（M-Code）
+      <span class="pane-hint">{codeStale ? 'stale：源已变更，请重跑 sync-code-map' : 'engram-cli sync-code-map 生成'}</span>
+      {#if codeStale}<span class="chip chip-stale">stale</span>{/if}
+    </button>
+    {#if panel.codeOpen}
+      <div class="pane code-pane" style:height="{panel.codeH}px">
+        {#if !codeMd}
+          <div class="ev-empty">骨架未生成：运行 `engram-cli sync-code-map --workspace 工作区目录` 后重新打开本节点</div>
+        {:else}
+          {#if mermaidHtml}
+            <div class="code-mermaid">{@html mermaidHtml}</div>
+          {:else}
+            <div class="ev-empty">Mermaid 渲染库未加载（离线环境）：以下为骨架源文本</div>
+          {/if}
+          <pre class="code-md">{codeMd}</pre>
+        {/if}
+      </div>
+      <div class="h-handle" role="separator" aria-orientation="horizontal" onpointerdown={resizeSection('codeH')} title="拖拽调整骨架区高度"><span class="grip"></span></div>
+    {/if}
   {/if}
 
   <!-- v1.8 日志区：可折叠 + 可拖边界调高度 -->
@@ -674,6 +748,55 @@
     border: 1px solid rgba(255, 255, 255, 0.07);
     padding: 2px 8px;
     border-radius: 999px;
+  }
+
+  /* v2.12 徽标行（加性）：归档/待裁决/蒸馏/代码骨架 */
+  .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+  }
+  .chip {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid;
+    letter-spacing: 0.5px;
+  }
+  .chip-arch { color: #94a3b8; border-color: rgba(148, 163, 184, 0.5); background: rgba(148, 163, 184, 0.12); }
+  .chip-frozen { color: #fbbf24; border-color: rgba(251, 191, 36, 0.55); background: rgba(251, 191, 36, 0.12); }
+  .chip-derived { color: #a78bfa; border-color: rgba(167, 139, 250, 0.5); background: rgba(167, 139, 250, 0.12); }
+  .chip-code { color: #34d399; border-color: rgba(52, 211, 153, 0.5); background: rgba(52, 211, 153, 0.12); }
+  .chip-stale { color: #f87171; border-color: rgba(248, 113, 113, 0.55); background: rgba(248, 113, 113, 0.12); }
+
+  /* v2.12 M-Code 骨架面板（加性） */
+  .code-pane {
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .code-mermaid {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 8px;
+    overflow-x: auto;
+  }
+  .code-mermaid :global(svg) { max-width: 100%; height: auto; }
+  .code-md {
+    font-family: 'Consolas', monospace;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.6);
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 8px;
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   /* 固定小字段区：标题/状态/标签 */

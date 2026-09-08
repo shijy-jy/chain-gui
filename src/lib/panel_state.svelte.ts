@@ -5,9 +5,12 @@ export const panel = $state({
   bodyH: 300,
   evidenceH: 136,
   logH: 112,
+  // v2.12 M-Code 骨架面板（加性）
+  codeH: 220,
   bodyOpen: true,
   evidenceOpen: true,
   logOpen: true,
+  codeOpen: false,
 });
 
 export const SIDEBAR_COLLAPSED_WIDTH = 44;   // 收起态细条宽度（与 Sidebar.svelte CSS 保持一致）

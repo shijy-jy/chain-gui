@@ -32,6 +32,16 @@ export interface ChainNode {
   evidence: string[];
   body: string;
   folded?: FoldedInfo;
+  /** v2.10 M7' 归档标记：默认不进图与检索 */
+  archived?: boolean;
+  archived_reason?: string;
+  /** v2.11 M8' 蒸馏产物（derived:true，检索默认降权） */
+  derived?: boolean;
+  /** v2.11 M8' 冲突冻结（[待裁决]，拒绝写入） */
+  frozen?: boolean;
+  freeze_reason?: string;
+  /** v2.12 M-Code 代码骨架挂载（源码相对路径） */
+  code_map?: string;
 }
 
 export interface ChainEdge {
@@ -76,6 +86,8 @@ export interface ValidationReport {
 export interface ChainSnapshot {
   nodes: ChainNode[];
   edges: ChainEdge[];
+  /** v2.10 M7' 归档节点列表（与活跃图分离；GUI 归档视图开关按需纳入） */
+  archived: ChainNode[];
   manifest: ChainManifest;
   validation: ValidationReport;
 }

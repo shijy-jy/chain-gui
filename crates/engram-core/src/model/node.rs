@@ -84,6 +84,10 @@ pub struct Node {
     /// 冻结原因（仅冻结节点非空）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub freeze_reason: Option<String>,
+    /// v2.12 M-Code 代码骨架挂载（T13）：`code_map: <源码相对路径>`（相对工作区根，文件或目录），
+    /// 骨架派生物落 .chain/code_map/<id>.md，正文只放一句概述。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_map: Option<String>,
     /// 原始文件内容哈希（运行时态，不进 JSON/不入盘）：扫描时由 walker 回填，
     /// recall 用它做索引逐节点新鲜度比对（框架 §4「任一节点文件变更 → 条目 stale」）。
     #[serde(default, skip)]

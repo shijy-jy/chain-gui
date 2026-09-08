@@ -4,6 +4,7 @@
 //! 依赖方向唯一：入口 crate → core；core 不得依赖任何入口 crate（宪法第 1 条）。
 
 pub mod audit;
+pub mod code_map;
 pub mod consolidate;
 pub mod embed;
 pub mod evidence;

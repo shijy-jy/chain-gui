@@ -30,8 +30,12 @@ function displayLabel(type: NodeType, title: string): string {
   return `${NODE_TYPE_LABEL[type]} · ${t}`;
 }
 
-export function chainToElements(snap: ChainSnapshot, opts?: { withEdges?: boolean }): ElementDefinition[] {
+export function chainToElements(
+  snap: ChainSnapshot,
+  opts?: { withEdges?: boolean; includeArchived?: boolean },
+): ElementDefinition[] {
   const withEdges = opts?.withEdges ?? true;
+  const includeArchived = opts?.includeArchived ?? false;
   const elements: ElementDefinition[] = [];
   const nodes = snap.nodes;
   const n = nodes.length;
@@ -123,6 +127,34 @@ export function chainToElements(snap: ChainSnapshot, opts?: { withEdges?: boolea
       position: p,
     });
   });
+
+  // v2.12 M-Code/归档视图开关：归档节点淡色虚线纳入画布（外围环，无边——归档不进活跃图）
+  if (includeArchived) {
+    const archived = snap.archived ?? [];
+    const archR = R + ringGap * 2 + 80;
+    archived.forEach((node, i) => {
+      const ang =
+        (i / Math.max(archived.length, 1)) * Math.PI * 2 - Math.PI / 2;
+      elements.push({
+        data: {
+          id: node.id,
+          label: displayLabel(node.type, node.title),
+          nodeType: node.type,
+          nodeStatus: node.status,
+          chainParent: node.parent,
+          archived: true,
+        },
+        position: {
+          x: Math.cos(ang) * archR,
+          y: Math.sin(ang) * archR,
+        },
+        style: {
+          opacity: 0.45,
+          'border-style': 'dashed',
+        },
+      });
+    });
+  }
 
   // v2.2 涟漪视图：开发模式可关闭连线渲染（联系改由亮度层级+波纹表达，连接数据仍存 snapshot.edges）
   if (!withEdges) return elements;

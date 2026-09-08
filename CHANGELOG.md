@@ -2,6 +2,16 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
+## [Unreleased] - M-Code（代码骨架：tree-sitter 提取 + CLI + GUI 加性）
+### Added
+- `code_map.rs`（框架 §5.7/T12–T14，试点语言 Rust 拍板）：tree-sitter-rust 提取公开接口（pub fn/struct/trait/enum/impl + 签名、文件:行:列定位）→ 同文件调用边 → Mermaid flowchart 文本；骨架落 `.chain/code_map/<node-id>.md`（派生物，可重建）；节点 frontmatter `code_map: <源码相对路径>`（文件或目录）挂载；stale 标记文件（watcher 联动，refresh 清除，read_skeleton_md 实时修正 stale 行）
+- `engram-cli sync-code-map --workspace <p> [--lang rust] [--node <id>]`：提取/刷新全库或单节点代码骨架（无挂载节点 exit 0；非试点语言报错）
+- GUI 加性（宪法第 5 条零破坏）：信息栏徽标（已归档/待裁决/蒸馏/代码骨架/stale）；归档视图开关（淡色虚线纳入归档节点，默认关）；M-Code 骨架面板（Mermaid 渲染，库缺失降级源文本）；重嵌索引按钮（本地模型全库重嵌）
+### Changed
+- 无契约 bump（工具集 13 不变；golden 18 条不变）
+### Fixed
+- 无
+
 ## [Unreleased] - M8'（冲突冻结 + 重复检测 + 蒸馏 + 审计）
 ### Added
 - `consolidate(targets?, dry_run=true, k=8)` 工具（契约 v4 第 13 工具；开发模式为主、分析模式共享）：BFS 连通分量聚类（size ≥ 2，targets 过滤，k = 簇数上限）→ 骨架节点（`derived: true` + 标题前缀 `[蒸馏]` + 正文逐条来源引用，骨架而非全文摘要）；dry_run 默认 true（先看计划）；原节点不删；人审摘帽 = 删除 derived 标记

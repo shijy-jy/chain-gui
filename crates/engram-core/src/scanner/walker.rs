@@ -239,6 +239,7 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
                 derived: false,
                 frozen: false,
                 freeze_reason: None,
+                code_map: None,
                 content_hash: crate::index::content_hash(content),
             };
         }
@@ -316,6 +317,8 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
     let derived = get("derived").and_then(|v| v.as_bool()).unwrap_or(false);
     let frozen = get("frozen").and_then(|v| v.as_bool()).unwrap_or(false);
     let freeze_reason = get("freeze_reason").and_then(|v| v.as_str().map(|s| s.to_string()));
+    // v2.12 M-Code：代码骨架挂载（T13）
+    let code_map = get("code_map").and_then(|v| v.as_str().map(|s| s.to_string()));
 
     Node {
         id: stem.to_string(),
@@ -337,6 +340,7 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
         derived,
         frozen,
         freeze_reason,
+        code_map,
         content_hash: crate::index::content_hash(content),
     }
 }

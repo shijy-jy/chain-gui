@@ -170,6 +170,31 @@ pub fn get_version_info(app: AppHandle) -> Result<engram_core::version::VersionI
     ))
 }
 
+// ── M-Code / 记忆层加性命令（v2.12；宪法第 5 条：GUI 零破坏）──
+
+/// 读取节点代码骨架 markdown（.chain/code_map/<id>.md，含 Mermaid 块；stale 按标记文件实时修正）。
+/// 无骨架 → None（前端隐藏 M-Code 面板）。
+#[command]
+pub fn get_code_map(dir: String, node_id: String) -> Result<Option<String>, String> {
+    Ok(engram_core::code_map::read_skeleton_md(
+        Path::new(&dir),
+        &node_id,
+    ))
+}
+
+/// 重嵌按钮：全库重建嵌入索引（真实模型；失败显式报错，前端降级提示）。
+#[command]
+pub fn reindex_embeddings(dir: String) -> Result<String, String> {
+    let root = PathBuf::from(&dir);
+    let embedder =
+        engram_core::embed::load_local_embedder(None).map_err(|e| format!("{e}"))?;
+    let report = engram_core::index::IndexStore::rebuild_all(&root, embedder.as_ref())?;
+    Ok(format!(
+        "重嵌 {} 个节点（跳过 {} 个），耗时 {} ms",
+        report.re_embedded, report.skipped, report.elapsed_ms
+    ))
+}
+
 // ── 证据 ──────────────────────────────────────────────────
 
 /// 把绝对路径转成相对工程根的 evidence 相对路径（协议要求相对路径，统一 `/` 分隔）

@@ -150,6 +150,65 @@ fn minor_higher_no_downgrade_exit_0() {
     assert_eq!(backup_count(&tmp), 0);
 }
 
+#[test]
+fn sync_code_map_creates_skeleton_and_reports_stale() {
+    let tmp = ws();
+    // 源码 + 挂载节点
+    std::fs::write(
+        tmp.path().join("lib.rs"),
+        "pub fn compute(a: i32) -> i32 {\n    a * 2\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.path().join(".chain/nodes/n1.md"),
+        "---\nid: n1\ntype: note\ntitle: 计算模块\nparent: null\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\ncode_map: lib.rs\n---\n\n# 计算模块\n\n公开接口骨架。\n",
+    )
+    .unwrap();
+    let (code, stdout, _) = run(&["sync-code-map", "--workspace", &ws_path(&tmp)]);
+    assert_eq!(code, 0, "stdout: {stdout}");
+    assert!(stdout.contains("n1：exports="), "stdout: {stdout}");
+    let md = std::fs::read_to_string(tmp.path().join(".chain/code_map/n1.md")).unwrap();
+    assert!(md.contains("pub fn compute"), "{md}");
+    assert!(md.contains("```mermaid"), "{md}");
+
+    // stale：标记后重跑 → 输出标注（已重建）
+    engram_core_lib_marker(&tmp);
+    let (code2, stdout2, _) = run(&["sync-code-map", "--workspace", &ws_path(&tmp)]);
+    assert_eq!(code2, 0);
+    assert!(stdout2.contains("刷新前 stale"), "stdout: {stdout2}");
+}
+
+fn engram_core_lib_marker(tmp: &TempDir) {
+    // 直接写 stale 标记文件（CLI 测试不依赖 core 内部 API 版本）
+    std::fs::create_dir_all(tmp.path().join(".chain/code_map")).unwrap();
+    std::fs::write(tmp.path().join(".chain/code_map/n1.stale"), b"").unwrap();
+}
+#[test]
+fn sync_code_map_no_mount_nodes_exit_0() {
+    let tmp = ws();
+    std::fs::write(
+        tmp.path().join(".chain/nodes/n1.md"),
+        "---\nid: n1\ntype: note\ntitle: 无挂载\nparent: null\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\n---\n\n# 无挂载\n",
+    )
+    .unwrap();
+    let (code, stdout, _) = run(&["sync-code-map", "--workspace", &ws_path(&tmp)]);
+    assert_eq!(code, 0, "无挂载节点不是错误");
+    assert!(stdout.contains("无 code_map 挂载节点"), "stdout: {stdout}");
+}
+
+#[test]
+fn sync_code_map_bad_args_and_node() {
+    let tmp = ws();
+    let p = ws_path(&tmp);
+    let (code, _, _) = run(&["sync-code-map", "--workspace", p.as_str(), "--bogus"]);
+    assert_eq!(code, 5);
+    let (code, _, stderr) = run(&["sync-code-map", "--workspace", p.as_str(), "--node", "ghost"]);
+    assert_eq!(code, 5);
+    assert!(stderr.contains("不存在"), "stderr: {stderr}");
+    let (code, _, _) = run(&["sync-code-map", "--workspace", p.as_str(), "--lang", "python"]);
+    assert_eq!(code, 1, "非试点语言应报错");
+}
+
 fn backup_count(tmp: &TempDir) -> usize {
     std::fs::read_dir(tmp.path())
         .unwrap()

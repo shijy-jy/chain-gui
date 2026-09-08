@@ -460,6 +460,25 @@
   let focusNodeId: string | null = null;
   let focusSet: Set<string> | null = null;
   let showCreate = $state(false);
+  // v2.12 归档视图开关（加性）：淡色虚线纳入归档节点（默认关，零破坏）
+  let showArchived = $state(false);
+  // v2.12 重嵌按钮（记忆层 L2）：状态消息
+  let reindexMsg = $state<string | null>(null);
+  let reindexBusy = $state(false);
+
+  async function handleReindex() {
+    if (!chainDir || reindexBusy) return;
+    reindexBusy = true;
+    reindexMsg = null;
+    try {
+      const msg = await invoke<string>('reindex_embeddings', { dir: chainDir });
+      reindexMsg = `✓ ${msg}`;
+    } catch (e) {
+      reindexMsg = `重嵌失败：${String(e)}（模型缺失时可先用关键词检索）`;
+    } finally {
+      reindexBusy = false;
+    }
+  }
 
   // v2.1 多工作区：左侧栏管理；每个文件夹绑定自己的模式（.chain/.mode 标签）
   let workspaces = $state<WorkspaceInfo[]>([]);
@@ -1272,14 +1291,17 @@
     const sliderSig = `${_m}-${_g}-${_x}`;
 
     const idsSig = snap.nodes.map(x => x.id).sort().join(',');
+    // v2.12 归档视图开关：纳入归档节点时集合签名含归档 id（切换即重建）；
+    // 注意此处必须读取 showArchived 以建立依赖（Svelte 5 追踪）
+    const idsSigWithArchived = `${idsSig}|arch:${showArchived ? (snap.archived ?? []).map(x => x.id).sort().join(',') : ''}`;
     const dataSig = snap.nodes
       .map(x => `${x.id}|${x.type}|${x.updated}|${x.revision}|${x.status}|${x.title}|${x.tags.join('~')}|${x.evidence.join('~')}`)
       .sort()
       .join(';');
 
-    if (idsSig !== lastIdsSig) {
+    if (idsSigWithArchived !== lastIdsSig) {
       // 节点集合变化：全量重建 + 预散点 + 首帧视图 + 力模拟
-      lastIdsSig = idsSig;
+      lastIdsSig = idsSigWithArchived;
       lastDataSig = dataSig;
       lastSliderSig = sliderSig;
       stopForce();
@@ -1287,7 +1309,7 @@
       focusNodeId = null;   // v2.6 节点集合重建时退出双击聚焦
       focusSet = null;
       // v2.4 两模式统一：连线渲染为"若有若无"的淡线（.ghost），点击后整组淡出改由涟漪表达
-      cyRef.add(chainToElements(snap, { withEdges: true }));
+      cyRef.add(chainToElements(snap, { withEdges: true, includeArchived: showArchived }));
       cyRef.edges().addClass('ghost');
       startWaterLoop();
       // v1.7 首帧视图：同步 fit 全图 + 根节点对准屏幕中央（消除"左上角堆叠→跳中央"的闪烁）
@@ -1335,7 +1357,9 @@
         // v2.6 两模式统一：点击节点 = 波源开关（再点停止），波纹表达关系；
         // 同时右侧常驻信息栏切换到该节点内容
         toggleWaveSource(n.id());
-        const nodeData = snapshot?.nodes.find(x => x.id === n.id());
+        const nodeData =
+          snapshot?.nodes.find(x => x.id === n.id()) ??
+          snapshot?.archived?.find(x => x.id === n.id());
         if (nodeData) selectedNode = nodeData;
       });
       // v2.6 两模式统一：单击 = 波源开关 + 切换右侧信息栏内容；双击 = 视图聚焦/退出聚焦
@@ -1548,6 +1572,20 @@
     </span>
     <span class="spacer"></span>
     {#if snapshot}
+      {#if (snapshot.archived?.length ?? 0) > 0}
+        <button class="pick" class:active={showArchived}
+                onclick={() => (showArchived = !showArchived)}
+                title="归档视图（v2.12）：淡色虚线显示已归档节点（默认不进图）；点击节点可在信息栏查看全文">
+          {showArchived ? '归档视图 ✓' : '归档视图'}
+        </button>
+      {/if}
+      <button class="pick" onclick={handleReindex} disabled={reindexBusy || !chainDir}
+              title="重嵌（v2.12）：用本地模型全库重建嵌入索引，语义召回与向量检索随之启用">
+        {reindexBusy ? '重嵌中…' : '重嵌索引'}
+      </button>
+      {#if reindexMsg}
+        <span class="snap-msg" title={reindexMsg}>{reindexMsg}</span>
+      {/if}
       <span class="slider-group">
         <label class="slider-label" title="最小间距（v2.5）：任意两节点边缘间的最小间隙，碰撞力每帧硬保证（与节点数无关）；同时派生边弹簧理想长 = 2×间距、斥力 ∝ 间距²，调这一个就同时影响引力和斥力">最小间距<span class="slider-val">{minDist}px</span>
           <span class="slider-track">
