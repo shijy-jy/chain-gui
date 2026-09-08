@@ -79,6 +79,24 @@ impl Workspace {
         st.flush()
     }
 
+    /// 读触达回写 + 落盘（读工具命中后调用；框架 T3：读命中是节点触达）
+    pub fn touch_read(&self, id: &str) -> Result<(), String> {
+        let mut st = self
+            .stats
+            .lock()
+            .map_err(|e| format!("stats 锁失败：{e}"))?;
+        st.touch(id, crate::stats::TouchKind::ReadHit)?;
+        st.flush()
+    }
+
+    /// 写路径标 index 条目 stale + 落盘（框架 §5.10：写入成功后触发 index 条目标 stale；
+    /// 缺失条目无副作用——recall 的「索引中无此 id → 按需重嵌」路径覆盖新建节点）
+    pub fn mark_index_stale(&self, id: &str) -> Result<(), String> {
+        let mut ix = self.index.lock().map_err(|e| format!("索引锁失败：{e}"))?;
+        ix.mark_stale(id)?;
+        ix.flush()
+    }
+
     pub fn mode_str(&self) -> &'static str {
         mode_str(self.mode)
     }
@@ -93,6 +111,14 @@ impl Workspace {
 
     fn node_path(&self, id: &str) -> PathBuf {
         self.nodes_dir().join(format!("{id}.md"))
+    }
+
+    fn archive_dir(&self) -> PathBuf {
+        self.root.join(".chain").join(crate::ops::chain::ARCHIVE_DIR)
+    }
+
+    fn archive_path(&self, id: &str) -> PathBuf {
+        self.archive_dir().join(format!("{id}.md"))
     }
 
     pub(crate) fn scan(&self) -> Result<crate::model::chain::ChainSnapshot, String> {
@@ -181,8 +207,19 @@ pub fn get_overview(ctx: &Workspace) -> Result<Value, String> {
     }))
 }
 
-/// search(query, limit=10)：title/tags/body 大小写不敏感子串匹配
+/// search(query, limit=10)：title/tags/body 大小写不敏感子串匹配。
+/// M7'：命中结果触达回写 stats（读触达全覆盖）；内部调用（recall 关键词降级）走
+/// search_impl(touch=false) 避免与 recall 自身的触达回写重复计数。
 pub fn search(ctx: &Workspace, query: &str, limit: Option<usize>) -> Result<Value, String> {
+    search_impl(ctx, query, limit, true)
+}
+
+pub(crate) fn search_impl(
+    ctx: &Workspace,
+    query: &str,
+    limit: Option<usize>,
+    touch_stats: bool,
+) -> Result<Value, String> {
     ctx.bump_clock()?;
     let q = query.trim().to_lowercase();
     if q.is_empty() {
@@ -238,6 +275,14 @@ pub fn search(ctx: &Workspace, query: &str, limit: Option<usize>) -> Result<Valu
     });
     let total = hits.len();
     let results: Vec<Value> = hits.into_iter().take(limit).map(|(_, v)| v).collect();
+    if touch_stats {
+        // 读触达：每个返回命中回写（T3）；stats 为派生物，失败不吞检索结果
+        for r in &results {
+            if let Some(id) = r["id"].as_str() {
+                let _ = ctx.touch_read(id);
+            }
+        }
+    }
     Ok(json!({ "query": query, "total": total, "returned": results.len(), "results": results }))
 }
 
@@ -252,11 +297,14 @@ pub fn read_node(
         return Err("节点 id 非法（仅允许字母/数字/连字符/下划线）".into());
     }
     let snap = ctx.scan()?;
+    // M7'：活跃图优先，其次归档列表（归档节点全文仍可读，检索自 L4 起可见）
     let node = snap
         .nodes
         .iter()
         .find(|n| n.id == id)
+        .or_else(|| snap.archived.iter().find(|n| n.id == id))
         .ok_or_else(|| format!("节点 {id} 不存在"))?;
+    let _ = ctx.touch_read(&node.id); // 读触达（T3；失败不吞读取结果）
     let mut v = serde_json::to_value(node).map_err(|e| format!("序列化失败：{e}"))?;
     // MCP 输出规范化：serialize 落盘会在 body 尾加 \n、parse 原样读回——对 AI 隐藏文件格式噪音
     if let Some(b) = v.get("body").and_then(|b| b.as_str()) {
@@ -293,6 +341,7 @@ pub fn expand(ctx: &Workspace, id: &str, depth: Option<u32>) -> Result<Value, St
     if !snap.nodes.iter().any(|n| n.id == id) {
         return Err(format!("节点 {id} 不存在"));
     }
+    let _ = ctx.touch_read(id); // 读触达（T3）
     // 无向邻接表
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for e in &snap.edges {
@@ -352,6 +401,8 @@ pub fn read_path(ctx: &Workspace, from: &str, to: &str) -> Result<Value, String>
     if !by_id.contains_key(to) {
         return Err(format!("节点 {to} 不存在"));
     }
+    let _ = ctx.touch_read(from); // 读触达（T3）：路径两端点
+    let _ = ctx.touch_read(to);
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for e in &snap.edges {
         adj.entry(e.parent.as_str())
@@ -453,7 +504,7 @@ pub fn create_node(
 ) -> Result<Value, String> {
     ctx.bump_clock()?;
     if !ctx.mode.is_dev() {
-        return Err("仅开发模式工作区可自由新建节点；分析模式的链由 AI 按协议维护（本工作区可用 update_node）".into());
+        return Err("WORKSPACE_MODE_MISMATCH: 仅开发模式工作区可自由新建节点；分析模式的链由 AI 按协议维护（本工作区可用 update_node）".into());
     }
     let title = title.trim();
     if title.is_empty() {
@@ -511,6 +562,7 @@ pub fn create_node(
         frontmatter::serialize(&fm, &body_text).map_err(|e| format!("序列化失败：{e}"))?;
     atomic_write(&path, &content)?;
     ctx.touch_write(&id)?;
+    ctx.mark_index_stale(&id)?;
 
     Ok(json!({
         "created": true,
@@ -589,6 +641,7 @@ pub fn update_node(
         frontmatter::serialize(&fm, &new_body).map_err(|e| format!("序列化失败：{e}"))?;
     atomic_write(&path, &new_content)?;
     ctx.touch_write(id)?;
+    ctx.mark_index_stale(id)?;
 
     Ok(json!({
         "updated": true,
@@ -612,11 +665,14 @@ pub fn link_nodes(
 ) -> Result<Value, String> {
     ctx.bump_clock()?;
     if !ctx.mode.is_dev() {
-        return Err("仅开发模式工作区可自由建链；分析模式的链由 AI 按协议维护".into());
+        return Err(
+            "WORKSPACE_MODE_MISMATCH: 仅开发模式工作区可自由建链；分析模式的链由 AI 按协议维护"
+                .into(),
+        );
     }
     if !REL_TYPES.contains(&rel_type) {
         return Err(format!(
-            "rel_type 非法「{rel_type}」，仅支持：{}（语义见 get_guide）",
+            "INVALID_REL: rel_type 非法「{rel_type}」，仅支持：{}（语义见 get_guide）",
             REL_TYPES.join(" / ")
         ));
     }
@@ -667,6 +723,7 @@ pub fn link_nodes(
     let new_content = frontmatter::serialize(&fm, &body).map_err(|e| format!("序列化失败：{e}"))?;
     atomic_write(&to_path, &new_content)?;
     ctx.touch_write(to)?;
+    ctx.mark_index_stale(to)?;
 
     Ok(json!({
         "linked": true,
@@ -687,6 +744,156 @@ pub fn recall(
 ) -> Result<Value, String> {
     ctx.bump_clock()?;
     crate::retrieval::recall(ctx, query, k, include_archived)
+}
+
+/// archive_node：归档节点（框架 T6 / §5.5，契约 v3 新工具；开发模式为主）。
+/// - `archived: true` + 标题前缀 `[归档]`（幂等：已带前缀不重复加）+ 可选 archived_reason
+/// - 文件原子标记后移入 `.chain/archive/<id>.md`（同盘 rename；窗口期残留 flagged 文件
+///   由扫描器按归档处理，绝无半截状态）
+/// - 索引条目标 stale（下次 recall 按需重嵌并带上 archived 标记）；stats 记写触达
+/// - 90 天未触达为建议阈值：仅提示，不自动执行
+pub fn archive_node(
+    ctx: &Workspace,
+    id: &str,
+    reason: Option<&str>,
+) -> Result<Value, String> {
+    ctx.bump_clock()?;
+    if !ctx.mode.is_dev() {
+        return Err(
+            "WORKSPACE_MODE_MISMATCH: 仅开发模式工作区可归档节点（知识库维护工具）；分析模式的链由 AI 按协议维护"
+                .into(),
+        );
+    }
+    if !is_safe_id(id) {
+        return Err("节点 id 非法".into());
+    }
+    let src = ctx.node_path(id);
+    let dst = ctx.archive_path(id);
+    if dst.exists() {
+        return Err(format!(
+            "节点 {id} 已归档（.chain/archive/{id}.md）——如需恢复请手动移回 nodes/ 并去掉 archived 标记"
+        ));
+    }
+    if !src.exists() {
+        return Err(format!("节点 {id} 不存在"));
+    }
+
+    let raw = std::fs::read_to_string(&src).map_err(|e| format!("读取失败：{e}"))?;
+    let (mut fm, body) = parse_lenient(&raw, id)?;
+    let old_title = fm_get_str(&fm, "title").unwrap_or_else(|| id.to_string());
+    let new_title = if old_title.starts_with("[归档]") {
+        old_title
+    } else {
+        format!("[归档]{old_title}")
+    };
+    // 仅改 title（revision+1、updated 刷新），archived 字段直接写入 fm
+    let fields = UpdateFields {
+        title: Some(new_title.clone()),
+        status: None,
+        body: None,
+        tags: None,
+        evidence: None,
+        parent: None,
+        rel: None,
+    };
+    crate::model::node::apply_update(&mut fm, &fields).map_err(|e| format!("应用更新失败：{e}"))?;
+    use serde_yaml::Value as YV;
+    fm.insert(YV::String("archived".into()), YV::Bool(true));
+    if let Some(r) = reason.map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        fm.insert(
+            YV::String("archived_reason".into()),
+            YV::String(r.to_string()),
+        );
+    }
+    let new_content =
+        frontmatter::serialize(&fm, &body).map_err(|e| format!("序列化失败：{e}"))?;
+    // 原子窗口：先原地原子写（文件已 flagged → 扫描器即按归档处理），再同盘 rename 进 archive/
+    atomic_write(&src, &new_content)?;
+    std::fs::create_dir_all(ctx.archive_dir()).map_err(|e| format!("创建归档目录失败：{e}"))?;
+    std::fs::rename(&src, &dst).map_err(|e| {
+        // rename 失败（如 archive 被占用）：文件仍处 nodes/ 且已 flagged，语义一致不丢数据
+        format!("移动归档失败：{e}")
+    })?;
+    ctx.touch_write(id)?;
+    ctx.mark_index_stale(id)?;
+
+    Ok(json!({
+        "archived": true,
+        "id": id,
+        "title": new_title,
+        "archived_to": format!(".chain/archive/{id}.md"),
+        "reason": reason.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        "hint": format!(
+            "节点已归档（AI 指南 v{}）。归档节点全文保留、默认不进图与检索，recall 传 include_archived=true 可自 L4 起找回；read_node 仍可直读。90 天未触达为建议归档阈值（仅提示，不自动执行）。",
+            ctx.guide_version()
+        ),
+    }))
+}
+
+/// unlink_nodes：断开 from(父)→to(子) 链接（框架 T6 补断边 / §5.5，契约 v3 新工具；
+/// 开发模式为主）。边 = 子节点 frontmatter 的 parent 字段：断边即 parent 置 null，
+/// 并清理 rel / rel_desc（返回值 rel_removed 供回溯）。
+pub fn unlink_nodes(ctx: &Workspace, from: &str, to: &str) -> Result<Value, String> {
+    ctx.bump_clock()?;
+    if !ctx.mode.is_dev() {
+        return Err(
+            "WORKSPACE_MODE_MISMATCH: 仅开发模式工作区可自由断边（知识库维护工具）；分析模式的链由 AI 按协议维护"
+                .into(),
+        );
+    }
+    if !is_safe_id(from) || !is_safe_id(to) {
+        return Err("节点 id 非法".into());
+    }
+    if from == to {
+        return Err("from 与 to 不能相同".into());
+    }
+    if !ctx.node_path(from).exists() {
+        return Err(format!("父节点 {from} 不存在"));
+    }
+    if !ctx.node_path(to).exists() {
+        if ctx.archive_path(to).exists() {
+            return Err(format!("子节点 {to} 已归档，无需断边"));
+        }
+        return Err(format!("子节点 {to} 不存在"));
+    }
+
+    let to_path = ctx.node_path(to);
+    let raw = std::fs::read_to_string(&to_path).map_err(|e| format!("读取失败：{e}"))?;
+    let (mut fm, body) = parse_lenient(&raw, to)?;
+    let cur_parent = fm_get_str(&fm, "parent");
+    if cur_parent.as_deref() != Some(from) {
+        return Err(format!(
+            "边不存在：{to} 的父节点不是 {from}（当前：{}）",
+            cur_parent.as_deref().unwrap_or("null")
+        ));
+    }
+    let rel_removed = fm_get_str(&fm, "rel").unwrap_or_else(|| "contains".to_string());
+    let fields = UpdateFields {
+        title: None,
+        status: None,
+        body: None,
+        tags: None,
+        evidence: None,
+        parent: Some(None),
+        rel: None,
+    };
+    crate::model::node::apply_update(&mut fm, &fields).map_err(|e| format!("应用更新失败：{e}"))?;
+    // 断边后关系字段一并清理（rel/rel_desc 无 parent 即无意义）
+    use serde_yaml::Value as YV;
+    fm.remove(YV::String("rel".into()));
+    fm.remove(YV::String("rel_desc".into()));
+    let new_content = frontmatter::serialize(&fm, &body).map_err(|e| format!("序列化失败：{e}"))?;
+    atomic_write(&to_path, &new_content)?;
+    ctx.touch_write(to)?;
+    ctx.mark_index_stale(to)?;
+
+    Ok(json!({
+        "unlinked": true,
+        "from": from,
+        "to": to,
+        "rel_removed": rel_removed,
+        "hint": format!("边已断开（{to} 的 parent 置 null，rel/rel_desc 已清理，AI 指南 v{}）。需要恢复时用 link_nodes 重建（rel_type 仅 contains/solves/alternative）。", ctx.guide_version()),
+    }))
 }
 
 // ── 测试 ─────────────────────────────────────────────────
@@ -954,5 +1161,133 @@ mod tests {
         let g = get_guide(&ctx).unwrap();
         assert_eq!(g["version"], crate::guide::AI_GUIDE_DEV_VERSION);
         assert!(g["content"].as_str().unwrap().contains("知识库搭建"));
+    }
+
+    // ── v2.10 M7'：归档与断边 ──
+
+    #[test]
+    fn archive_unlink_full_flow() {
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        create_node(&ctx, "父", None, None, None).unwrap();
+        create_node(&ctx, "子", None, None, None).unwrap();
+        link_nodes(&ctx, "node-1", "node-2", "solves", Some("补短板")).unwrap();
+
+        // 断边：edge 消失、rel 清理、返回 rel_removed
+        let u = unlink_nodes(&ctx, "node-1", "node-2").unwrap();
+        assert_eq!(u["unlinked"], true);
+        assert_eq!(u["rel_removed"], "solves");
+        let snap = ctx.scan().unwrap();
+        assert_eq!(snap.edges.len(), 0);
+        let child = read_node(&ctx, "node-2", None).unwrap();
+        assert!(child["parent"].is_null(), "断边后 parent 应为 null");
+        assert!(
+            child["rel"].is_null(),
+            "断边后 rel 应为 null（Node 序列化对缺省 rel 输出 null）"
+        );
+
+        // 重建边再归档 node-2
+        link_nodes(&ctx, "node-1", "node-2", "contains", None).unwrap();
+        let a = archive_node(&ctx, "node-2", Some("内容过时")).unwrap();
+        assert_eq!(a["archived"], true);
+        assert_eq!(a["title"], "[归档]子");
+        assert_eq!(a["archived_to"], ".chain/archive/node-2.md");
+        assert_eq!(a["reason"], "内容过时");
+        // 文件已移入 archive/
+        assert!(!tmp.path().join(".chain/nodes/node-2.md").exists());
+        let raw = fs::read_to_string(tmp.path().join(".chain/archive/node-2.md")).unwrap();
+        assert!(raw.contains("archived: true"), "frontmatter 应落 archived: true");
+        assert!(raw.contains("archived_reason: 内容过时"));
+        assert!(raw.contains("title: '[归档]子'"));
+
+        // 活跃图只余 node-1；归档列表含 node-2；边消失
+        let snap = ctx.scan().unwrap();
+        assert_eq!(snap.nodes.len(), 1);
+        assert_eq!(snap.archived.len(), 1);
+        assert_eq!(snap.archived[0].id, "node-2");
+        assert_eq!(snap.edges.len(), 0, "归档后边自动退出活跃图");
+
+        // read_node 仍可直读归档节点
+        let v = read_node(&ctx, "node-2", None).unwrap();
+        assert_eq!(v["archived"], true);
+        assert_eq!(v["title"], "[归档]子");
+
+        // search 默认不含归档节点
+        let s = search(&ctx, "子", None).unwrap();
+        assert_eq!(s["total"], 0, "search 只搜活跃节点（归档自 L4 起可见）");
+
+        // 再次归档 → 报已归档
+        let err = archive_node(&ctx, "node-2", None).unwrap_err();
+        assert!(err.contains("已归档"), "{err}");
+        // 断边：归档子节点 → 提示无需断边
+        let err = unlink_nodes(&ctx, "node-1", "node-2").unwrap_err();
+        assert!(err.contains("已归档"), "{err}");
+    }
+
+    #[test]
+    fn archive_prefix_idempotent_and_stats_touched() {
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        create_node(&ctx, "旧记忆", None, None, None).unwrap();
+        archive_node(&ctx, "node-1", None).unwrap();
+        // 手工归档文件（带前缀）再走一次 archive_node 的标题逻辑应不重复加前缀——
+        // 已归档节点直接报错，前缀幂等由单次调用的 starts_with 检查覆盖（旧标题含前缀不重复加）
+        let raw = fs::read_to_string(tmp.path().join(".chain/archive/node-1.md")).unwrap();
+        assert_eq!(raw.matches("[归档]").count(), 1, "标题前缀只加一次");
+        // stats：归档是写触达（writes=1 且有触达时间戳）
+        let raw_stats = fs::read_to_string(tmp.path().join(".chain/stats.json")).unwrap();
+        let d: crate::stats::StatsData = serde_json::from_str(&raw_stats).unwrap();
+        let e = d.per_id.get("node-1").expect("node-1 应有 per_id 记录");
+        assert_eq!(e.writes, 2, "create + archive 两次写触达");
+        assert_eq!(e.touches.len(), 2, "写触达计入强度窗口");
+    }
+
+    #[test]
+    fn archive_unlink_errors() {
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        create_node(&ctx, "A", None, None, None).unwrap();
+        create_node(&ctx, "B", None, None, None).unwrap();
+        // 不存在的节点
+        assert!(archive_node(&ctx, "ghost", None).is_err());
+        // 边不存在
+        let err = unlink_nodes(&ctx, "node-1", "node-2").unwrap_err();
+        assert!(err.contains("边不存在"), "{err}");
+        // 自环/同 id
+        assert!(unlink_nodes(&ctx, "node-1", "node-1").is_err());
+        // 断掉一条已断的边
+        link_nodes(&ctx, "node-1", "node-2", "contains", None).unwrap();
+        unlink_nodes(&ctx, "node-1", "node-2").unwrap();
+        assert!(unlink_nodes(&ctx, "node-1", "node-2").is_err());
+
+        // 分析模式：WORKSPACE_MODE_MISMATCH 前缀（错误码契约 §7）
+        let tmp2 = setup("analysis");
+        let ctx2 = ctx_of(&tmp2);
+        let err = archive_node(&ctx2, "a", None).unwrap_err();
+        assert!(err.starts_with("WORKSPACE_MODE_MISMATCH"), "{err}");
+        let err = unlink_nodes(&ctx2, "a", "b").unwrap_err();
+        assert!(err.starts_with("WORKSPACE_MODE_MISMATCH"), "{err}");
+        // link_nodes 词表外 → INVALID_REL 前缀（错误码契约 §7）
+        let err = link_nodes(&ctx, "node-1", "node-2", "bogus", None).unwrap_err();
+        assert!(err.starts_with("INVALID_REL"), "{err}");
+    }
+
+    #[test]
+    fn read_tools_touch_stats() {
+        let tmp = setup("dev");
+        write_node(&tmp, "a", "根节点", "null", "contains");
+        write_node(&tmp, "b", "中间节点", "a", "contains");
+        write_node(&tmp, "c", "叶子节点", "b", "solves");
+        let ctx = ctx_of(&tmp);
+
+        read_node(&ctx, "a", None).unwrap();
+        search(&ctx, "叶", None).unwrap();
+        expand(&ctx, "a", Some(1)).unwrap();
+        read_path(&ctx, "a", "c").unwrap();
+        // 四个读工具 → per_id 触达回写（a: read+search? search 命中 c；expand 中心 a；path 端点 a/c）
+        let raw = fs::read_to_string(tmp.path().join(".chain/stats.json")).unwrap();
+        let d: crate::stats::StatsData = serde_json::from_str(&raw).unwrap();
+        assert!(d.per_id.get("a").map(|e| e.reads).unwrap_or(0) >= 3, "a 被 read/expand/path 触达");
+        assert!(d.per_id.get("c").map(|e| e.reads).unwrap_or(0) >= 2, "c 被 search/path 触达");
     }
 }

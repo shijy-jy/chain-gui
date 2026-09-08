@@ -5,10 +5,11 @@ use crate::guide::{AI_GUIDE_DEV_VERSION, AI_GUIDE_VERSION};
 
 /// MCP 工具契约版本：golden 契约测试覆盖的工具集发生增删改时必须 +1（宪法第 8 条③），
 /// 并同步更新 docs/test-golden/engram-mcp-golden.json。
-pub const TOOL_CONTRACT_VERSION: u32 = 2;
+/// v3（M7'）：新增 archive_node / unlink_nodes（9→12 工具），golden 16 条。
+pub const TOOL_CONTRACT_VERSION: u32 = 3;
 
 /// 索引/schema 格式版本（宪法第 9 条；§10⑤ 起已实现，见 crate::schema）
-pub const SCHEMA_SPEC_VERSION: Option<&str> = Some("1.0");
+pub const SCHEMA_SPEC_VERSION: Option<&str> = Some("1.1");
 
 /// 四版本矩阵 + 漂移锚点
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -68,7 +69,7 @@ mod tests {
             "格式应为 app+hash 开头：{line}"
         );
         assert!(
-            line.contains("tool-contract v2"),
+            line.contains("tool-contract v3"),
             "应含工具契约版本：{line}"
         );
         assert!(
@@ -78,10 +79,10 @@ mod tests {
             "应含双指南版本：{line}"
         );
         assert!(
-            line.contains("schema v1.0"),
+            line.contains("schema v1.1"),
             "schema 已实现应标注版本：{line}"
         );
-        assert_eq!(v.schema.as_deref(), Some("1.0"));
+        assert_eq!(v.schema.as_deref(), Some("1.1"));
     }
 
     #[test]

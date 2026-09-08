@@ -69,19 +69,28 @@ where
     }
 }
 
-/// 创建对 nodes 目录的 notify watcher（与发射解耦，GUI/测试共用）
+/// 创建链目录的 notify watcher（与发射解耦，GUI/测试共用）：
+/// - `.chain/nodes/` 非递归（节点文件平铺）
+/// - `.chain/archive/` 递归（M7'：直接归档 <id>.md + fold 子目录，GUI 需感知 MCP 侧归档动作）
+/// 不监听 .chain 根——stats.json/index 等派生物写盘不触发重扫风暴。
 pub fn create_nodes_watcher<F>(
-    nodes_dir: &std::path::Path,
+    root: &std::path::Path,
     callback: F,
 ) -> Result<notify::RecommendedWatcher, String>
 where
     F: FnMut(notify::Result<notify::Event>) + Send + 'static,
 {
+    let nodes_dir = root.join(".chain").join("nodes");
+    let archive_dir = root.join(".chain").join("archive");
+    std::fs::create_dir_all(&archive_dir).map_err(|e| format!("创建归档目录失败：{e}"))?;
     let mut watcher =
         notify::recommended_watcher(callback).map_err(|e| format!("创建 watcher 失败：{e}"))?;
     watcher
-        .watch(nodes_dir, notify::RecursiveMode::NonRecursive)
-        .map_err(|e| format!("监听失败：{e}"))?;
+        .watch(&nodes_dir, notify::RecursiveMode::NonRecursive)
+        .map_err(|e| format!("监听 nodes 失败：{e}"))?;
+    watcher
+        .watch(&archive_dir, notify::RecursiveMode::Recursive)
+        .map_err(|e| format!("监听 archive 失败：{e}"))?;
     Ok(watcher)
 }
 
@@ -165,7 +174,7 @@ mod tests {
                 let _ = tx.send(snap.nodes.len());
             }
         });
-        let _watcher = create_nodes_watcher(&nodes_dir, callback).expect("watcher 创建失败");
+        let _watcher = create_nodes_watcher(tmp.path(), callback).expect("watcher 创建失败");
 
         // 写入新节点文件（真实文件事件）
         fs::write(
@@ -178,5 +187,36 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("2 秒内应收到 watcher 事件（事件循环盲区回归）");
         assert_eq!(got, 2, "重扫应发现 2 个节点（初始 g-001 + 新增 t-001）");
+    }
+
+    /// M7'：archive 目录事件同样触发重扫（GUI 感知 MCP 侧 archive_node 动作）
+    #[test]
+    fn test_watch_event_loop_picks_up_archive_file() {
+        let tmp = setup_chain();
+        let archive_dir = tmp.path().join(".chain").join("archive");
+        fs::create_dir_all(&archive_dir).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<usize>();
+
+        let mode = Arc::new(Mutex::new(ScanMode::Analysis));
+        let callback = build_watch_callback(tmp.path().to_path_buf(), mode, move |result| {
+            if let RescanResult::Ok(snap) = result {
+                let _ = tx.send(snap.archived.len());
+            }
+        });
+        let _watcher = create_nodes_watcher(tmp.path(), callback).expect("watcher 创建失败");
+
+        // 写入归档节点文件（真实文件事件，位于 archive/ 子目录）
+        let sub = archive_dir.join("fold_x");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(
+            sub.join("arch-1.md"),
+            "---\nid: arch-1\ntype: note\ntitle: '[归档]旧节点'\nparent: null\nstatus: none\ncreated: 2026-08-13T10:00:00+08:00\nupdated: 2026-08-13T10:00:00+08:00\nrevision: 1\ntags: []\narchived: true\n---\n\n# 旧节点\n",
+        )
+        .unwrap();
+
+        let got = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("archive 目录事件应在 2 秒内触发重扫");
+        assert_eq!(got, 1, "归档列表应含新增归档节点");
     }
 }

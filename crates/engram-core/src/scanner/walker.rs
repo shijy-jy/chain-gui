@@ -23,6 +23,7 @@ pub fn scan_chain_dir_mode(root: &Path, mode: ScanMode) -> Result<ChainSnapshot>
     }
 
     let mut nodes = Vec::new();
+    let mut archived = Vec::new();
     let mut edges = Vec::new();
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
@@ -51,8 +52,13 @@ pub fn scan_chain_dir_mode(root: &Path, mode: ScanMode) -> Result<ChainSnapshot>
         if mode.is_dev() {
             // 开发模式：任何 .md 都是节点，字段全部宽松，无内容要求
             let node = build_dev_node(&filename, &content);
-            nodes_with_files.push((filename.clone(), node.clone()));
-            nodes.push(node);
+            if node.archived {
+                // v2.10 M7'：flagged 归档文件（archive_node 原子窗口残留）不进活跃图
+                archived.push(node);
+            } else {
+                nodes_with_files.push((filename.clone(), node.clone()));
+                nodes.push(node);
+            }
             continue;
         }
 
@@ -73,11 +79,70 @@ pub fn scan_chain_dir_mode(root: &Path, mode: ScanMode) -> Result<ChainSnapshot>
         match serde_yaml::from_str::<Node>(&yaml_str) {
             Ok(mut node) => {
                 node.body = body;
-                nodes_with_files.push((filename.clone(), node.clone()));
-                nodes.push(node);
+                node.content_hash = crate::index::content_hash(&content);
+                if node.archived {
+                    archived.push(node);
+                } else {
+                    nodes_with_files.push((filename.clone(), node.clone()));
+                    nodes.push(node);
+                }
             }
             Err(e) => {
                 errors.push(format!("[{}] 反序列化失败: {}", filename, e));
+            }
+        }
+    }
+
+    // v2.10 M7'：扫描 .chain/archive/ 下 frontmatter archived: true 的节点（直接归档 <id>.md
+    // 或任意嵌套；fold 原始文件/_self.md 无标记自动跳过）。id 去重：nodes/ 侧已收者优先。
+    let archive_dir = chain_dir.join("archive");
+    if archive_dir.is_dir() {
+        let mut seen: std::collections::HashSet<String> =
+            archived.iter().map(|n| n.id.clone()).collect();
+        for entry in WalkDir::new(&archive_dir)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("md") {
+                continue;
+            }
+            let raw = match std::fs::read_to_string(path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let (fm, _body) = match parse(&raw) {
+                Ok(v) => v,
+                Err(_) => continue, // 无 frontmatter 的折叠备份等：不属于归档节点
+            };
+            let is_archived = fm
+                .get(serde_yaml::Value::String("archived".into()))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !is_archived {
+                continue;
+            }
+            let filename = path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+            let mut node = if mode.is_dev() {
+                build_dev_node(&filename, &raw)
+            } else {
+                let yaml_str = serde_yaml::to_string(&fm).unwrap_or_default();
+                match serde_yaml::from_str::<Node>(&yaml_str) {
+                    Ok(n) => n,
+                    Err(e) => {
+                        errors.push(format!("[archive/{}] 反序列化失败: {}", filename, e));
+                        continue;
+                    }
+                }
+            };
+            node.archived = true; // 位置权威：archive/ 下的节点一律按归档处理
+            if seen.insert(node.id.clone()) {
+                archived.push(node);
             }
         }
     }
@@ -133,6 +198,7 @@ pub fn scan_chain_dir_mode(root: &Path, mode: ScanMode) -> Result<ChainSnapshot>
     Ok(ChainSnapshot {
         nodes,
         edges,
+        archived,
         manifest,
         validation: ValidationReport {
             valid,
@@ -168,6 +234,9 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
                 evidence: Vec::new(),
                 body: content.to_string(),
                 folded: None,
+                archived: false,
+                archived_reason: None,
+                content_hash: crate::index::content_hash(content),
             };
         }
     };
@@ -237,6 +306,9 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
             })
         })
         .unwrap_or_default();
+    // v2.10 M7'：归档标记（框架 T6）
+    let archived = get("archived").and_then(|v| v.as_bool()).unwrap_or(false);
+    let archived_reason = get("archived_reason").and_then(|v| v.as_str().map(|s| s.to_string()));
 
     Node {
         id: stem.to_string(),
@@ -253,6 +325,9 @@ fn build_dev_node(filename: &str, content: &str) -> Node {
         evidence,
         body,
         folded: None,
+        archived,
+        archived_reason,
+        content_hash: crate::index::content_hash(content),
     }
 }
 
@@ -1021,5 +1096,86 @@ mod tests {
             "应报 status 非法: {:?}",
             snap.validation.errors
         );
+    }
+
+    // ── v2.10 M7'：归档扫描 ──
+
+    #[test]
+    fn test_dev_mode_archive_scan_splits_archived_nodes() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let nodes_dir = root.join(".chain").join("nodes");
+        let archive_dir = root.join(".chain").join("archive");
+        fs::create_dir_all(&nodes_dir).unwrap();
+        fs::create_dir_all(&archive_dir).unwrap();
+        fs::write(nodes_dir.join("a.md"), "# 活跃节点\n").unwrap();
+        fs::write(
+            archive_dir.join("b.md"),
+            "---\nid: b\ntype: note\ntitle: '[归档]旧节点'\nparent: null\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\narchived: true\n---\n\n# 旧节点\n",
+        )
+        .unwrap();
+        // fold 原始文件（无 archived 标记）不得进归档列表
+        let fold_dir = archive_dir.join("fold_x-1");
+        fs::create_dir_all(&fold_dir).unwrap();
+        fs::write(fold_dir.join("t-001.md"), "# 折叠原始文件\n").unwrap();
+
+        let snap = scan_chain_dir_mode(root, ScanMode::Dev).unwrap();
+        assert!(snap.validation.valid, "{:?}", snap.validation.errors);
+        assert_eq!(snap.nodes.len(), 1, "活跃图只含未归档节点");
+        assert_eq!(snap.nodes[0].id, "a");
+        assert_eq!(snap.archived.len(), 1, "归档列表只含 archived:true 节点");
+        assert_eq!(snap.archived[0].id, "b");
+        assert!(snap.archived[0].archived);
+        assert_eq!(snap.edges.len(), 0);
+        assert_eq!(snap.manifest.node_count, 1, "node_count 只计活跃节点");
+    }
+
+    #[test]
+    fn test_dev_mode_flagged_file_in_nodes_goes_to_archived() {
+        // archive_node 原子窗口残留：文件仍处 nodes/ 但已标 archived:true → 按归档处理
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let nodes_dir = root.join(".chain").join("nodes");
+        fs::create_dir_all(&nodes_dir).unwrap();
+        fs::write(
+            nodes_dir.join("c.md"),
+            "---\nid: c\ntype: note\ntitle: '[归档]残留'\nparent: null\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\narchived: true\n---\n\n# 残留\n",
+        )
+        .unwrap();
+
+        let snap = scan_chain_dir_mode(root, ScanMode::Dev).unwrap();
+        assert_eq!(snap.nodes.len(), 0, "flagged 文件不得留在活跃图");
+        assert_eq!(snap.archived.len(), 1);
+        assert_eq!(snap.archived[0].id, "c");
+    }
+
+    #[test]
+    fn test_archive_scan_dedupes_ids() {
+        // 同 id 同时出现在 nodes/（flagged）与 archive/ → 只保留一份（nodes 侧先收）
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let nodes_dir = root.join(".chain").join("nodes");
+        let archive_dir = root.join(".chain").join("archive");
+        fs::create_dir_all(&nodes_dir).unwrap();
+        fs::create_dir_all(&archive_dir).unwrap();
+        let body = "---\nid: d\ntype: note\ntitle: '[归档]重复'\nparent: null\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\narchived: true\n---\n\n# 重复\n";
+        fs::write(nodes_dir.join("d.md"), body).unwrap();
+        fs::write(archive_dir.join("d.md"), body).unwrap();
+
+        let snap = scan_chain_dir_mode(root, ScanMode::Dev).unwrap();
+        assert_eq!(snap.archived.len(), 1, "同 id 归档节点应去重");
+    }
+
+    #[test]
+    fn test_dev_mode_node_carries_content_hash() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let nodes_dir = root.join(".chain").join("nodes");
+        fs::create_dir_all(&nodes_dir).unwrap();
+        fs::write(nodes_dir.join("a.md"), "# 哈希节点\n").unwrap();
+
+        let snap = scan_chain_dir_mode(root, ScanMode::Dev).unwrap();
+        let expected = crate::index::content_hash("# 哈希节点\n");
+        assert_eq!(snap.nodes[0].content_hash, expected, "运行时哈希应回填");
     }
 }

@@ -124,7 +124,10 @@ impl StatsStore {
         Ok(())
     }
 
-    /// 节点触达（与全局时钟解耦）：读命中/写/recall 未命中
+    /// 节点触达（与全局时钟解耦；框架 T3 字面：读命中/写/recall miss 均属触达）。
+    /// - ReadHit / Write：per_id 计数 + 触达时间戳（强度公式窗口）
+    /// - RecallMiss：查询未命中——无节点身份，计入全局 calibrate.misses（d 校准数据）
+    ///   与 gaps（线索缺口，供 consolidate 补 trigger），不进 per_id
     pub fn touch(&mut self, id: &str, kind: TouchKind) -> Result<(), String> {
         self.ensure_loaded()?;
         let now = std::time::SystemTime::now()
@@ -138,7 +141,11 @@ impl StatsStore {
                 entry.reads += 1;
                 entry.touches.push(now);
             }
-            TouchKind::Write => entry.writes += 1,
+            TouchKind::Write => {
+                // T3：写也是节点触达（M6' 审核建议 #2 已修——此前只计 writes 不计触达）
+                entry.writes += 1;
+                entry.touches.push(now);
+            }
             TouchKind::RecallMiss => d.calibrate.misses += 1,
         }
         if entry.touches.len() > TOUCH_WINDOW {
@@ -160,13 +167,15 @@ impl StatsStore {
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|sec| sec.as_secs() as f32)
-            .unwrap_or(0.0);
+            .map(|sec| sec.as_secs() as i64)
+            .unwrap_or(0);
         let exponent = d.calibrate.d;
         let sum: f32 = entry
             .touches
             .iter()
-            .map(|t| (now - *t as f32).max(1.0).powf(-exponent))
+            // 先在 i64 域做差再转 f32：epoch 秒 ~1.75e9 转 f32 精度只有 ~128s，
+            // 直接 f32 相减会把 100s 级年龄吞成 0（强度恒为 ln(1)=0）——M7' 实测修复
+            .map(|t| ((now - *t).max(1) as f32).powf(-exponent))
             .sum();
         Ok(Some(sum.max(1e-6).ln()))
     }
@@ -306,8 +315,8 @@ mod tests {
         );
         assert_eq!(d.per_id.get("b").unwrap().writes, 1);
         assert!(
-            d.per_id.get("b").unwrap().touches.is_empty(),
-            "写触达不计入 touches"
+            !d.per_id.get("b").unwrap().touches.is_empty(),
+            "T3：写也是节点触达，应计入 touches"
         );
         assert_eq!(d.calibrate.misses, 1);
 

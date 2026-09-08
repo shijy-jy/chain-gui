@@ -18,6 +18,11 @@ pub struct IndexEntry {
     pub archived: bool,
     pub derived: bool,
     pub row: usize,
+    /// 显式 stale 标记（框架 §4：节点文件变更 → 条目 stale → recall 按需重嵌）。
+    /// 写路径（create/update/link/archive/unlink）成功后调用 mark_stale 置位；
+    /// recall 重嵌时经 upsert 清除。旧索引文件无此键 → serde default false。
+    #[serde(default)]
+    pub stale: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,8 +133,26 @@ impl IndexStore {
             .meta
             .as_ref()
             .and_then(|m| m.entries.iter().find(|e| e.id == id))
-            .map(|e| e.hash != hash)
+            .map(|e| e.stale || e.hash != hash)
             .unwrap_or(true))
+    }
+
+    /// 写路径标 stale（框架 §5.10「写入路径成功后触发 index 条目标 stale」）：
+    /// 仅对已存在条目置位（缺失条目由 recall 的「索引中无此 id → 按需重嵌」路径覆盖），
+    /// 与 content_hash 双重保险（外部编辑不走写路径时，哈希比对仍能检出）。
+    pub fn mark_stale(&mut self, id: &str) -> Result<(), String> {
+        self.ensure_loaded()?;
+        if let Some(e) = self
+            .meta
+            .as_mut()
+            .unwrap()
+            .entries
+            .iter_mut()
+            .find(|e| e.id == id)
+        {
+            e.stale = true;
+        }
+        Ok(())
     }
 
     /// 写入/更新一个条目（含归档与 derived 标记；维度不匹配返回 Err）
@@ -161,6 +184,7 @@ impl IndexStore {
                 e.hash = hash.to_string();
                 e.archived = archived;
                 e.derived = derived;
+                e.stale = false; // 重嵌后恢复新鲜
             }
             None => {
                 let row = rows.len();
@@ -171,6 +195,7 @@ impl IndexStore {
                     archived,
                     derived,
                     row,
+                    stale: false,
                 });
             }
         }
@@ -225,7 +250,9 @@ impl IndexStore {
         Ok(())
     }
 
-    /// 全库重嵌（清空重建）；节点文本口径 = title + "\n" + body（与同义词测试集一致）
+    /// 全库重嵌（清空重建）；节点文本口径 = title + "\n" + body（与同义词测试集一致）。
+    /// M7'：归档/蒸馏标记不再硬编码——archived/derived 读自 frontmatter；
+    /// 除 nodes/ 外另扫 .chain/archive/ 下 archived: true 的节点（递归，fold 原始文件无标记自动跳过）。
     pub fn rebuild_all(root: &Path, embedder: &dyn Embedder) -> Result<RebuildReport, String> {
         let start = std::time::Instant::now();
         let mut store = IndexStore::open(root)?;
@@ -235,21 +262,32 @@ impl IndexStore {
         store.rows.as_mut().unwrap().clear();
         let mut re_embedded = 0usize;
         let mut skipped = 0usize;
-        let mut ids = Vec::new();
-        let nodes_dir = root.join(".chain").join("nodes");
-        if nodes_dir.is_dir() {
-            for entry in std::fs::read_dir(&nodes_dir).map_err(|e| format!("读 nodes 失败：{e}"))?
+        // (id, 嵌入文本, raw 文件内容, archived, derived)；nodes/ 先入，archive/ 后入（同 id 去重，首见为准）
+        let mut collected: Vec<(String, String, String, bool, bool)> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let collect_dir = |dir: &Path,
+                               collected: &mut Vec<(String, String, String, bool, bool)>,
+                               seen: &mut std::collections::HashSet<String>,
+                               skipped: &mut usize|
+         -> Result<(), String> {
+            if !dir.is_dir() {
+                return Ok(());
+            }
+            for entry in walkdir::WalkDir::new(dir)
+                .follow_links(false)
+                .into_iter()
+                .filter_map(|e| e.ok())
             {
-                let path = entry.map_err(|e| format!("读目录项失败：{e}"))?.path();
+                let path = entry.path();
                 if path.extension().and_then(|s| s.to_str()) != Some("md") {
                     continue;
                 }
-                let raw = std::fs::read_to_string(&path)
+                let raw = std::fs::read_to_string(path)
                     .map_err(|e| format!("读 {} 失败：{e}", path.display()))?;
                 let (fm, body) = match frontmatter::parse(&raw) {
                     Ok(v) => v,
                     Err(e) => {
-                        skipped += 1;
+                        *skipped += 1;
                         eprintln!("reindex：跳过 {}（{e}）", path.display());
                         continue; // 宽松/损坏文件：跳过（无 frontmatter 无法取 id）
                     }
@@ -259,27 +297,49 @@ impl IndexStore {
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
                 else {
-                    skipped += 1;
+                    *skipped += 1;
                     eprintln!("reindex：跳过 {}（frontmatter 缺 id）", path.display());
                     continue;
                 };
+                if !seen.insert(id.clone()) {
+                    continue; // nodes/ 已收（归档前残留的 flagged 文件等），首见为准
+                }
+                let archived = fm
+                    .get(serde_yaml::Value::String("archived".into()))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let derived = fm
+                    .get(serde_yaml::Value::String("derived".into()))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let title = fm
                     .get(serde_yaml::Value::String("title".into()))
                     .and_then(|v| v.as_str())
                     .unwrap_or(&id)
                     .to_string();
-                ids.push((id, title + "\n" + &body));
+                collected.push((id, title + "\n" + &body, raw, archived, derived));
             }
-        }
-        if !ids.is_empty() {
-            let texts: Vec<String> = ids.iter().map(|(_, t)| t.clone()).collect();
+            Ok(())
+        };
+        collect_dir(
+            &root.join(".chain").join("nodes"),
+            &mut collected,
+            &mut seen,
+            &mut skipped,
+        )?;
+        collect_dir(
+            &root.join(".chain").join("archive"),
+            &mut collected,
+            &mut seen,
+            &mut skipped,
+        )?;
+        if !collected.is_empty() {
+            let texts: Vec<String> = collected.iter().map(|(_, t, _, _, _)| t.clone()).collect();
             let vecs = embedder
                 .embed(&texts)
                 .map_err(|e| format!("全库重嵌失败：{e}"))?;
-            for ((id, _), v) in ids.iter().zip(vecs) {
-                let raw =
-                    std::fs::read_to_string(nodes_dir.join(format!("{id}.md"))).unwrap_or_default();
-                store.upsert(id, &content_hash(&raw), v, false, false)?;
+            for ((id, _, raw, archived, derived), v) in collected.iter().zip(vecs) {
+                store.upsert(id, &content_hash(raw), v, *archived, *derived)?;
                 re_embedded += 1;
             }
         }
@@ -395,6 +455,35 @@ mod tests {
     }
 
     #[test]
+    fn mark_stale_flags_existing_entry_only() {
+        let tmp = ws();
+        let mut store = IndexStore::open(tmp.path()).unwrap();
+        store
+            .upsert("a", "h1", vec![1.0, 0.0], false, false)
+            .unwrap();
+        assert!(!store.is_stale("a", "h1").unwrap());
+        store.mark_stale("a").unwrap();
+        assert!(store.is_stale("a", "h1").unwrap(), "stale 标记应使 is_stale 为真（哈希未变）");
+        // upsert（重嵌）清除 stale
+        store.upsert("a", "h1", vec![1.0, 0.0], false, false).unwrap();
+        assert!(!store.is_stale("a", "h1").unwrap());
+        // 缺失条目：mark_stale 无副作用（由 recall 按需重嵌路径覆盖）
+        store.mark_stale("ghost").unwrap();
+        assert_eq!(store.len().unwrap(), 1);
+    }
+
+    #[test]
+    fn is_stale_true_on_hash_mismatch_or_flag() {
+        let tmp = ws();
+        let mut store = IndexStore::open(tmp.path()).unwrap();
+        store
+            .upsert("a", "h1", vec![1.0, 0.0], false, false)
+            .unwrap();
+        assert!(store.is_stale("a", "h2").unwrap(), "哈希不符应 stale");
+        assert!(store.is_stale("missing", "h1").unwrap(), "缺失应 stale");
+    }
+
+    #[test]
     fn upsert_replace_and_remove() {
         let tmp = ws();
         let mut store = IndexStore::open(tmp.path()).unwrap();
@@ -465,6 +554,39 @@ mod tests {
         let tmp2 = ws();
         let r2 = IndexStore::rebuild_all(tmp2.path(), &stub).unwrap();
         assert_eq!(r2.re_embedded, 0);
+    }
+
+    #[test]
+    fn rebuild_all_honors_archived_and_scans_archive_dir() {
+        let tmp = ws();
+        write_dev_node(&tmp, "a", "活跃");
+        // nodes/ 下 flagged 残留（archive_node 原子窗口产物）也应带 archived 标记入索引
+        let flagged = "---\nid: b\ntype: note\ntitle: 残留归档\nparent: null\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\narchived: true\n---\n\n# 残留归档\n";
+        fs::write(tmp.path().join(".chain/nodes/b.md"), flagged).unwrap();
+        // archive/ 直接归档文件应入索引（archived: true）
+        let archive_dir = tmp.path().join(".chain").join("archive");
+        fs::create_dir_all(&archive_dir).unwrap();
+        let archived = "---\nid: c\ntype: note\ntitle: '[归档]旧节点'\nparent: null\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\narchived: true\narchived_reason: 过时\n---\n\n# 旧节点\n";
+        fs::write(archive_dir.join("c.md"), archived).unwrap();
+        // fold 原始文件（无 archived 标记）应被跳过
+        let fold_dir = archive_dir.join("fold_x-1");
+        fs::create_dir_all(&fold_dir).unwrap();
+        fs::write(fold_dir.join("t-001.md"), "# 无标记的折叠文件\n").unwrap();
+
+        let stub = Stub {
+            dim: 2,
+            value: vec![1.0, 0.0],
+        };
+        let report = IndexStore::rebuild_all(tmp.path(), &stub).unwrap();
+        assert_eq!(report.re_embedded, 3, "活跃+残留归档+直接归档 = 3，fold 文件跳过");
+        let mut store = IndexStore::open(tmp.path()).unwrap();
+        let entries = store.entries().unwrap();
+        let by_id: std::collections::HashMap<String, (IndexEntry, Vec<f32>)> =
+            entries.into_iter().map(|(e, v)| (e.id.clone(), (e, v))).collect();
+        assert!(!by_id["a"].0.archived);
+        assert!(by_id["b"].0.archived, "flagged 残留文件应带归档标记");
+        assert!(by_id["c"].0.archived, "archive/ 直接归档应带归档标记");
+        assert!(!by_id.contains_key("t-001"), "fold 原始文件不得入索引");
     }
 
     #[test]

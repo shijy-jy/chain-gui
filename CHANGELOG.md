@@ -2,6 +2,26 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
+## [Unreleased] - M7'（记忆层归档/断边 + stale 热重嵌 + schema 1.1）
+### Added
+- `archive_node(id, reason?)` 工具（契约 v3 第 11 工具，开发模式为主）：`archived: true` + 标题前缀 `[归档]` + 可选 `archived_reason`，文件移入 `.chain/archive/<id>.md`（先原地原子标记再 rename，扫描器按标记处理窗口残留）；90 天未触达为建议阈值（仅提示，不自动执行）
+- `unlink_nodes(from,to)` 工具（契约 v3 第 12 工具，开发模式为主）：子节点 parent 置 null 并清理 rel/rel_desc，返回 rel_removed 供回溯
+- 扫描器归档分离：`ChainSnapshot.archived` 与活跃图分离（无边、不计 node_count），`archived: true` 文件不论位置一律按归档处理；`read_node` 可直读归档节点
+- recall 归档可见性：`include_archived=true` 纳入（自 L4 起可见），向量与关键词降级两条路径一致；向量模式候选集门控
+- 嵌入索引 stale 热重嵌：写路径（create/update/link/archive/unlink）成功后标 stale；recall 对 stale/哈希不符/索引缺失条目按需批量重嵌并落盘（外部编辑由哈希比对兜底）
+- `IndexStore::rebuild_all` 扫描 `.chain/archive/`（递归，只收 archived:true），archived/derived 标记读自 frontmatter 不再硬编码
+- 读触达全覆盖：read_node/search/expand/read_path 命中回写 stats；写触达计入强度窗口（T3 字面：写也是节点触达）
+- watcher 扩展：监听 `.chain/archive/`（递归），MCP 侧归档落盘后 GUI 即时感知
+- 错误码补齐：`INVALID_REL:` / `WORKSPACE_MODE_MISMATCH:`（宪法第 7 条）
+### Changed
+- schema 1.0 → **1.1**（B 类：派生物格式落地；缺失 `.schema` 恒为隐式 1.0，`engram-cli migrate` 登记 1.0→1.1 步骤）
+- MCP 工具契约 v2 → **v3**（golden 12→16 条，覆盖 12 工具）
+- Node 序列化加性字段 `archived`/`archived_reason`（false/None 时不出现在输出，存量响应零回归）
+### Fixed
+- link_nodes 词表外报错无 `INVALID_REL:` 前缀（审计建议）
+- 模式强校验报错无 `WORKSPACE_MODE_MISMATCH:` 前缀（审计建议）
+- 写触达不计入强度触达窗口（T3 字面偏差，审计建议）
+
 ## [2.9.0] - 2026-09-08
 ### Added
 - 嵌入后端：fastembed 6.0.3 + BGE-small-zh-v1.5 本地模型（安装包内置，`models/bge-small-zh-v1.5` 随包安装到安装目录，exe 旁路优先；`%LOCALAPPDATA%\Engram\models\bge-small-zh-v1.5` 兜底），Embedder trait 可插拔，加载失败走降级链

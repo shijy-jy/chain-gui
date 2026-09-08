@@ -210,7 +210,9 @@ pub fn read_snapshot(dir: &Path, snap_id: &str) -> Result<ChainSnapshot, String>
 
 // ── 折叠 ───────────────────────────────────────────────────
 
-const ARCHIVE_DIR: &str = "archive";
+/// 归档目录名（fold 子链归档与 M7' archive_node 直接归档共用 `.chain/archive/`，
+/// 二者布局并存：fold_<id>/ 子目录 + <id>.md 直接文件，扫描器只收 archived:true 的文件）
+pub const ARCHIVE_DIR: &str = "archive";
 
 /// 折叠指定节点及其所有子孙节点为一个摘要节点。
 /// 前提：子链中所有节点必须为 success 状态。

@@ -12,8 +12,14 @@ use std::path::Path;
 /// `.chain/` 下的 schema 版本文件名
 pub const SCHEMA_FILE: &str = ".schema";
 
-/// 当前软件支持的 schema 版本（major.minor 字符串，与文档 spec §2 一致）
-pub const CURRENT_SCHEMA_STR: &str = "1.0";
+/// 当前软件支持的 schema 版本（major.minor 字符串，与文档 spec §2 一致）。
+/// v1.1（B 类）：派生物格式落地（`.chain/index/` 嵌入索引、`.chain/stats.json` 双时钟统计，
+/// 框架 §4/T15 / §9 拍板项 5）——事实源（frontmatter 字段集/目录结构）不变。
+pub const CURRENT_SCHEMA_STR: &str = "1.1";
+
+/// 缺失 `.schema` 的隐式版本：**恒为 1.0**（spec §2 字面——未打标工作区即按 v1.0 处理），
+/// 不随 CURRENT_SCHEMA_STR 漂移；1.0 工作区经 `engram-cli migrate` 走 B 类步骤升到 1.1。
+pub const IMPLICIT_SCHEMA_STR: &str = "1.0";
 
 /// schema 版本号（三位一体：frontmatter 字段集 / 目录结构 / 索引格式）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -47,11 +53,13 @@ fn schema_path(root: &Path) -> std::path::PathBuf {
     root.join(".chain").join(SCHEMA_FILE)
 }
 
-/// 读 `.chain/.schema`：缺失 → 隐式 1.0；非法 JSON / 非法版本串 → Err（不静默吞坏文件）
+/// 读 `.chain/.schema`：缺失 → 隐式 1.0（spec §2：未打标工作区按 v1.0 处理，不随当前版本漂移）；
+/// 非法 JSON / 非法版本串 → Err（不静默吞坏文件）
 pub fn read_schema(root: &Path) -> Result<SchemaVersion, String> {
     let path = schema_path(root);
     if !path.exists() {
-        return Ok(SchemaVersion::current()); // 隐式 1.0（现有全部工作区零迁移成本）
+        return Ok(SchemaVersion::parse(IMPLICIT_SCHEMA_STR)
+            .expect("IMPLICIT_SCHEMA_STR 必须可解析")); // 隐式 1.0（恒定为 v1.0 时代工作区）
     }
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("读 .schema 失败：{e}"))?;
     let v: Value = serde_json::from_str(&raw).map_err(|e| format!(".schema 不是合法 JSON：{e}"))?;
@@ -60,7 +68,7 @@ pub fn read_schema(root: &Path) -> Result<SchemaVersion, String> {
         .and_then(|x| x.as_str())
         .ok_or_else(|| ".schema 缺少 schema_version 字段".to_string())?;
     SchemaVersion::parse(s)
-        .ok_or_else(|| format!(".schema 版本串非法：{s}（应为 major.minor，如 1.0）"))
+        .ok_or_else(|| format!(".schema 版本串非法：{s}（应为 major.minor，如 1.1）"))
 }
 
 /// 写 `.chain/.schema`（原子写；仅 GUI/CLI 调用，MCP 只读）
@@ -126,24 +134,28 @@ mod tests {
         assert!(SchemaVersion::parse("1").is_none());
         assert!(SchemaVersion::parse("1.x").is_none());
         assert!(SchemaVersion::parse("").is_none());
-        assert_eq!(SchemaVersion::current().to_string(), "1.0");
+        assert_eq!(SchemaVersion::current().to_string(), "1.1");
     }
 
     #[test]
-    fn test_read_missing_is_implicit_current() {
+    fn test_read_missing_is_implicit_1_0() {
+        // 缺失 = 隐式 1.0（spec §2 字面：未打标工作区按 v1.0 处理，不随当前版本漂移）
         let tmp = ws();
-        assert_eq!(read_schema(tmp.path()).unwrap(), SchemaVersion::current());
+        assert_eq!(
+            read_schema(tmp.path()).unwrap(),
+            SchemaVersion::parse(IMPLICIT_SCHEMA_STR).unwrap()
+        );
     }
 
     #[test]
     fn test_write_and_read_roundtrip() {
         let tmp = ws();
-        write_schema(tmp.path(), SchemaVersion { major: 1, minor: 0 }).unwrap();
+        write_schema(tmp.path(), SchemaVersion { major: 1, minor: 1 }).unwrap();
         assert_eq!(read_schema(tmp.path()).unwrap(), SchemaVersion::current());
         // 未来键可忽略：带额外字段也照读
         fs::write(
             tmp.path().join(".chain").join(SCHEMA_FILE),
-            "{\"schema_version\": \"1.0\", \"future\": 1}",
+            "{\"schema_version\": \"1.1\", \"future\": 1}",
         )
         .unwrap();
         assert_eq!(read_schema(tmp.path()).unwrap(), SchemaVersion::current());

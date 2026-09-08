@@ -34,6 +34,11 @@ pub struct FoldedInfo {
     pub original_node_count: usize,
 }
 
+/// serde 辅助：archived=false 时不出现在 JSON 输出（零破坏——存量节点输出不变）
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub id: String,
@@ -61,6 +66,17 @@ pub struct Node {
     /// 折叠标记：存在时表示此节点是子链折叠后的摘要节点
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folded: Option<FoldedInfo>,
+    /// v2.10 M7' 归档标记（框架 T6）：archived: true + 标题前缀 [归档]，文件移入 .chain/archive/。
+    /// false 时不出现在 JSON 输出（存量节点输出不变，golden 零回归）。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub archived: bool,
+    /// 归档原因（archive_node 可选入参；仅归档节点非空）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_reason: Option<String>,
+    /// 原始文件内容哈希（运行时态，不进 JSON/不入盘）：扫描时由 walker 回填，
+    /// recall 用它做索引逐节点新鲜度比对（框架 §4「任一节点文件变更 → 条目 stale」）。
+    #[serde(default, skip)]
+    pub content_hash: String,
 }
 
 /// 把 UpdateFields 里的 Some 字段应用到 frontmatter map

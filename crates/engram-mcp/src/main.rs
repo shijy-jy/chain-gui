@@ -120,6 +120,22 @@ struct RecallParams {
     include_archived: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ArchiveNodeParams {
+    /// 节点 id
+    id: String,
+    /// 归档原因（可选，写入 frontmatter archived_reason）
+    reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct UnlinkNodesParams {
+    /// 父节点 id
+    from: String,
+    /// 子节点 id
+    to: String,
+}
+
 // ── 工具实现（协议映射层，逻辑全在 engram_core::ops）────────────
 
 #[tool_router]
@@ -252,6 +268,28 @@ impl EngramMcp {
             p.include_archived.unwrap_or(false),
         ))
     }
+
+    #[tool(
+        description = "【写入】归档节点（仅开发模式工作区）：archived: true + 标题前缀 [归档]，文件移入 .chain/archive/。归档节点默认不进图与检索，recall 传 include_archived=true 可找回，read_node 仍可直读。90 天未触达为建议阈值（仅提示）。写入前请先 get_guide。返回 JSON 文本。"
+    )]
+    async fn archive_node(
+        &self,
+        Parameters(p): Parameters<ArchiveNodeParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let _guard = self.write_lock.lock().await;
+        to_result(mcp::archive_node(&self.ctx, &p.id, p.reason.as_deref()))
+    }
+
+    #[tool(
+        description = "【写入】断开 from(父)→to(子) 链接（仅开发模式工作区）：子节点 parent 置 null 并清理 rel/rel_desc。返回 rel_removed 供回溯。写入前请先 get_guide。返回 JSON 文本。"
+    )]
+    async fn unlink_nodes(
+        &self,
+        Parameters(p): Parameters<UnlinkNodesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let _guard = self.write_lock.lock().await;
+        to_result(mcp::unlink_nodes(&self.ctx, &p.from, &p.to))
+    }
 }
 
 // D4：握手下发指南版本与写入规范（initialize 响应 instructions 字段）
@@ -263,7 +301,7 @@ impl ServerHandler for EngramMcp {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(si)
             .with_instructions(format!(
-                "Engram MCP server（工作区：{}；模式：{}；AI 指南 v{}）。写入类工具（create_node/update_node/link_nodes）调用前必须先 get_guide 获取最新规范；update_node 建议先 read_node 取 updated 并传 expected_updated 防并发覆盖（CONFLICT 不落盘）。",
+                "Engram MCP server（工作区：{}；模式：{}；AI 指南 v{}）。写入类工具（create_node/update_node/link_nodes/archive_node/unlink_nodes）调用前必须先 get_guide 获取最新规范；update_node 建议先 read_node 取 updated 并传 expected_updated 防并发覆盖（CONFLICT 不落盘）。",
                 self.ctx.root.display(),
                 self.ctx.mode_str(),
                 self.ctx.guide_version(),

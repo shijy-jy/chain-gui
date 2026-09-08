@@ -1,6 +1,7 @@
 //! 幂等迁移工具（宪法第 9 条 / ADR 0013 /《schema v1 定义与迁移接口》§5）：
 //! 五相流程 detect → backup → transform → verify → write，失败回滚，重复执行结果一致。
-//! 当前 schema 只有 1.0：无历史版本需要改写，run 的实质动作是 **adoption 写**（补 .schema）。
+//! 已登记迁移：v1.0 → v1.1（B 类，派生物格式落地——M7'，无事实源改写，重扫校验即可）；
+//! 未打标工作区（隐式 1.0）的 adoption 写即等价于执行该 B 类迁移（写 .schema = 1.1）。
 //! 未来 major 变更时在 `steps_between` 登记迁移步骤（A 类=改写事实源，B 类=重建派生物），
 //! 本模块的框架（备份/回滚/校验/幂等）无需改动。
 
@@ -83,13 +84,23 @@ impl std::fmt::Display for MigrateError {
     }
 }
 
-/// 迁移步骤登记表：from→to 的步骤描述序列。当前只有 1.0（无历史版本）；
+/// 迁移步骤登记表：from→to 的步骤描述序列。已登记 v1.0→v1.1（B 类）；
 /// 未来 major 变更时在此登记（如 v1→v2 的字段改名步骤），框架其余部分不动。
 fn steps_between(from: SchemaVersion, to: SchemaVersion) -> Option<Vec<String>> {
     if from == to {
         return Some(Vec::new());
     }
-    // 未来版本在此登记；未知版本对 = 无迁移路径
+    if from == (SchemaVersion { major: 1, minor: 0 })
+        && to == (SchemaVersion { major: 1, minor: 1 })
+    {
+        // M7'：派生物格式落地（.chain/index/ 嵌入索引 + .chain/stats.json 双时钟统计）。
+        // B 类：事实源（节点文件）不动，派生物可重建（engram-cli reindex；stats 懒建）。
+        return Some(vec![
+            "B 类：派生物格式落地——.chain/index/（嵌入索引）与 .chain/stats.json（双时钟统计）成为 schema 1.1 正式派生物；重建派生物即可（engram-cli reindex），事实源不动"
+                .to_string(),
+        ]);
+    }
+    // 未知版本对 = 无迁移路径
     None
 }
 
@@ -164,12 +175,18 @@ pub fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateReport, MigrateErro
         warnings.push("无 .schema：adoption 补写当前版本（无任何数据改写）".to_string());
     }
 
+    // B 类步骤无事实源改写：步骤描述归入 rebuilt（A 类归 transformed），dry-run 与实跑报告一致
+    let (transformed, rebuilt): (Vec<String>, Vec<String>) = if p.class == MigrateClass::B {
+        (Vec::new(), p.steps.clone())
+    } else {
+        (p.steps.clone(), Vec::new())
+    };
     let report_base = MigrateReport {
         from: p.from.to_string(),
         to: p.to.to_string(),
         class: p.class,
-        transformed: Vec::new(),
-        rebuilt: Vec::new(),
+        transformed,
+        rebuilt,
         backup: None,
         warnings,
         changed: will_change,
@@ -188,13 +205,6 @@ pub fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateReport, MigrateErro
     } else {
         None
     };
-
-    // transform：应用步骤（当前无步骤；未来在此执行 A/B 类动作）
-    let mut transformed = Vec::new();
-    for step in &p.steps {
-        let _ = step; // 未来步骤实现点
-        transformed.push(String::new());
-    }
 
     // verify：重扫全绿；A 类另验节点数/边数不变（当前无 A 步骤）
     if let Err(e) = verify_scan(root) {
@@ -217,7 +227,6 @@ pub fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateReport, MigrateErro
     }
 
     Ok(MigrateReport {
-        transformed,
         backup: backup.map(|b| b.to_string_lossy().into_owned()),
         ..report_base
     })
@@ -307,8 +316,20 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_current_and_missing_schema() {
+    fn test_plan_missing_schema_implicit_1_0_to_1_1() {
+        // 缺失 .schema = 隐式 1.0（spec §2）→ 目标 1.1，B 类一步（派生物格式落地）
         let tmp = ws_with_nodes();
+        let p = plan(tmp.path()).unwrap();
+        assert_eq!(p.from, SchemaVersion::parse("1.0").unwrap());
+        assert_eq!(p.to, SchemaVersion::current());
+        assert_eq!(p.steps.len(), 1, "1.0→1.1 应有登记步骤：{p:?}");
+        assert_eq!(p.class, MigrateClass::B);
+    }
+
+    #[test]
+    fn test_plan_current_schema_no_steps() {
+        let tmp = ws_with_nodes();
+        write_schema(tmp.path(), SchemaVersion::current()).unwrap();
         let p = plan(tmp.path()).unwrap();
         assert_eq!(p.from, SchemaVersion::current());
         assert_eq!(p.to, SchemaVersion::current());
@@ -337,13 +358,25 @@ mod tests {
         let tmp = ws_with_nodes();
         let opts = opts(false, true);
         let r1 = run(tmp.path(), &opts).unwrap();
-        assert!(r1.changed, "首次应发生变更（adoption 写）");
+        assert!(r1.changed, "首次应发生变更（1.0→1.1 B 类迁移 + adoption 写）");
         assert_eq!(r1.from, "1.0");
-        assert_eq!(r1.to, "1.0");
-        assert!(r1.backup.is_some(), "adoption 也应先备份");
-        assert!(r1.transformed.is_empty() && r1.rebuilt.is_empty());
+        assert_eq!(r1.to, "1.1");
+        assert!(r1.backup.is_some(), "迁移也应先备份");
+        assert!(
+            r1.transformed.is_empty(),
+            "B 类无事实源改写，transformed 应为空：{:?}",
+            r1.transformed
+        );
+        assert_eq!(
+            r1.rebuilt.len(),
+            1,
+            "B 类步骤描述归入 rebuilt：{:?}",
+            r1.rebuilt
+        );
         let schema_file = tmp.path().join(".chain").join(SCHEMA_FILE);
-        assert!(schema_file.exists(), "adoption 应写 .schema");
+        assert!(schema_file.exists(), "迁移应写 .schema = 1.1");
+        let raw = std::fs::read_to_string(&schema_file).unwrap();
+        assert!(raw.contains("1.1"), "schema 文件应写 1.1：{raw}");
         // 数据未被触碰：节点文件仍在
         assert!(tmp.path().join(".chain/nodes/node-1.md").exists());
         // 幂等：二次运行无变更、不新增备份、不重写文件

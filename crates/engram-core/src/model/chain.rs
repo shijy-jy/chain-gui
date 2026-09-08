@@ -50,8 +50,13 @@ fn default_edge_rel() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainSnapshot {
+    /// 活跃节点（未归档；唯一事实源 .chain/nodes/ 中 archived != true 的文件）
     pub nodes: Vec<crate::model::node::Node>,
     pub edges: Vec<Edge>,
+    /// v2.10 M7'：归档节点列表（frontmatter archived: true，或位于 .chain/archive/ 下）。
+    /// 与 nodes 分离：不进图（无边、不计 node_count），检索自 L4 起可见（recall include_archived）。
+    #[serde(default)]
+    pub archived: Vec<crate::model::node::Node>,
     pub manifest: Manifest,
     pub validation: ValidationReport,
 }

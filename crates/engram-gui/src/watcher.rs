@@ -14,7 +14,7 @@ pub struct WatchState {
     pub dir: Mutex<Option<PathBuf>>,
 }
 
-/// 启动/重启对 dir\.chain\nodes 的监听。重复调用安全：旧 watcher 被 drop 后重建。
+/// 启动/重启对 dir\.chain\nodes（+ archive/，M7'）的监听。重复调用安全：旧 watcher 被 drop 后重建。
 /// 回调里的重扫使用 state.mode 的当前值（模式切换后文件变化按新模式解析）。
 pub fn start_watch(
     dir: PathBuf,
@@ -42,7 +42,8 @@ pub fn start_watch(
         }
     });
 
-    let watcher = create_nodes_watcher(&nodes_dir, callback)?;
+    // M7'：监听 nodes/（非递归）+ archive/（递归）——MCP 侧 archive_node 落盘后 GUI 即时感知
+    let watcher = create_nodes_watcher(&dir, callback)?;
 
     let mut guard = state.watcher.lock().map_err(|e| e.to_string())?;
     *guard = Some(watcher);

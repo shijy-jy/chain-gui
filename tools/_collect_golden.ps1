@@ -1,4 +1,4 @@
-﻿# _collect_golden.ps1 - 固化 engram-mcp 10 工具的请求/响应对为 golden 契约文件
+﻿# _collect_golden.ps1 - 固化 engram-mcp 12 工具的请求/响应对为 golden 契约文件（契约 v3）
 # 输出：docs/test-golden/engram-mcp-golden.json（实现 MCP golden 契约测试时直接对照）
 # 路径参数化：本地/CI 可用 -Exe/-Out 覆盖；默认从本脚本所在仓库根推导
 param(
@@ -22,15 +22,34 @@ $si.RedirectStandardInput = $true; $si.RedirectStandardOutput = $true; $si.Redir
 $si.UseShellExecute = $false
 $p = [System.Diagnostics.Process]::Start($si)
 
+# PS 5.1 陷阱：Process 重定向的 stdin/stdout 走 ANSI 编码（GBK），中文请求会被写坏、响应被读坏
+# （传输静默死亡/乱码）——统一走 BaseStream 字节级 I/O + 显式 UTF-8，不依赖控制台代码页
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+$inStream = $p.StandardInput.BaseStream
+$outStream = $p.StandardOutput.BaseStream
+
 function Read-Line($timeoutMs = 10000) {
-  $task = $p.StandardOutput.ReadLineAsync()
-  if (-not $task.Wait($timeoutMs)) { throw "TIMEOUT" }
-  return $task.Result
+  $mem = New-Object System.IO.MemoryStream
+  $buf = New-Object byte[] 8192
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  while ($sw.ElapsedMilliseconds -lt $timeoutMs) {
+    $task = $outStream.ReadAsync($buf, 0, $buf.Length)
+    if (-not $task.Wait([math]::Max(1, [int]($timeoutMs - $sw.ElapsedMilliseconds)))) { throw "TIMEOUT" }
+    $n = $task.Result
+    if ($n -eq 0) { throw "EOF" }
+    for ($i = 0; $i -lt $n; $i++) {
+      $b = $buf[$i]
+      if ($b -eq 10) { return $utf8.GetString($mem.ToArray()) }  # LF 行尾
+      if ($b -ne 13) { $mem.WriteByte($b) }                       # 跳过 CR
+    }
+  }
+  throw "TIMEOUT"
 }
 function Send($method, $paramsJson) {
   $script:reqId++
   $json = '{"jsonrpc":"2.0","id":' + $script:reqId + ',"method":"' + $method + '","params":' + $paramsJson + '}'
-  $p.StandardInput.WriteLine($json); $p.StandardInput.Flush()
+  $bytes = $utf8.GetBytes($json + "`n")
+  $inStream.Write($bytes, 0, $bytes.Length); $inStream.Flush()
   return Read-Line
 }
 function Tool($name, $argsJson) {
@@ -59,6 +78,11 @@ Tool "update_node" '{"id":"node-1","mode":"append","content":"\nappended note"}'
 Tool "link_nodes" '{"from":"node-1","to":"node-2","rel_type":"bogus"}' | Out-Null
 # recall：golden 工作区无索引 → 关键词降级（mode=keyword,degraded=true），确定性无模型依赖
 Tool "recall" '{"query":"Golden"}' | Out-Null
+# ── M7' 契约 v3 新增（12 工具）：断边 → 归档 → 归档可见性两档 ──
+Tool "unlink_nodes" '{"from":"node-1","to":"node-2"}' | Out-Null
+Tool "archive_node" '{"id":"node-2","reason":"内容过时"}' | Out-Null
+Tool "recall" '{"query":"Golden"}' | Out-Null
+Tool "recall" '{"query":"Golden","include_archived":true}' | Out-Null
 
 $p.Kill(); $p.WaitForExit()
 $json = $golden | ConvertTo-Json -Depth 8; [System.IO.File]::WriteAllText((Join-Path $out "engram-mcp-golden.json"), $json, [System.Text.UTF8Encoding]::new($false))

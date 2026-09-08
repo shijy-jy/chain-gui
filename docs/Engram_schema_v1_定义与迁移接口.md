@@ -17,12 +17,12 @@
 |---|---|
 | 路径 | `<workspace>/.chain/.schema` |
 | 格式 | JSON 单对象，UTF-8 无 BOM |
-| 内容 | `{"schema_version": "1.0"}`（`major.minor` 字符串，见 §4） |
-| 缺失语义 | **隐式 1.0**：未打标工作区即按 v1 处理（现有全部工作区零迁移成本） |
+| 内容 | `{"schema_version": "1.1"}`（`major.minor` 字符串，见 §4；当前 1.1） |
+| 缺失语义 | **隐式 1.0**：未打标工作区即按 v1.0 处理（不随当前版本漂移），经 `engram-cli migrate` 走 1.0→1.1 B 类步骤 |
 | 写入方 | 仅 GUI「添加工作区」与 CLI `migrate`（未来 `doctor` 亦可）。**MCP `open()` 只读不写**——与 `.mode` 一致：元数据由 GUI/CLI 写、全体读 |
 | 读写矩阵 | GUI：读写；MCP：只读；CLI migrate：读写；扫描器：只读 |
 
-- adoption 写：GUI/CLI 打开无 `.schema` 的工作区时补写 `{"schema_version":"1.0"}`（加性写入，不动任何节点文件）。
+- adoption 写：GUI/CLI 打开无 `.schema` 的工作区时补写 `{"schema_version":"1.1"}`（当前版本；加性写入，不动任何节点文件）。
 - 未来字段扩展：允许新增键，读者忽略未知键。
 
 ## 3 · schema v1 三位一体
@@ -60,19 +60,23 @@ profile 词表差异（非 schema 差异，属校验规则）：分析模式拒�
 ├── .mode            ← dev | analysis（缺失/非法 = 未打标）
 ├── .schema          ← 本文件（缺失 = 隐式 1.0）
 ├── nodes/<id>.md    ← 唯一事实源（文件名 = id）
-└── archive/         ← 折叠归档：fold_<目标id>/（含 _self.md），不参与扫描
+├── archive/         ← 归档区：直接归档 <id>.md（archived: true，M7' archive_node）+
+│                      折叠归档 fold_<目标id>/（含 _self.md，不参与扫描）
+├── index/           ← 派生物（v1.1）：嵌入索引 meta.json + embeddings.bin
+└── stats.json       ← 派生物（v1.1）：双时钟统计
 ```
 
 节点文件序列化（`frontmatter.rs::serialize`）：`---\n<yaml>\n---\n\n<body>\n`；空 body 省略尾部空行。body 落盘尾随一个换行；`parse` 只裁前导空行（`trim_start_matches('\n')`），MCP `read_node` 输出时再 `trim_end` 归一（对 AI 隐藏文件格式噪音）。
 
 ### 3.3 索引格式
 
-- **v1 = 无派生物索引**：检索/统计均为扫描现算（`walker::scan_chain_dir_mode`）。
-- 终版 §1.3 的 `index/`、`code_map/`、`stats.json`、`audit.jsonl`、`logs/` 均不存在；各自落地时以 **minor 递增**记录派生物格式变更。
+- **v1.0 = 无派生物索引**：检索/统计均为扫描现算（`walker::scan_chain_dir_mode`）。
+- **v1.1（B 类，M7' 已落地）**：`.chain/index/`（嵌入索引，meta.json + embeddings.bin）与 `.chain/stats.json`（双时钟统计）成为正式派生物；`archive/` 增加直接归档布局（`archive/<id>.md`，frontmatter `archived: true`，与 fold 的 `fold_<id>/` 子目录并存，扫描器只收 `archived: true` 的文件）。
+- 终版 §1.3 的 `code_map/`、`audit.jsonl` 尚未落地；各自落地时以 **minor 递增**记录派生物格式变更。
 
 ## 4 · 版本号规则
 
-- 形式：`major.minor`（当前 1.0）。
+- 形式：`major.minor`（当前 1.1；1.0→1.1 = B 类迁移已登记于 `engram-core::migrate::steps_between`）。
 - **major 递增**（破坏性事实源变更）：字段删除/改名/语义变化、节点文件格式或目录布局变化 → **A 类迁移**（改写节点文件）；旧软件读到更高 major 必须拒绝打开（`SCHEMA_TOO_NEW:`）。
 - **minor 递增**（加性/派生物变更）：新增可选 frontmatter 字段、type/status 词表扩展、派生物格式变化、指南版本变化 → **B 类迁移**（重校验 + 重建派生物，不动事实源）；旧软件可正常打开（忽略未知可选字段，serde default 已具备该语义）。
 - rel 词表不扩张（ADR 0002），不构成版本变更源。
@@ -131,7 +135,7 @@ engram-cli migrate --workspace <path> [--to <ver>] [--dry-run] [--no-backup] [--
 
 ### 5.3 GUI 流程（终版 §3 第三条）
 
-1. 打开/添加工作区 → core 检测 schema：缺失 → adoption 写 1.0；等于当前 → 正常打开；**更高 major → 阻止打开**，提示「工作区格式 vX 高于当前软件支持，请升级 Engram」。
+1. 打开/添加工作区 → core 检测 schema：缺失 → adoption 写当前版本（1.1，等价于执行 1.0→1.1 B 类迁移）；等于当前 → 正常打开；**更高 major → 阻止打开**，提示「工作区格式 vX 高于当前软件支持，请升级 Engram」。
 2. 更低 major → 弹窗「工作区格式 v1 → v2 需迁移，迁移前将自动备份到 …，是否继续？」→ 确认后调 core `run` → 完成提示「工作区已迁移 v1→v2（备份：…）」；失败提示回滚结果。
 
 ## 6 · 待定清单的裁定（§10⑤ 实现时已按建议拍板）
@@ -139,7 +143,7 @@ engram-cli migrate --workspace <path> [--to <ver>] [--dry-run] [--no-backup] [--
 > 以下 6 项在阶段⑤实现时按「拟」值落地，实现证据见 `crates/engram-core/src/schema.rs` / `migrate.rs` / `crates/engram-cli`。
 
 1. `.schema` 文件名与 JSON 键名：**采用** `.schema` / `schema_version`；
-2. 版本形态：**采用** `major.minor` 字符串（当前 "1.0"）；
+2. 版本形态：**采用** `major.minor` 字符串（当前 "1.1"；1.0→1.1 B 类迁移已登记，M7' 派生物落地）；
 3. 备份目录命名：**采用** `<root>/.chain.backup.<本地时间戳 +08:00>/`；
 4. schema 版本规则升格宪法第 9 条：**已升格**（ARCHITECTURE.md，阶段③）；
 5. MCP 打开时只读不写（adoption 写仅 GUI 添加工作区 / CLI migrate）：**采用**；

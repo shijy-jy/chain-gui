@@ -37,9 +37,9 @@ fn ws_path(tmp: &TempDir) -> String {
 fn version_exits_0_with_matrix() {
     let (code, stdout, _) = run(&["--version"]);
     assert_eq!(code, 0);
-    assert!(stdout.contains("schema v1.0"), "应含 schema v1.0：{stdout}");
+    assert!(stdout.contains("schema v1.1"), "应含 schema v1.1：{stdout}");
     assert!(
-        stdout.contains("tool-contract v2"),
+        stdout.contains("tool-contract v3"),
         "应含工具契约版本：{stdout}"
     );
     assert!(stdout.contains("git "), "应含 git 哈希：{stdout}");
@@ -125,11 +125,11 @@ fn json_mode_reports_fields() {
     let (code, stdout, _) = run(&["migrate", "--workspace", &ws_path(&tmp), "--json"]);
     assert_eq!(code, 0);
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("--json 应输出合法 JSON");
-    assert_eq!(v["from"], "1.0");
-    assert_eq!(v["to"], "1.0");
+    assert_eq!(v["from"], "1.0", "缺失 .schema = 隐式 1.0：{stdout}");
+    assert_eq!(v["to"], "1.1", "目标应为当前 schema 1.1：{stdout}");
     assert_eq!(
         v["changed"], true,
-        "首次 adoption 应 changed=true：{stdout}"
+        "首次迁移（1.0→1.1 B 类）应 changed=true：{stdout}"
     );
     assert_eq!(v["class"], "B");
 }
