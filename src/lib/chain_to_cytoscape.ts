@@ -116,6 +116,34 @@ export function chainToElements(
     }
     for (const [d, ids] of byDepth) {
       const radius = d === 0 ? 0 : R + (d - 1) * ringGap;
+      // v2.17 交叉最小化：d≥1 的层按「已就位邻居的角度质心」排序——
+      // 子节点贴父节点排布（Sugiyama 式两层归约），树/链结构首帧即近零交叉；
+      // 向量和（atan2）处理角度环绕，稳定排序保确定性
+      if (d > 0 && ids.length > 1) {
+        const ordered = ids.map((id) => {
+          let sx = 0;
+          let sy = 0;
+          let cnt = 0;
+          for (const nb of adj.get(id) ?? []) {
+            const p = positions.get(nb);
+            if (p) {
+              sx += p.x - anchor.x;
+              sy += p.y - anchor.y;
+              cnt++;
+            }
+          }
+          return { id, a: cnt > 0 ? Math.atan2(sy, sx) : Math.random() * Math.PI * 2 };
+        });
+        ordered.sort((m, n) => m.a - n.a);
+        ordered.forEach((s, k) => {
+          const ang = (k / ids.length) * Math.PI * 2 - Math.PI / 2;
+          positions.set(s.id, {
+            x: anchor.x + Math.cos(ang) * radius,
+            y: anchor.y + Math.sin(ang) * radius,
+          });
+        });
+        continue;
+      }
       ids.forEach((id, k) => {
         const ang = (k / Math.max(ids.length, 1)) * Math.PI * 2 - Math.PI / 2;
         positions.set(id, {

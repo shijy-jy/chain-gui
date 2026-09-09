@@ -68,14 +68,44 @@
     return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
   };
 
+  // v2.17 网格分桶交叉计数（O(E·k) 替代 O(E²)，1500 边可负担）：
+  // 按边中点分桶，cell = 最大边长——任意交叉对的中点距 ≤ maxLen，5×5 邻域必然覆盖（不漏计）
   const countCrossings = (pos: { x: number; y: number }[], edgeIdx: [number, number][]): number => {
+    if (edgeIdx.length < 2) return 0;
+    let maxLen = 0;
+    for (const [a, b] of edgeIdx) {
+      const l = Math.hypot(pos[b].x - pos[a].x, pos[b].y - pos[a].y);
+      if (l > maxLen) maxLen = l;
+    }
+    const cell = Math.max(80, maxLen);
+    const key = (cx: number, cy: number) => cx * 100003 + cy;
+    const cells = new Map<number, number[]>();
+    for (let e = 0; e < edgeIdx.length; e++) {
+      const [a, b] = edgeIdx[e];
+      const k = key(
+        Math.floor(((pos[a].x + pos[b].x) / 2) / cell),
+        Math.floor(((pos[a].y + pos[b].y) / 2) / cell),
+      );
+      const arr = cells.get(k);
+      if (arr) arr.push(e);
+      else cells.set(k, [e]);
+    }
     let c = 0;
-    for (let i = 0; i < edgeIdx.length; i++) {
-      const [a1, b1] = edgeIdx[i];
-      for (let j = i + 1; j < edgeIdx.length; j++) {
-        const [a2, b2] = edgeIdx[j];
-        if (a1 === a2 || a1 === b2 || b1 === a2 || b1 === b2) continue;
-        if (segCross(pos[a1], pos[b1], pos[a2], pos[b2])) c++;
+    for (let e = 0; e < edgeIdx.length; e++) {
+      const [a1, b1] = edgeIdx[e];
+      const cx0 = Math.floor(((pos[a1].x + pos[b1].x) / 2) / cell);
+      const cy0 = Math.floor(((pos[a1].y + pos[b1].y) / 2) / cell);
+      for (let gx = -2; gx <= 2; gx++) {
+        for (let gy = -2; gy <= 2; gy++) {
+          const arr = cells.get(key(cx0 + gx, cy0 + gy));
+          if (!arr) continue;
+          for (const f of arr) {
+            if (f <= e) continue;   // 每对只算一次
+            const [a2, b2] = edgeIdx[f];
+            if (a1 === a2 || a1 === b2 || b1 === a2 || b1 === b2) continue;
+            if (segCross(pos[a1], pos[b1], pos[a2], pos[b2])) c++;
+          }
+        }
       }
     }
     return c;
@@ -210,7 +240,8 @@
       const ti = idx.get(e.target().id());
       if (si !== undefined && ti !== undefined) edgeIdx.push([si, ti]);
     });
-    const doCrossWork = edgeIdx.length >= 2 && edgeIdx.length <= 200;
+    // v2.17 交叉工作扩展到 800 边（分桶后 O(E·k)）；超大图靠首帧质心排序 + 收敛后质心归约
+    const doCrossWork = edgeIdx.length >= 2 && edgeIdx.length <= 800;
 
     // v2.5 连通分量（并查集）：无关节点间距上限只作用于不同分量之间。
     // v2.15 超大图（>800）跳过跨分量上限（O(n²) 不划算，中心引力已防漂移）
@@ -288,7 +319,8 @@
       forceRun = null;
       if (iter++ >= MAX_ITER || (iter >= MIN_ITER && (alpha < 0.01 || still > 12))) {
         // v2.4 收敛后先做质心交叉归约，再平滑适配视野
-        if (doCrossWork) polishCrossings(pos, edgeIdx, cyRef, nodeArr, nodeRadii);
+        // v2.17 全规模启用：交叉计数已网格分桶（O(E·k)），1500 边也可负担
+        if (edgeIdx.length >= 2) polishCrossings(pos, edgeIdx, cyRef, nodeArr, nodeRadii);
         // v2.6 聚焦视图下收敛适配聚焦范围（而非全图），保持"拉近"状态不被重排弹回
         const focusNow = focusSet;
         const fitEles = focusNow ? cyRef.nodes().filter((nd) => focusNow.has(nd.id())) : cyRef.elements();
@@ -382,29 +414,57 @@
         vx[ti] -= fx;
         vy[ti] -= fy;
       }
-      // 2.5) v2.4 交叉惩罚：交叉边的中点互相推开（只在小图启用，O(E²)）
+      // 2.5) v2.4 交叉惩罚：交叉边的中点互相推开。
+      // v2.17 网格分桶（cell=当前最大边长，5×5 邻域不漏对）替代 O(E²)——上限放宽到 800 边
       if (doCrossWork) {
         const CROSS_F = 16;
-        for (let i = 0; i < edgeIdx.length; i++) {
-          const [a1, b1] = edgeIdx[i];
-          for (let j = i + 1; j < edgeIdx.length; j++) {
-            const [a2, b2] = edgeIdx[j];
-            if (a1 === a2 || a1 === b2 || b1 === a2 || b1 === b2) continue;
-            if (!segCross(pos[a1], pos[b1], pos[a2], pos[b2])) continue;
-            const m1x = (pos[a1].x + pos[b1].x) / 2;
-            const m1y = (pos[a1].y + pos[b1].y) / 2;
-            const m2x = (pos[a2].x + pos[b2].x) / 2;
-            const m2y = (pos[a2].y + pos[b2].y) / 2;
-            let dx = m1x - m2x;
-            let dy = m1y - m2y;
-            const dd = Math.hypot(dx, dy) || 1;
-            const f = Math.min((CROSS_F / dd) * alpha, 20);
-            dx = (dx / dd) * f;
-            dy = (dy / dd) * f;
-            vx[a1] += dx; vy[a1] += dy;
-            vx[b1] += dx; vy[b1] += dy;
-            vx[a2] -= dx; vy[a2] -= dy;
-            vx[b2] -= dx; vy[b2] -= dy;
+        let maxLen = 0;
+        for (const [a, b] of edgeIdx) {
+          const l = Math.hypot(pos[b].x - pos[a].x, pos[b].y - pos[a].y);
+          if (l > maxLen) maxLen = l;
+        }
+        const cell = Math.max(80, maxLen);
+        const key = (cx: number, cy: number) => cx * 100003 + cy;
+        const cells = new Map<number, number[]>();
+        for (let e = 0; e < edgeIdx.length; e++) {
+          const [a, b] = edgeIdx[e];
+          const k = key(
+            Math.floor(((pos[a].x + pos[b].x) / 2) / cell),
+            Math.floor(((pos[a].y + pos[b].y) / 2) / cell),
+          );
+          const arr = cells.get(k);
+          if (arr) arr.push(e);
+          else cells.set(k, [e]);
+        }
+        for (let e = 0; e < edgeIdx.length; e++) {
+          const [a1, b1] = edgeIdx[e];
+          const cx0 = Math.floor(((pos[a1].x + pos[b1].x) / 2) / cell);
+          const cy0 = Math.floor(((pos[a1].y + pos[b1].y) / 2) / cell);
+          for (let gx = -2; gx <= 2; gx++) {
+            for (let gy = -2; gy <= 2; gy++) {
+              const arr = cells.get(key(cx0 + gx, cy0 + gy));
+              if (!arr) continue;
+              for (const idx of arr) {
+                if (idx <= e) continue;   // 每对只处理一次
+                const [a2, b2] = edgeIdx[idx];
+                if (a1 === a2 || a1 === b2 || b1 === a2 || b1 === b2) continue;
+                if (!segCross(pos[a1], pos[b1], pos[a2], pos[b2])) continue;
+                const m1x = (pos[a1].x + pos[b1].x) / 2;
+                const m1y = (pos[a1].y + pos[b1].y) / 2;
+                const m2x = (pos[a2].x + pos[b2].x) / 2;
+                const m2y = (pos[a2].y + pos[b2].y) / 2;
+                let dx = m1x - m2x;
+                let dy = m1y - m2y;
+                const dd = Math.hypot(dx, dy) || 1;
+                const f = Math.min((CROSS_F / dd) * alpha, 20);
+                dx = (dx / dd) * f;
+                dy = (dy / dd) * f;
+                vx[a1] += dx; vy[a1] += dy;
+                vx[b1] += dx; vy[b1] += dy;
+                vx[a2] -= dx; vy[a2] -= dy;
+                vx[b2] -= dx; vy[b2] -= dy;
+              }
+            }
           }
         }
       }
@@ -1957,6 +2017,7 @@
           <div class="legend-row"><span class="legend-label small">连线渐变 = 源类型色 → 目标类型色</span></div>
         {/if}
         <div class="legend-row"><span class="legend-label small">拖动节点松手 = 自动重新布局</span></div>
+        <div class="legend-row"><span class="legend-label small">布局自动减少连线交叉（子节点贴父节点排布 + 质心归约）</span></div>
         {#if scanMode === 'dev'}
           <div class="legend-sep"></div>
           <div class="legend-row"><span class="rel-sample rel-solid"></span><span class="legend-label small">实线 = 包含（从属）</span></div>
