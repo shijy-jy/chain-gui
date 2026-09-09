@@ -12,6 +12,7 @@
   import CreateNodeDialog from './components/CreateNodeDialog.svelte';
   import WorkspaceSidebar from './components/WorkspaceSidebar.svelte';
   import PerfOverlay from './components/PerfOverlay.svelte';
+  import CodeViewer from './lib/CodeViewer.svelte';
   import { panel, SIDEBAR_COLLAPSED_WIDTH } from './lib/panel_state.svelte.ts';
   import { perfPolicy, perfTierName, fnv1a, createFrameMonitor, type FrameMonitor } from './lib/ui/perf';
   import type { ChainSnapshot, ChainNode, NodeStatus, NodeType, ScanMode, WorkspaceInfo } from './lib/types';
@@ -1646,6 +1647,11 @@
     // v2.6 Esc：优先退出双击聚焦视图；否则收起右侧信息栏（常驻侧栏无"关闭"语义）
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // v2.18 全屏代码页优先关闭
+        if (panel.codeFullscreen) {
+          panel.codeFullscreen = false;
+          return;
+        }
         if (focusNodeId !== null && cy) {
           focusNodeId = null;
           focusSet = null;
@@ -1896,6 +1902,14 @@
         edges={snapshot?.edges.length ?? 0}
         tier={perfTierName(snapshot?.nodes.length ?? 0)}
       />
+    {/if}
+
+    <!-- v2.18 全屏代码页：⧉ 展开——覆盖整个窗口的独立页面（大字体 + Mermaid + 完整滚动），Esc/✕ 关闭 -->
+    {#if panel.codeFullscreen && selectedNode && chainDir}
+      <div class="code-fs-mask">
+        <button class="code-fs-close" onclick={() => (panel.codeFullscreen = false)} title="关闭（Esc）">✕</button>
+        <CodeViewer ws={chainDir} nodeId={selectedNode.id} />
+      </div>
     {/if}
 
     <!-- v2.4 节点关键字搜索：标题/id/标签模糊匹配，点击结果居中定位 + 高亮 -->
@@ -2540,6 +2554,38 @@
     color: #34d399;
     border-color: rgba(52, 211, 153, 0.65);
     background: rgba(52, 211, 153, 0.14);
+  }
+
+  /* v2.18 全屏代码页覆盖层 */
+  .code-fs-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    background: #0d1117;
+    overflow-y: auto;
+    animation: codefs-in 0.18s var(--ease-out);
+  }
+  @keyframes codefs-in {
+    from { opacity: 0; transform: scale(0.985); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  .code-fs-close {
+    position: fixed;
+    top: 14px;
+    right: 18px;
+    z-index: 3001;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    width: 36px;
+    height: 36px;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.15s var(--ease-soft);
+  }
+  .code-fs-close:hover {
+    background: rgba(248, 113, 113, 0.3);
   }
 
   /* v1.4 颜色图例（左下角） */

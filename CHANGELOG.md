@@ -2,6 +2,15 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
+## [2.14.0] - 2026-09-09
+
+### 代码骨架新窗口阅读器（内容多面板小看不清的解法）
+
+- 代码栏头部新增 **⧉「新窗口」按钮**：在独立 Tauri 窗口打开完整骨架——大字体（正文 14px/代码 13px）+ Mermaid 调用图 + 接口清单 + 调用边，整页滚动
+- 窗口可最大化/全屏/拖到副屏；同一节点重复打开聚焦已有窗口（窗口标签 = 节点 id 哈希）
+- 实现：后端 `open_code_window` 命令（WebviewWindowBuilder + 参数 URL 编码）；前端同一入口按 `?view=code&ws=&node=` 挂载全页 `CodeViewer` 组件（main.ts 分支）
+- 骨架正文复用 markdown-it 渲染管线（html:false 防注入），Mermaid 单独渲染
+
 ## [2.13.0] - 2026-09-09
 
 ### 连线交叉最小化（图谱布局硬规则）

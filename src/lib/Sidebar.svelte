@@ -32,6 +32,11 @@
     codeMax = !codeMax;
     panel.codeH = codeMax ? Math.max(600, Math.round(window.innerHeight * 0.72)) : 320;
   }
+  // v2.18 全屏代码页：覆盖整个窗口的独立页面（大字体 + Mermaid + 完整滚动，Esc/✕ 关闭）
+  function openCodeWindow() {
+    if (!node?.code_map) return;
+    panel.codeFullscreen = true;
+  }
   $effect(() => {
     if (!node?.code_map) {
       codeMax = false;
@@ -732,6 +737,25 @@
     <span class="chev">{panel.codeOpen ? '▾' : '▸'}</span>代码（M-Code）
     <span class="pane-hint">{node.code_map ? `已挂载：${node.code_map}` : '未挂载'}</span>
     {#if codeStale}<span class="chip chip-stale">stale</span>{/if}
+    <!-- v2.18 新窗口展开（独立页面全量阅读） -->
+    <span
+      class="code-max-btn"
+      role="button"
+      tabindex="0"
+      title="在新窗口打开完整骨架（大字体全页阅读，可全屏/拖到副屏）"
+      onclick={(e) => {
+        e.stopPropagation();
+        openCodeWindow();
+      }}
+      onkeydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.stopPropagation();
+          openCodeWindow();
+        }
+      }}
+    >
+      ⧉
+    </span>
     <!-- v2.16 展开/收起（避免嵌套 button，用 span+role 承接点击） -->
     <span
       class="code-max-btn"

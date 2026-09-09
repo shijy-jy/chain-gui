@@ -1,6 +1,6 @@
 [package]
 name = "engram-cli"
-version = "2.13.1"
+version = "2.14.0"
 description = "Engram 工作区维护 CLI（幂等迁移 migrate / 版本矩阵）"
 authors = ["shijy-jy"]
 license = "MIT"
@@ -13,7 +13,7 @@ name = "engram-cli"
 path = "src/main.rs"
 
 [dependencies]
-engram-core = { path = "../engram-core", version = "2.13.1" }
+engram-core = { path = "../engram-core", version = "2.14.0" }
 serde_yaml = "0.9"
 
 [dev-dependencies]

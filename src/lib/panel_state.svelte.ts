@@ -13,6 +13,8 @@ export const panel = $state({
   codeOpen: false,
   // v2.13 检索线索面板（默认展开：可视化 recall 凭据）
   recallOpen: true,
+  // v2.18 全屏代码页（⧉ 展开：覆盖整个窗口的独立页面，Esc/✕ 关闭）
+  codeFullscreen: false,
 });
 
 export const SIDEBAR_COLLAPSED_WIDTH = 44;   // 收起态细条宽度（与 Sidebar.svelte CSS 保持一致）
