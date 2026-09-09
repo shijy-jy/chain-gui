@@ -1035,6 +1035,8 @@
     { t: 'note', label: '笔记 note（知识库）', color: '#94a3b8' },
   ];
   let showLegend = $state(true);
+  // v2.14 「代码」筛选开关：一键高亮有代码骨架的节点（其余压暗）
+  let codeFilter = $state(false);
 
   // v1.7 悬停浮层：显示 id · 类型（id 已从画布标签移除以突出标题命名，悬停/点击可追溯）
   let hoverTip = $state<{ x: number; y: number; text: string } | null>(null);
@@ -1106,6 +1108,11 @@
         'border-style': 'dashed',
       },
     },
+    // v2.14 代码骨架挂载：青绿描边（图上一眼可见哪些节点有代码栏；置于 :selected 之前，选中态白描边仍优先生效）
+    { selector: 'node[codeMap]', style: { 'border-width': 2, 'border-color': '#34d399', 'border-opacity': 0.95, 'border-style': 'solid' } },
+    // v2.14 「代码」筛选：非代码节点压暗、代码节点青绿辉光
+    { selector: 'node.code-dim', style: { 'opacity': 0.1, 'text-opacity': 0.08 } },
+    { selector: 'node.code-lit', style: { 'shadow-blur': 22, 'shadow-opacity': 0.85, 'shadow-color': '#34d399' } },
     { selector: 'node:selected', style: { 'border-width': 2, 'border-color': '#ffffff', 'border-opacity': 0.95, 'border-style': 'solid', 'shadow-blur': 14, 'shadow-opacity': 0.35, 'shadow-color': '#ffffff' } },
     // v2.0 边：粗细与节点大小挂钩（用户反馈：边应随节点大小，且要细）——
     // 小节点(14px) 0.8px → 大节点(38px) 2.0px；曲率收敛（52→30px 控制距离，短边不再鼓大包）；
@@ -1267,6 +1274,24 @@
     if (nodeData) selectedNode = nodeData;
   }
 
+  // v2.14 「代码」筛选：有代码骨架的节点加辉光、其余压暗；图谱重建后需重放（类随元素重建消失）
+  function applyCodeFilter() {
+    if (!cy) return;
+    cy.batch(() => {
+      if (codeFilter) {
+        cy!.nodes().forEach((n: any) =>
+          n.data('codeMap') ? n.addClass('code-lit') : n.addClass('code-dim'),
+        );
+      } else {
+        cy!.nodes().removeClass('code-lit code-dim');
+      }
+    });
+  }
+  function toggleCodeFilter() {
+    codeFilter = !codeFilter;
+    applyCodeFilter();
+  }
+
   // v1.3：折叠子链（两段式确认在 Sidebar 内完成，这里只执行；v2.0 仅分析模式）
   async function handleFold() {
     if (!chainDir || !selectedNode) return;
@@ -1350,6 +1375,7 @@
       // v2.4 两模式统一：连线渲染为"若有若无"的淡线（.ghost），点击后整组淡出改由涟漪表达
       cyRef.add(chainToElements(snap, { withEdges: true, includeArchived: showArchived }));
       cyRef.edges().addClass('ghost');
+      applyCodeFilter();   // v2.14 全量重建会清空类，筛选开着重放
       startWaterLoop();
       // v1.7 首帧视图：同步 fit 全图 + 根节点对准屏幕中央（消除"左上角堆叠→跳中央"的闪烁）
       initialView(cyRef, snap.manifest.root);
@@ -1366,6 +1392,7 @@
           if (ele.nonempty()) ele.data(def.data);
         }
       });
+      applyCodeFilter();   // v2.14 节点数据原位更新（挂载/移除代码栏后）同步筛选类
       return;
     }
 
@@ -1422,7 +1449,7 @@
         hoverTip = {
           x: rp.x,
           y: rp.y - 24,
-          text: `${n.id()} · ${NODE_TYPE_LABEL[n.data('nodeType') as NodeType] ?? ''}`,
+          text: `${n.id()} · ${NODE_TYPE_LABEL[n.data('nodeType') as NodeType] ?? ''}${n.data('codeMap') ? ' · 代码骨架' : ''}`,
         };
       });
       cy.on('mouseout', 'node', () => (hoverTip = null));
@@ -1790,11 +1817,12 @@
         {/if}
       </div>
 
-    <!-- v1.4 缩放控件（右下角）：滚轮之外的按钮式缩放 + 全局适配 + 图例开关 -->
+    <!-- v1.4 缩放控件（右下角）：滚轮之外的按钮式缩放 + 全局适配 + 图例开关 + v2.14 代码筛选 -->
     <div class="zoom-controls">
       <button class="zc-btn" onclick={() => cy?.zoom(cy.zoom() * 1.4)} title="放大（滚轮亦可）">+</button>
       <button class="zc-btn" onclick={() => cy?.fit(undefined, 60)} title="适配全部节点">⤢</button>
       <button class="zc-btn" onclick={() => cy?.zoom(cy.zoom() / 1.4)} title="缩小（滚轮亦可）">−</button>
+      <button class="zc-btn" class:active={codeFilter} onclick={toggleCodeFilter} title="高亮有代码骨架的节点（青绿描边 + 辉光，其余压暗）">{'</>'}</button>
       <button class="zc-btn" onclick={() => (showLegend = !showLegend)} title="图例开关">{showLegend ? '◉' : '○'}</button>
     </div>
 
@@ -1813,6 +1841,7 @@
         <div class="legend-row"><span class="dot dot-red"></span><span class="legend-label">失败（红）</span></div>
         <div class="legend-row"><span class="dot dot-dim"></span><span class="legend-label">待开始（半透明）</span></div>
         <div class="legend-row"><span class="dot dot-dash"></span><span class="legend-label">阻塞（虚线框）</span></div>
+        <div class="legend-row"><span class="dot dot-code"></span><span class="legend-label">已挂载代码骨架（青绿描边 + {'</>'} 角标）</span></div>
         <div class="legend-sep"></div>
         <div class="legend-row"><span class="legend-label small">圆点大小 = 连接数（平缓）</span></div>
         <div class="legend-row"><span class="legend-label small">单击节点 = 波源 + 信息栏 · 双击 = 聚焦视图（再双击退出） · 再点波源 = 停止</span></div>
@@ -2339,6 +2368,12 @@
     transform: translateY(-1px);
   }
   .zc-btn:active { transform: translateY(0) scale(0.94); }
+  /* v2.14 「代码」筛选按钮激活态 */
+  .zc-btn.active {
+    color: #34d399;
+    border-color: rgba(52, 211, 153, 0.65);
+    background: rgba(52, 211, 153, 0.14);
+  }
 
   /* v1.4 颜色图例（左下角） */
   .legend {
@@ -2396,6 +2431,11 @@
   .dot-dash {
     background: transparent;
     border: 1px dashed rgba(255, 255, 255, 0.55);
+  }
+  /* v2.14 图例：代码骨架描边样点 */
+  .dot-code {
+    background: transparent;
+    border: 2px solid #34d399;
   }
   .legend-sep {
     height: 1px;

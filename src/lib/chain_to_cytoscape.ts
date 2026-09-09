@@ -116,13 +116,17 @@ export function chainToElements(
 
   nodes.forEach((node) => {
     const p = positions.get(node.id) ?? { x: 0, y: 0 };
+    // v2.14 代码骨架角标：挂载 code_map 的节点标签尾缀 </>，数据带 codeMap 字段
+    // （App.svelte 据此画青绿描边 + 「代码」筛选高亮）
+    const codeBadge = node.code_map ? ' </>' : '';
     elements.push({
       data: {
         id: node.id,
-        label: displayLabel(node.type, node.title),
+        label: displayLabel(node.type, node.title) + codeBadge,
         nodeType: node.type,
         nodeStatus: node.status,
         chainParent: node.parent,  // 注意：不能用 `parent` 字段名——那是 cytoscape 保留字段（compound 复合节点），会把子节点渲染进父节点内部撑出巨型容器；chain 协议的父子关系由 edge 表达，这里仅保留信息备查
+        ...(node.code_map ? { codeMap: true } : {}),
       },
       position: p,
     });
@@ -143,6 +147,7 @@ export function chainToElements(
           nodeStatus: node.status,
           chainParent: node.parent,
           archived: true,
+          ...(node.code_map ? { codeMap: true } : {}),
         },
         position: {
           x: Math.cos(ang) * archR,

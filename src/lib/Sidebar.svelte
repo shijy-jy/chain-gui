@@ -22,6 +22,11 @@
 
   let isDev = $derived(mode === 'dev');
 
+  // v2.14 选中已挂载代码骨架的节点 → 自动展开「代码」栏；手动收起后不打扰（依赖不变不重跑）
+  $effect(() => {
+    if (node?.code_map) panel.codeOpen = true;
+  });
+
   // 初始值用字面量（不用 node.xxx），避免 Svelte 5 state_referenced_locally 警告；
   // 实际值由下面的 $effect 同步（组件挂载和 node 切换时都会跑）
   let title = $state('');

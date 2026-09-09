@@ -1,6 +1,6 @@
 [package]
 name = "engram-core"
-version = "2.10.1"
+version = "2.10.2"
 description = "Engram 领域核心：唯一知道「规则」的纯库（零 Tauri、零 MCP 依赖）"
 authors = ["shijy-jy"]
 license = "MIT"
