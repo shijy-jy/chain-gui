@@ -154,11 +154,18 @@ export function chainToElements(
     }
   });
 
+  // v2.16 支链闭环：task 节点无验证子节点（且正文无「自验收」注明）→ 开环标记（琥珀虚线框）
+  // 注意：要的是「有没有子节点」——即本节点是否出现在任何边的 parent 端（装 child 集合会误判所有非根节点为有子）
+  const parentSet = new Set<string>();
+  for (const e of snap.edges) parentSet.add(e.parent);
+
   nodes.forEach((node) => {
     const p = positions.get(node.id) ?? { x: 0, y: 0 };
     // v2.14 代码骨架角标：挂载 code_map 的节点标签尾缀 </>，数据带 codeMap 字段
     // （App.svelte 据此画青绿描边 + 「代码」筛选高亮）
     const codeBadge = node.code_map ? ' </>' : '';
+    const openLoop =
+      node.type === 'task' && !parentSet.has(node.id) && !(node.body ?? '').includes('自验收');
     elements.push({
       data: {
         id: node.id,
@@ -167,6 +174,7 @@ export function chainToElements(
         nodeStatus: node.status,
         chainParent: node.parent,  // 注意：不能用 `parent` 字段名——那是 cytoscape 保留字段（compound 复合节点），会把子节点渲染进父节点内部撑出巨型容器；chain 协议的父子关系由 edge 表达，这里仅保留信息备查
         ...(node.code_map ? { codeMap: true } : {}),
+        ...(openLoop ? { openLoop: true } : {}),
       },
       position: p,
     });
