@@ -30,12 +30,12 @@
   let codeMax = $state(false);
   function toggleCodeMax() {
     codeMax = !codeMax;
-    panel.codeH = codeMax ? Math.max(600, Math.round(window.innerHeight * 0.72)) : 220;
+    panel.codeH = codeMax ? Math.max(600, Math.round(window.innerHeight * 0.72)) : 320;
   }
   $effect(() => {
     if (!node?.code_map) {
       codeMax = false;
-      panel.codeH = 220;
+      panel.codeH = 320;
     }
   });
 
@@ -488,6 +488,18 @@
   }
 
   let canFold = $derived(!!onFold && !!node && node.parent !== null);
+
+  // v2.17.1 选中代码节点自动展开代码栏 + 把代码栏滚入可视区（侧栏内容可滚动后下层面板可能被挤出屏）
+  let lastCodeScrollId = '';
+  $effect(() => {
+    const id = node?.id ?? '';
+    if (panel.codeOpen && node?.code_map && id !== lastCodeScrollId) {
+      lastCodeScrollId = id;
+      requestAnimationFrame(() => {
+        document.querySelector('.code-head')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    }
+  });
 </script>
 
 {#if collapsed}
@@ -502,6 +514,9 @@
   {#if node}
   <!-- v1.8 面板左缘拖拽条：调整面板宽度 -->
   <div class="width-handle" role="separator" aria-orientation="vertical" onpointerdown={resizeWidth} title="拖拽调整面板宽度"></div>
+
+  <!-- v2.17.1 可滚动内容层：面板多时下方内容（代码栏/日志）不再被挤出屏幕，整栏上下滚动 -->
+  <div class="sidebar-scroll">
 
   <header>
     <div class="id-row">
@@ -713,7 +728,7 @@
 
   <!-- v2.12 M-Code 代码栏（加性）：骨架挂理论/概念节点本身，不另建骨架节点——
        未挂载显示挂载入口，已挂载显示骨架（Mermaid + 接口 + 调用边）+ 刷新/移除 -->
-  <button type="button" class="pane-head" onclick={() => (panel.codeOpen = !panel.codeOpen)}>
+  <button type="button" class="pane-head code-head" onclick={() => (panel.codeOpen = !panel.codeOpen)}>
     <span class="chev">{panel.codeOpen ? '▾' : '▸'}</span>代码（M-Code）
     <span class="pane-hint">{node.code_map ? `已挂载：${node.code_map}` : '未挂载'}</span>
     {#if codeStale}<span class="chip chip-stale">stale</span>{/if}
@@ -826,6 +841,7 @@
         {saving ? '保存中…' : '保存'}
       </button>
     </footer>
+    </div><!-- /sidebar-scroll -->
   </div>
   {:else}
     <!-- v2.6 常驻信息栏的空态：未单击任何节点时的占位（右上角同样提供收起按钮） -->
@@ -858,6 +874,15 @@
     backdrop-filter: blur(18px);
     box-shadow: -10px 0 34px rgba(0, 0, 0, 0.4);
     animation: sidebar-in 0.26s var(--ease-out);
+  }
+
+  /* v2.17.1 可滚动内容层：面板多时下方内容（代码栏/日志）不再被挤出屏幕，整栏上下滚动 */
+  .sidebar-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
   }
 
   /* v2.6 常驻信息栏空态 */
@@ -1029,14 +1054,16 @@
   .code-max-btn:hover { color: #34d399; }
 
   /* v2.12 M-Code 骨架面板（加性） */
-  .code-pane {
+  /* v2.17.1 修复「无法上下滑动」根因：.pane 基类的 overflow:hidden 在文件后段覆盖了本面板的
+     overflow-y:auto（同特异性后者胜）——提升特异性压回；并改为「文档式单滚动」：
+     面板整体滚动（mermaid + 接口 + 调用边一个滚动条），code-md 自然高度不再内嵌滚动小条 */
+  .pane.code-pane {
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
-  /* v2.16 修复「骨架看不全」：flex 子项默认 shrink 会把超长内容压缩进固定高度（滚动失效）；
-     禁止收缩让 pre 自己长出滚动条，撑满剩余高度 */
+  /* 子项禁收缩：内容自然高度溢出面板 → 面板单滚动条承载全部内容 */
   .code-pane > * { flex-shrink: 0; }
   .code-mermaid {
     background: rgba(255, 255, 255, 0.04);
@@ -1057,9 +1084,8 @@
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
-    overflow-y: auto;
-    flex: 1 1 auto;
-    min-height: 60px;
+    overflow: visible;
+    flex: 0 0 auto;
   }
   /* v2.13 代码栏操作行 */
   .code-actions { display: flex; gap: 8px; flex-shrink: 0; }

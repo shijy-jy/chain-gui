@@ -5,8 +5,8 @@ export const panel = $state({
   bodyH: 300,
   evidenceH: 136,
   logH: 112,
-  // v2.12 M-Code 骨架面板（加性）
-  codeH: 220,
+  // v2.12 M-Code 骨架面板（加性）；v2.17.1 默认加高：320px 文档式滚动
+  codeH: 320,
   bodyOpen: true,
   evidenceOpen: true,
   logOpen: true,
