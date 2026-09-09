@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "engram-cli"
-version = "2.11.0"
+version = "2.12.0"
 dependencies = [
  "engram-core",
  "serde_json",
@@ -1184,7 +1184,7 @@ dependencies = [
 
 [[package]]
 name = "engram-core"
-version = "2.11.0"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "fastembed",
@@ -1194,13 +1194,15 @@ dependencies = [
  "serde_yaml",
  "tempfile",
  "tree-sitter",
+ "tree-sitter-c-sharp",
+ "tree-sitter-cpp",
  "tree-sitter-rust",
  "walkdir",
 ]
 
 [[package]]
 name = "engram-gui"
-version = "2.11.0"
+version = "2.12.0"
 dependencies = [
  "engram-core",
  "log",
@@ -1216,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "engram-mcp"
-version = "2.11.0"
+version = "2.12.0"
 dependencies = [
  "anyhow",
  "engram-core",
@@ -5631,22 +5633,50 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter"
-version = "0.22.6"
+version = "0.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df7cc499ceadd4dcdf7ec6d4cbc34ece92c3fa07821e287aedecd4416c516dca"
+checksum = "0203df02a3b6dd63575cc1d6e609edc2181c9a11867a271b25cfd2abff3ec5ca"
 dependencies = [
  "cc",
  "regex",
+ "regex-syntax",
+ "tree-sitter-language",
 ]
 
 [[package]]
-name = "tree-sitter-rust"
-version = "0.21.2"
+name = "tree-sitter-c-sharp"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "277690f420bf90741dea984f3da038ace46c4fe6047cba57a66822226cde1c93"
+checksum = "67f06accca7b45351758663b8215089e643d53bd9a660ce0349314263737fcb0"
 dependencies = [
  "cc",
- "tree-sitter",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-cpp"
+version = "0.23.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df2196ea9d47b4ab4a31b9297eaa5a5d19a0b121dceb9f118f6790ad0ab94743"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-language"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca0d1bf6fdd806e43ae5198f82f527056d359def39e54e67a0f478ac09dac081"
+
+[[package]]
+name = "tree-sitter-rust"
+version = "0.23.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca8ccb3e3a3495c8a943f6c3fd24c3804c471fd7f4f16087623c7fa4c0068e8a"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
 ]
 
 [[package]]
