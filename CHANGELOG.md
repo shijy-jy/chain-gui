@@ -4,12 +4,12 @@
 
 ## [2.14.0] - 2026-09-09
 
-### 代码骨架新窗口阅读器（内容多面板小看不清的解法）
+### 代码骨架全屏展开页（内容多面板小看不清的解法）
 
-- 代码栏头部新增 **⧉「新窗口」按钮**：在独立 Tauri 窗口打开完整骨架——大字体（正文 14px/代码 13px）+ Mermaid 调用图 + 接口清单 + 调用边，整页滚动
-- 窗口可最大化/全屏/拖到副屏；同一节点重复打开聚焦已有窗口（窗口标签 = 节点 id 哈希）
-- 实现：后端 `open_code_window` 命令（WebviewWindowBuilder + 参数 URL 编码）；前端同一入口按 `?view=code&ws=&node=` 挂载全页 `CodeViewer` 组件（main.ts 分支）
-- 骨架正文复用 markdown-it 渲染管线（html:false 防注入），Mermaid 单独渲染
+- 代码栏头部新增 **⧉「展开全屏」按钮**：点击打开**覆盖整个窗口的独立页面**（大字体正文 14px/代码 13px + Mermaid 调用图 + 接口清单 + 调用边），整页滚动，Esc / ✕ 关闭
+- 实现：`src/lib/CodeViewer.svelte` 全页阅读器（markdown-it 渲染管线 html:false 防注入 + Mermaid 单独渲染）+ App 全屏覆盖层（z-3000 淡入）
+- 说明：最初按「独立 Tauri 窗口」实现（WebviewWindowBuilder + initialization_script 传参），本环境 WebView2 运行时窗口导航失败（恒 about:blank，含手动导航）——改为应用内全屏页，体验等价且零窗口管理复杂度；后端 open_code_window 命令已移除
+- 验证（CDP + 视觉引擎）：⧉ → 覆盖层渲染 69k 字符骨架 + Mermaid、可滚动、Esc 关闭 ✓；视觉评审 9/10（文字大而清晰、布局干净、无瑕疵）
 
 ## [2.13.0] - 2026-09-09
 
