@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "engram-cli"
-version = "2.10.0"
+version = "2.10.1"
 dependencies = [
  "engram-core",
  "serde_json",
@@ -1184,7 +1184,7 @@ dependencies = [
 
 [[package]]
 name = "engram-core"
-version = "2.10.0"
+version = "2.10.1"
 dependencies = [
  "anyhow",
  "fastembed",
@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "engram-gui"
-version = "2.10.0"
+version = "2.10.1"
 dependencies = [
  "engram-core",
  "log",
@@ -1216,7 +1216,7 @@ dependencies = [
 
 [[package]]
 name = "engram-mcp"
-version = "2.10.0"
+version = "2.10.1"
 dependencies = [
  "anyhow",
  "engram-core",
