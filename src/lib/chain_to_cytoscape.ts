@@ -62,8 +62,18 @@ export function chainToElements(
   const components: { root: string; members: string[]; depth: Map<string, number> }[] = [];
   const visited = new Set<string>();
   const startIds: string[] = [];
-  if (rootId && adj.has(rootId)) startIds.push(rootId);
-  for (const nd of nodes) if (!startIds.includes(nd.id)) startIds.push(nd.id);
+  const startSeen = new Set<string>();
+  if (rootId && adj.has(rootId)) {
+    startIds.push(rootId);
+    startSeen.add(rootId);
+  }
+  // v2.15 大图：Set 去重代替 O(n²) includes
+  for (const nd of nodes) {
+    if (!startSeen.has(nd.id)) {
+      startSeen.add(nd.id);
+      startIds.push(nd.id);
+    }
+  }
   for (const start of startIds) {
     if (visited.has(start)) continue;
     const depth = new Map<string, number>();
@@ -71,8 +81,10 @@ export function chainToElements(
     const queue: string[] = [start];
     visited.add(start);
     depth.set(start, 0);
-    while (queue.length > 0) {
-      const cur = queue.shift()!;
+    // v2.15 大图：头指针代替 shift()（shift 每步 O(n) 移位，长链 O(n²)）
+    let h = 0;
+    while (h < queue.length) {
+      const cur = queue[h++];
       members.push(cur);
       for (const nb of adj.get(cur) ?? []) {
         if (!visited.has(nb)) {
@@ -164,11 +176,15 @@ export function chainToElements(
   // v2.2 涟漪视图：开发模式可关闭连线渲染（联系改由亮度层级+波纹表达，连接数据仍存 snapshot.edges）
   if (!withEdges) return elements;
 
+  // v2.15 大图：一次性 nodeById（替代每条边 O(n) find）+ 渐变按规模降级实线
+  // （性能策略：>300 边跑逐边渐变纹理是平移缩放的大头——注释许久了这次真落地）
+  const nodeById = new Map(nodes.map((nd) => [nd.id, nd]));
+  const useGradient = snap.edges.length <= 300;
   for (const edge of snap.edges) {
     // 悬空边直接跳过（后端理论上已过滤；这里双保险——cytoscape cy.add 遇到
     // 不存在的端点会抛异常导致整图不渲染，绝不能把坏边喂给它）
-    const src = nodes.find((n) => n.id === edge.parent);
-    const tgt = nodes.find((n) => n.id === edge.child);
+    const src = nodeById.get(edge.parent);
+    const tgt = nodeById.get(edge.child);
     if (!src || !tgt) continue;
     // v2.0 边渐变（源类型色 → 目标类型色）：用「逐边内联样式 + 数组字面值」实现——
     // 关键坑：cytoscape 的 data() 映射不支持多值属性（line-gradient-stop-colors），
@@ -183,11 +199,17 @@ export function chainToElements(
         // v2.4 递进关系类型（驱动边线型选择器：contains 实线 / solves 虚线 / alternative 点线）
         rel: edge.rel ?? 'contains',
       },
-      style: {
-        'line-gradient-stop-colors': [srcColor, tgtColor],
-        'line-gradient-stop-positions': ['0%', '100%'],
-        'target-arrow-color': tgtColor,
-      },
+      style: useGradient
+        ? {
+            'line-fill': 'linear-gradient',
+            'line-gradient-stop-colors': [srcColor, tgtColor],
+            'line-gradient-stop-positions': ['0%', '100%'],
+            'target-arrow-color': tgtColor,
+          }
+        : {
+            'line-color': 'rgba(148,163,184,0.5)',
+            'target-arrow-color': 'rgba(255,255,255,0.4)',
+          },
     });
   }
 

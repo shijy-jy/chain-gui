@@ -6,12 +6,14 @@
   import cytoscape from 'cytoscape';
   import type { StylesheetJson, Core } from 'cytoscape';
   import { chainToElements, NODE_TYPE_LABEL, NODE_TYPE_COLOR } from './lib/chain_to_cytoscape';
-  import { computeRippleLayers, ripplePulseAmp, RIPPLE_MAX_DEPTH, type RippleLayers } from './lib/ripple';
+  import { computeRippleLayers, ripplePulseAmp, type RippleLayers } from './lib/ripple';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import CreateNodeDialog from './components/CreateNodeDialog.svelte';
   import WorkspaceSidebar from './components/WorkspaceSidebar.svelte';
+  import PerfOverlay from './components/PerfOverlay.svelte';
   import { panel, SIDEBAR_COLLAPSED_WIDTH } from './lib/panel_state.svelte.ts';
+  import { perfPolicy, perfTierName, fnv1a, createFrameMonitor, type FrameMonitor } from './lib/ui/perf';
   import type { ChainSnapshot, ChainNode, NodeStatus, NodeType, ScanMode, WorkspaceInfo } from './lib/types';
 
   // v1.5：cose 在链式图上会缩成团块 → 换自研全局力导向模拟（d3-force 风格）：
@@ -195,12 +197,7 @@
     }
 
     const pos = nodeArr.map((nd) => ({ x: nd.position('x'), y: nd.position('y') }));
-
-    // v2.0 超大图谱：跳过力模拟，直接适配视野（散点位置已在 chainToElements 预写入）
-    if (n > 400) {
-      cyRef.fit(undefined, 60);
-      return;
-    }
+    const policy = perfPolicy(n);   // v2.15 分档：迭代数/涟漪深度等按规模取值
 
     // id → 索引映射
     const idx = new Map<string, number>();
@@ -215,24 +212,26 @@
     });
     const doCrossWork = edgeIdx.length >= 2 && edgeIdx.length <= 200;
 
-    // v2.5 连通分量（并查集）：无关节点间距上限只作用于不同分量之间
-    const comp = new Int32Array(n);
-    for (let i = 0; i < n; i++) comp[i] = i;
-    const findComp = (x: number): number => {
-      while (comp[x] !== x) {
-        comp[x] = comp[comp[x]];
-        x = comp[x];
+    // v2.5 连通分量（并查集）：无关节点间距上限只作用于不同分量之间。
+    // v2.15 超大图（>800）跳过跨分量上限（O(n²) 不划算，中心引力已防漂移）
+    let comp: Int32Array | null = null;
+    let compCount = 1;
+    if (n <= 800) {
+      comp = new Int32Array(n);
+      for (let i = 0; i < n; i++) comp[i] = i;
+      const findComp = (x: number): number => {
+        while (comp![x] !== x) {
+          comp![x] = comp![comp![x]];
+          x = comp![x];
+        }
+        return x;
+      };
+      for (const [a, b] of edgeIdx) {
+        const ra = findComp(a);
+        const rb = findComp(b);
+        if (ra !== rb) comp[ra] = rb;
       }
-      return x;
-    };
-    for (const [a, b] of edgeIdx) {
-      const ra = findComp(a);
-      const rb = findComp(b);
-      if (ra !== rb) comp[ra] = rb;
-    }
-    for (let i = 0; i < n; i++) comp[i] = findComp(i);
-    let compCount = 0;
-    {
+      for (let i = 0; i < n; i++) comp[i] = findComp(i);
       const seen = new Set<number>();
       for (let i = 0; i < n; i++) seen.add(comp[i]);
       compCount = seen.size;
@@ -241,11 +240,17 @@
 
     // v2.5 碰撞半径（中心距下限 = minDist + 两节点半径和；大小与连接数挂钩）
     const nodeRadii = nodeArr.map((nd: any) => nodeSize(nd) / 2);
+    let maxR = 0;
+    for (const r of nodeRadii) if (r > maxR) maxR = r;
+
+    // v2.15 空间哈希网格：斥力 + 碰撞合一为「只查 3×3 邻胞」的近似 O(n)——
+    // 单元大小保证所有可能碰撞对必在同/邻胞；1500 节点不再跑 225 万对/帧
+    const cell = Math.max(edgeLen, 2 * (minDist + 2 * maxR));
 
     const vx = new Float64Array(n);
     const vy = new Float64Array(n);
 
-    const K = repulsion;   // 库仑斥力常数（所有节点两两互斥）
+    const K = repulsion;   // 库仑斥力常数（近邻近似）
     const SPRING = gravity; // 边弹簧刚度
     const REST = edgeLen;   // 弹簧理想长度
 
@@ -254,15 +259,31 @@
     const MAX_STEP = 10;
 
     let alpha = 1.0;
-    const ALPHA_DECAY = 0.97;   // 模拟冷却（~150 tick ≈ 2.5s 收敛）
-    // v2.0 自适应迭代上限：节点越多每帧 O(n²) 越贵，代数递减
-    const MAX_ITER = n > 250 ? 100 : n > 100 ? 200 : 400;
+    const ALPHA_DECAY = 0.97;   // 模拟冷却
+    // v2.15 自适应迭代上限：节点越多每帧越贵，代数按档递减（网格版 1500 节点也能在预算内铺开）
+    const MAX_ITER = policy.forceMaxIter;
     // v2.4 修复：前 MIN_ITER 帧禁止早停——低斥力或初始散点接近弹簧平衡时，
     // 旧逻辑十几帧内就"收敛"在密集起点，铺开动画看起来像没播放
-    const MIN_ITER = 30;
+    const MIN_ITER = n > 400 ? 12 : 30;
 
     let iter = 0;
     let still = 0;   // 连续低位移帧计数（早停）
+    const grabbed = new Int8Array(n);   // v2.15 拖拽标记 O(1)（原 grabbedNow.includes O(n)）
+
+    const gridKey = (cx: number, cy: number) => cx * 100003 + cy;
+    const buildGrid = () => {
+      const cells = new Map<number, number[]>();
+      for (let i = 0; i < n; i++) {
+        const cx = Math.floor(pos[i].x / cell);
+        const cy = Math.floor(pos[i].y / cell);
+        const k = gridKey(cx, cy);
+        const arr = cells.get(k);
+        if (arr) arr.push(i);
+        else cells.set(k, [i]);
+      }
+      return cells;
+    };
+
     const tick = () => {
       forceRun = null;
       if (iter++ >= MAX_ITER || (iter >= MIN_ITER && (alpha < 0.01 || still > 12))) {
@@ -280,7 +301,7 @@
       }
       // v2.4 拖拽不再停模拟：把被抓节点的最新位置同步进 pos 并冻结其速度，
       // 其余节点围绕被拖节点实时重排——布局从此不会被任何输入事件杀死（冻结根因之一）
-      const grabbedNow: number[] = [];
+      grabbed.fill(0);
       if (dragging) {
         cyRef.nodes(':grabbed').forEach((g: any) => {
           const gi = idx.get(g.id());
@@ -289,29 +310,63 @@
             pos[gi].y = g.position('y');
             vx[gi] = 0;
             vy[gi] = 0;
-            grabbedNow.push(gi);
+            grabbed[gi] = 1;
           }
         });
       }
-      // 1) 全节点两两斥力 O(n²)：F = min(K/d², MAX_F)（这就是"神经元链接"式全局铺开的关键）
+      const cells = buildGrid();
+      // 1) 近邻斥力 + 2.6) 碰撞力 合一（3×3 邻胞，每对只算一次；被抓节点只受碰撞推挤不积累力）
       for (let i = 0; i < n; i++) {
-        for (let j = i + 1; j < n; j++) {
-          let dx = pos[j].x - pos[i].x;
-          let dy = pos[j].y - pos[i].y;
-          let d2 = dx * dx + dy * dy;
-          if (d2 < 4) {
-            d2 = 4;
-            dx = (Math.random() - 0.5) * 4;
-            dy = (Math.random() - 0.5) * 4;
+        const cx = Math.floor(pos[i].x / cell);
+        const cy = Math.floor(pos[i].y / cell);
+        for (let gx = -1; gx <= 1; gx++) {
+          for (let gy = -1; gy <= 1; gy++) {
+            const arr = cells.get(gridKey(cx + gx, cy + gy));
+            if (!arr) continue;
+            for (let a = 0; a < arr.length; a++) {
+              const j = arr[a];
+              if (j <= i) continue;   // 每对只算一次（j>i）
+              let dx = pos[j].x - pos[i].x;
+              let dy = pos[j].y - pos[i].y;
+              let d2 = dx * dx + dy * dy;
+              const req = minDist + nodeRadii[i] + nodeRadii[j];
+              if (d2 < req * req) {
+                // 碰撞：硬推开（重合时随机方向解耦）
+                let d = Math.sqrt(d2);
+                if (d < 0.001) {
+                  dx = Math.random() - 0.5;
+                  dy = Math.random() - 0.5;
+                  d = Math.hypot(dx, dy) || 1;
+                }
+                const push = ((req - d) / d) * 0.5;
+                if (!grabbed[i]) {
+                  pos[i].x -= dx * push;
+                  pos[i].y -= dy * push;
+                }
+                if (!grabbed[j]) {
+                  pos[j].x += dx * push;
+                  pos[j].y += dy * push;
+                }
+              }
+              if (d2 < 4) {
+                d2 = 4;
+                dx = (Math.random() - 0.5) * 4;
+                dy = (Math.random() - 0.5) * 4;
+              }
+              const d = Math.sqrt(d2);
+              const f = Math.min((K / d2) * alpha, MAX_F);
+              const fx = (dx / d) * f;
+              const fy = (dy / d) * f;
+              if (!grabbed[i]) {
+                vx[i] -= fx;
+                vy[i] -= fy;
+              }
+              if (!grabbed[j]) {
+                vx[j] += fx;
+                vy[j] += fy;
+              }
+            }
           }
-          const d = Math.sqrt(d2);
-          const f = Math.min((K / d2) * alpha, MAX_F);
-          const fx = (dx / d) * f;
-          const fy = (dy / d) * f;
-          vx[i] -= fx;
-          vy[i] -= fy;
-          vx[j] += fx;
-          vy[j] += fy;
         }
       }
       // 2) 边弹簧吸引：F = 刚度 × (当前长 - 理想长)，沿边方向
@@ -353,40 +408,14 @@
           }
         }
       }
-      // 2.6) v2.5 碰撞力（参考 d3-force forceCollide）：每帧把间距不足的节点对直接推开，
-      //     硬保证任意两节点中心距 ≥ minDist + 半径和（与节点数无关，多少节点都不重叠）
-      if (minDist > 0) {
-        for (let i = 0; i < n; i++) {
-          if (grabbedNow.includes(i)) continue;
-          for (let j = i + 1; j < n; j++) {
-            if (grabbedNow.includes(j)) continue;
-            const req = minDist + nodeRadii[i] + nodeRadii[j];
-            let dx = pos[j].x - pos[i].x;
-            let dy = pos[j].y - pos[i].y;
-            let d = Math.hypot(dx, dy);
-            if (d < req) {
-              if (d < 0.001) {
-                dx = Math.random() - 0.5;
-                dy = Math.random() - 0.5;
-                d = Math.hypot(dx, dy) || 1;
-              }
-              const push = ((req - d) / d) * 0.5;   // d3 collide 默认强度 1：各推一半
-              pos[i].x -= dx * push;
-              pos[i].y -= dy * push;
-              pos[j].x += dx * push;
-              pos[j].y += dy * push;
-            }
-          }
-        }
-      }
       // 2.7) v2.5 无关节点间距上限（碰撞力的对称版）：不同连通分量的节点对相距超 capDist
       //     就向中点拉回，迭代 3 次近似收敛——独立节点/节点链不会各自飘远，全局观察不被拉散
-      if (compCount > 1 && capDist > 0) {
+      if (comp !== null && compCount > 1 && capDist > 0) {
         for (let pass = 0; pass < 3; pass++) {
           for (let i = 0; i < n; i++) {
-            if (grabbedNow.includes(i)) continue;
+            if (grabbed[i]) continue;
             for (let j = i + 1; j < n; j++) {
-              if (grabbedNow.includes(j)) continue;
+              if (grabbed[j]) continue;
               if (comp[i] === comp[j]) continue;
               const dx = pos[j].x - pos[i].x;
               const dy = pos[j].y - pos[i].y;
@@ -412,7 +441,7 @@
       //    v2.4 被拖节点跳过积分——位置由鼠标决定，模拟不得与之对抗
       let maxStep = 0;
       for (let i = 0; i < n; i++) {
-        if (grabbedNow.includes(i)) continue;
+        if (grabbed[i]) continue;
         vx[i] *= 0.86;
         vy[i] *= 0.86;
         let sx = vx[i];
@@ -505,8 +534,8 @@
     focusSet = null;
     hoverTip = null;
     lastDir = null;
-    lastIdsSig = '';
-    lastDataSig = '';
+    lastIdsSig = 0;
+    lastDataSig = 0;
     lastSliderSig = '';
     stopForce();
     clearRipple();   // v2.2 切工作区时涟漪一并清理
@@ -667,13 +696,15 @@
         });
       } else {
         // 增量：只点亮本层刚到达的节点（此前各层状态已在上一 tick 落定）
-        cyRef.nodes().forEach((n) => {
-          const d = rip.layers.depth.get(n.id());
-          if (d === activeDepth && d <= rip.maxDepth) {
+        // v2.15 大图：遍历层数组，不再全图扫描
+        const layer = rip.layers.byDepth[activeDepth] ?? [];
+        for (const id of layer) {
+          const n = cyRef.getElementById(id);
+          if (n.nonempty()) {
             n.removeClass('rip-dim');
-            n.addClass(`rip-d${d}`);
+            n.addClass(`rip-d${activeDepth}`);
           }
-        });
+        }
       }
       // v2.2 涟漪期间连线整体淡出（transition 0.2s 平滑），联系改由亮度层级+波纹表达
       cyRef.edges().addClass('rip-hide');
@@ -687,14 +718,13 @@
   function updateRippleStyle(cyRef: Core) {
     const BASE = [1, 0.8, 0.4, 0.2, 0.1, 0.05, 0.03];
     const k = waveParams.contrast / 0.28;   // 默认 1.0 = 设计曲线原样
+    // v2.15：链式写全部 7 个 selector 后单次 update（原实现 7 次全图样式重算+重绘）
+    let ss = cyRef.style();
     for (let d = 0; d <= 6; d++) {
       const v = Math.pow(BASE[d], k);
-      cyRef
-        .style()
-        .selector(`node.rip-d${d}`)
-        .style({ 'opacity': v, 'text-opacity': Math.min(1, v + 0.05) })
-        .update();
+      ss = ss.selector(`node.rip-d${d}`).style({ 'opacity': v, 'text-opacity': Math.min(1, v + 0.05) });
     }
+    ss.update();
   }
 
   // 对比滑条变化 → 立即改写涟漪亮度样式（cy 未就绪时跳过，onMount 里会再补一次）
@@ -757,11 +787,21 @@
   //  - 每帧 cytoscape 样式旁路收窄到「波源呼吸 + 沉水」少数元素（原全图脉冲每帧重绘是卡顿主因；
   //    受影响节点的"礁石颤"改由 canvas 局部小环承担，涟漪语义不变）
   //  - 固定描边色 + globalAlpha（省去每环 rgba 字符串分配）；按时长节流 ~30fps（120Hz 屏不翻倍）
-  let posCache = new Map<string, { x: number; y: number }>();
+  // v2.15 扁平位置缓存：pan/zoom 期间每帧只写 Float64Array（不新建 1500 个 Map 条目/对象）；
+  // id→索引只在节点集变化时重建（重建分支重置 posIdsSig）
+  let posIdx = new Map<string, number>();
+  let posX = new Float64Array(0);
+  let posY = new Float64Array(0);
+  let posIdsSig = '';
   let posKey = '';
+  const posMiss = { x: 0, y: 0 };
+  const posOut = { x: 0, y: 0 };
   function ensurePositions(cyRef: Core | null) {
     if (!cyRef) {
-      if (posCache.size) posCache = new Map();
+      posIdx = new Map();
+      posX = new Float64Array(0);
+      posY = new Float64Array(0);
+      posIdsSig = '';
       posKey = '';
       return;
     }
@@ -770,15 +810,32 @@
     const key = `${pan.x.toFixed(1)}|${pan.y.toFixed(1)}|${cyRef.zoom().toFixed(3)}|${forceRun !== null ? 1 : 0}`;
     if (key === posKey) return;
     posKey = key;
-    const m = new Map<string, { x: number; y: number }>();
+    if (posIdsSig === '') {
+      const ids: string[] = [];
+      cyRef.nodes().forEach((n: any) => {
+        ids.push(n.id());
+      });
+      const m = new Map<string, number>();
+      ids.forEach((id, i) => m.set(id, i));
+      posIdx = m;
+      posX = new Float64Array(ids.length);
+      posY = new Float64Array(ids.length);
+      posIdsSig = 'ok';
+    }
     cyRef.nodes().forEach((n: any) => {
+      const i = posIdx.get(n.id());
+      if (i === undefined) return;
       const p = n.renderedPosition();
-      m.set(n.id(), { x: p.x, y: p.y });
+      posX[i] = p.x;
+      posY[i] = p.y;
     });
-    posCache = m;
   }
   function nodePos(id: string): { x: number; y: number } {
-    return posCache.get(id) ?? { x: 0, y: 0 };
+    const i = posIdx.get(id);
+    if (i === undefined) return posMiss;
+    posOut.x = posX[i];
+    posOut.y = posY[i];
+    return posOut;   // 共享输出对象：调用方立即消费 p.x/p.y（drawWater 语义）
   }
 
   function drawWater(cyRef: Core | null, t: number, frame: number) {
@@ -860,22 +917,26 @@
       const mainSrc = active.find((s) => s.main);
       const mainLevel = mainSrc ? mainSrc.level : 0;
       const nodePeriod = Math.max(0.25, period * 0.4);
-      cyRef.nodes().forEach((n: any) => {
-        const d = rip.layers.depth.get(n.id());
-        if (d === undefined || d === 0 || d > rip.maxDepth) return;
+      // v2.15 大图：只遍历波内节点（byDepth 层数组），不再每帧扫全图 1500 节点
+      const byDepth = rip.layers.byDepth;
+      const maxD = Math.min(rip.maxDepth, byDepth.length - 1);
+      for (let d = 1; d <= maxD; d++) {
         const strength = ripplePulseAmp(d) / 0.1;
-        const p = nodePos(n.id());   // v2.13：缓存位置（静止时零矩阵开销）
-        for (let k = 0; k < 2; k++) {
-          const ph = ((t / nodePeriod) + d * 0.18 + k * 0.5) % 1;
-          const r = ph * (18 + strength * 20);
-          const alpha = Math.pow(1 - ph, fadePow) * 0.4 * strength * mainLevel * energyK;
-          if (alpha <= 0.01) continue;
-          ctx.globalAlpha = alpha;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-          ctx.stroke();
+        const layer = byDepth[d];
+        for (let li = 0; li < layer.length; li++) {
+          const p = nodePos(layer[li]);   // v2.13：缓存位置（静止时零矩阵开销）
+          for (let k = 0; k < 2; k++) {
+            const ph = ((t / nodePeriod) + d * 0.18 + k * 0.5) % 1;
+            const r = ph * (18 + strength * 20);
+            const alpha = Math.pow(1 - ph, fadePow) * 0.4 * strength * mainLevel * energyK;
+            if (alpha <= 0.01) continue;
+            ctx.globalAlpha = alpha;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.stroke();
+          }
         }
-      });
+      }
     }
     ctx.globalAlpha = 1;
 
@@ -973,12 +1034,14 @@
     const srcEl = cyRef.getElementById(nodeId);
     const srcPos = srcEl.renderedPosition();
     // v2.3 场半径：以本波源为圆心、到最远节点中心的距离（圆外平静；单节点取最小值）
+    // v2.15 大图：包围盒四角近似最远距离（O(1)，不再每点一次扫全图 1500 节点）
     let radPx = 140;
-    cyRef.nodes().forEach((n: any) => {
-      const p = n.renderedPosition();
-      const d = Math.hypot(p.x - srcPos.x, p.y - srcPos.y);
+    const bb = cyRef.elements().boundingBox();
+    const corners: [number, number][] = [[bb.x1, bb.y1], [bb.x2, bb.y2], [bb.x1, bb.y2], [bb.x2, bb.y1]];
+    for (const [bx, by] of corners) {
+      const d = Math.hypot(bx - srcPos.x, by - srcPos.y);
       if (d > radPx) radPx = d;
-    });
+    }
     waveSources.push({
       id: nodeId,
       main: isMain,
@@ -993,8 +1056,9 @@
     if (isMain) {
       const layers = computeRippleLayers(buildAdjacency(snapshot), nodeId);
       // v2.4 分析模式只让"有关系的节点"（d0 点击 + d1 直接相连）点亮与震动；
-      //     开发模式保留全层扩散（上限 RIPPLE_MAX_DEPTH）
-      const maxDepth = scanMode === 'analysis' ? 1 : RIPPLE_MAX_DEPTH;
+      //     开发模式保留全层扩散，深度按节点数分档（v2.15：密集图 6 层≈全图，降深省类与环）
+      const maxDepth =
+        scanMode === 'analysis' ? 1 : perfPolicy(snapshot.nodes.length).rippleMaxDepth;
       ripple = { source: nodeId, activeDepth: 0, layers, maxDepth };
       applyRippleClasses(cyRef, 0);
       // 波前逐层扩散（亮度/震动只到 maxDepth；波环本身由水面循环持续扩散）
@@ -1026,17 +1090,18 @@
     return 0.8 + (s - 14) * 0.05;
   };
 
-  // v1.4 图例数据（与节点配色一致，UI 上直接提示颜色含义；v2.0 增知识库中性「笔记」）
-  const typeLegend: { t: string; label: string; color: string }[] = [
-    { t: 'goal', label: '目标 goal', color: '#a78bfa' },
-    { t: 'design', label: '设计 design', color: '#60a5fa' },
-    { t: 'task', label: '任务 task', color: '#22d3ee' },
-    { t: 'verification', label: '验证 verification', color: '#34d399' },
-    { t: 'note', label: '笔记 note（知识库）', color: '#94a3b8' },
-  ];
+  // v1.4 图例数据（v2.15 单一来源：从 NODE_TYPE_COLOR 派生，不再手工重复颜色表；标签保持原样）
+  const LEGEND_LABEL_EXTRA: Record<NodeType, string> = { goal: '', design: '', task: '', verification: '', note: '（知识库）' };
+  const typeLegend = (Object.keys(NODE_TYPE_COLOR) as NodeType[]).map((t) => ({
+    t,
+    label: `${NODE_TYPE_LABEL[t]} ${t}${LEGEND_LABEL_EXTRA[t]}`,
+    color: NODE_TYPE_COLOR[t],
+  }));
   let showLegend = $state(true);
   // v2.14 「代码」筛选开关：一键高亮有代码骨架的节点（其余压暗）
   let codeFilter = $state(false);
+  // v2.15 性能浮层开关
+  let perfOpen = $state(false);
 
   // v1.7 悬停浮层：显示 id · 类型（id 已从画布标签移除以突出标题命名，悬停/点击可追溯）
   let hoverTip = $state<{ x: number; y: number; text: string } | null>(null);
@@ -1057,6 +1122,9 @@
         'font-size': '11px',
         'color': 'rgba(255,255,255,0.92)',
         'text-opacity': 1,
+        // v2.15 标签按 zoom 裁剪（cytoscape 内建：渲染字号小于阈值就不画标签——
+        // 大图缩到总览时标签是 canvas 大头；阈值随后按节点数分档调高）
+        'min-zoomed-font-size': 6,
         // v2.8 UI 打磨：标签暗色描边，任意背景下可读（黑底/节点/水面）
         'text-outline-width': 2,
         'text-outline-color': '#0a0a0a',
@@ -1116,7 +1184,7 @@
     { selector: 'node:selected', style: { 'border-width': 2, 'border-color': '#ffffff', 'border-opacity': 0.95, 'border-style': 'solid', 'shadow-blur': 14, 'shadow-opacity': 0.35, 'shadow-color': '#ffffff' } },
     // v2.0 边：粗细与节点大小挂钩（用户反馈：边应随节点大小，且要细）——
     // 小节点(14px) 0.8px → 大节点(38px) 2.0px；曲率收敛（52→30px 控制距离，短边不再鼓大包）；
-    // 渐变按 cytoscape 官方性能建议在大图（>300 边）降级为实线
+    // v2.15 渐变真降级：>300 边全部实线（chainToElements 逐边内联决定，base 不再设 line-fill）
     {
       selector: 'edge',
       style: {
@@ -1126,7 +1194,6 @@
         'control-point-weights': 0.5,
         'line-cap': 'round',
         'line-color': 'rgba(148,163,184,0.5)',    // 实线兜底色
-        'line-fill': 'linear-gradient',           // 停靠点颜色/位置由逐边内联样式提供（见 chainToElements）
         'target-arrow-shape': 'triangle',
         'target-arrow-color': 'rgba(255,255,255,0.4)',   // 兜底（每条边都有逐边样式覆盖为目标色）
         'arrow-scale': 0.55,
@@ -1174,8 +1241,8 @@
     // 同目录"重新扫描"不触发清理（保留 v1.6 的位置续排手感）。
     if (chainDir !== lastDir) {
       lastDir = chainDir;
-      lastIdsSig = '';
-      lastDataSig = '';
+      lastIdsSig = 0;
+      lastDataSig = 0;
       lastSliderSig = '';
       selectedNode = null;
       sidebarCollapsed = false;
@@ -1292,6 +1359,16 @@
     applyCodeFilter();
   }
 
+  // v2.15 工具栏按钮注册表（未来扩展：追加一条描述符即可，渲染层自动接线）
+  const toolButtons = $derived.by(() => [
+    { id: 'zoom-in', label: '+', title: '放大（滚轮亦可）', active: false, onClick: () => cy?.zoom(cy.zoom() * 1.4) },
+    { id: 'fit', label: '⤢', title: '适配全部节点', active: false, onClick: () => cy?.fit(undefined, 60) },
+    { id: 'zoom-out', label: '−', title: '缩小（滚轮亦可）', active: false, onClick: () => cy?.zoom(cy.zoom() / 1.4) },
+    { id: 'code', label: '</>', title: '高亮有代码骨架的节点（青绿描边 + 辉光，其余压暗）', active: codeFilter, onClick: toggleCodeFilter },
+    { id: 'perf', label: '⚡', title: '性能浮层：FPS/帧耗时/规模分档', active: perfOpen, onClick: () => (perfOpen = !perfOpen) },
+    { id: 'legend', label: showLegend ? '◉' : '○', title: '图例开关', active: false, onClick: () => (showLegend = !showLegend) },
+  ]);
+
   // v1.3：折叠子链（两段式确认在 Sidebar 内完成，这里只执行；v2.0 仅分析模式）
   async function handleFold() {
     if (!chainDir || !selectedNode) return;
@@ -1335,46 +1412,49 @@
   // - idsSig（节点集合）：变化才重建元素 + 散点重排
   // - dataSig（字段内容）：变化只原位更新元素数据（不重排、不重建——保存/外部编辑不扰动布局）
   // - sliderSig（滑条）：变化只从当前位置续排
-  let lastIdsSig = '';
-  let lastDataSig = '';
+  // v2.15 签名改为数字哈希（fnv1a）：idsKey/dataKey 是 number，sliderSig 保持字符串
+  let lastIdsSig = 0;
+  let lastDataSig = 0;
   let lastSliderSig = '';
 
   // ⚠️ Svelte 5 坑：if (cy && snapshot) 短路求值会让 effect 漏追踪 snapshot
   // （第一次跑时 cy=null，JS 短路求值不会读 snapshot，Svelte 5 不会追踪）
   // 修法：先单独读 snapshot 强制让 Svelte 5 追踪到
+  // v2.15 快照签名 effect（只追踪 snapshot/归档开关）：fnv1a 数字哈希替代
+  // 1500 节点 sort+join 巨型字符串；滑条独立成 effect，拖动不再重算签名
   $effect(() => {
     if (!snapshot) return;  // 强制追踪 snapshot
     if (!cy) return;
     const snap = snapshot;   // TS 收窄：嵌套闭包里保持非空类型
     const cyRef = cy;
 
-    // 追踪滑块值，拖动时触发重新模拟（v2.5：主参数=最小间距，边距/斥力由其派生；最大间距限制无关分量）
-    const _m = minDist;
-    const _g = gravity;
-    const _x = maxDist;
-    const sliderSig = `${_m}-${_g}-${_x}`;
+    // 节点集合签名（含归档开关）
+    const idsKey =
+      fnv1a(snap.nodes.map((x) => x.id).join('|')) ^
+      (showArchived ? fnv1a((snap.archived ?? []).map((x) => x.id).join('|')) : 0);
+    // 内容签名：只取影响画布的字段（title 驱动标签；tags/evidence 不进签名——图上不渲染）
+    const dataKey = fnv1a(
+      snap.nodes.map((x) => `${x.id}|${x.type}|${x.updated}|${x.revision}|${x.status}|${x.title}`).join(';'),
+    );
 
-    const idsSig = snap.nodes.map(x => x.id).sort().join(',');
-    // v2.12 归档视图开关：纳入归档节点时集合签名含归档 id（切换即重建）；
-    // 注意此处必须读取 showArchived 以建立依赖（Svelte 5 追踪）
-    const idsSigWithArchived = `${idsSig}|arch:${showArchived ? (snap.archived ?? []).map(x => x.id).sort().join(',') : ''}`;
-    const dataSig = snap.nodes
-      .map(x => `${x.id}|${x.type}|${x.updated}|${x.revision}|${x.status}|${x.title}|${x.tags.join('~')}|${x.evidence.join('~')}`)
-      .sort()
-      .join(';');
-
-    if (idsSigWithArchived !== lastIdsSig) {
+    if (idsKey !== lastIdsSig) {
       // 节点集合变化：全量重建 + 预散点 + 首帧视图 + 力模拟
-      lastIdsSig = idsSigWithArchived;
-      lastDataSig = dataSig;
-      lastSliderSig = sliderSig;
+      lastIdsSig = idsKey;
+      lastDataSig = dataKey;
       stopForce();
       cyRef.elements().remove();
       focusNodeId = null;   // v2.6 节点集合重建时退出双击聚焦
       focusSet = null;
+      posIdsSig = '';       // v2.15 位置缓存索引失效（节点集变了）
       // v2.4 两模式统一：连线渲染为"若有若无"的淡线（.ghost），点击后整组淡出改由涟漪表达
       cyRef.add(chainToElements(snap, { withEdges: true, includeArchived: showArchived }));
       cyRef.edges().addClass('ghost');
+      // v2.15 按规模调整标签裁剪阈值（perf 分档：大图缩到总览时标签是 canvas 大头）
+      cyRef
+        .style()
+        .selector('node')
+        .style({ 'min-zoomed-font-size': perfPolicy(snap.nodes.length).minZoomedFont })
+        .update();
       applyCodeFilter();   // v2.14 全量重建会清空类，筛选开着重放
       startWaterLoop();
       // v1.7 首帧视图：同步 fit 全图 + 根节点对准屏幕中央（消除"左上角堆叠→跳中央"的闪烁）
@@ -1383,9 +1463,9 @@
       return;
     }
 
-    if (dataSig !== lastDataSig) {
+    if (dataKey !== lastDataSig) {
       // 内容变化（保存/外部编辑/watcher 推送）：原位更新节点与边数据，位置与布局不动
-      lastDataSig = dataSig;
+      lastDataSig = dataKey;
       cyRef.batch(() => {
         for (const def of chainToElements(snap)) {
           const ele = cyRef.getElementById(def.data.id as string);
@@ -1395,14 +1475,21 @@
       applyCodeFilter();   // v2.14 节点数据原位更新（挂载/移除代码栏后）同步筛选类
       return;
     }
-
-    if (sliderSig !== lastSliderSig) {
-      // 仅滑条变化：从当前位置续排（保留 v1.6 手感）
-      lastSliderSig = sliderSig;
-      runForceLayout(cyRef);
-      return;
-    }
     // watcher 重推但内容无变化：直接忽略，避免大图反复重建卡顿
+  });
+
+  // v2.15 滑条独立 effect：只触发重排，不碰快照签名（大图拖动滑条不再算 O(n) 签名）
+  $effect(() => {
+    const _m = minDist;
+    const _g = gravity;
+    const _x = maxDist;
+    const sliderSig = `${_m}-${_g}-${_x}`;
+    const cyRef = cy;
+    if (!cyRef || !snapshot) return;
+    if (sliderSig !== lastSliderSig) {
+      lastSliderSig = sliderSig;
+      runForceLayout(cyRef);   // 从当前位置续排（保留 v1.6 手感）
+    }
   });
 
   onMount(() => {
@@ -1417,6 +1504,18 @@
         maxZoom: 4,
       });
       updateRippleStyle(cy);   // v2.4 亮度对比公式接管 rip-dN 样式（滑条默认值）
+      // v2.15 调试/自动化钩子（CDP 驱动验证与未来插件扩展的稳定接缝，只读访问）
+      (window as any).__engramDebug = {
+        get cy() {
+          return cy;
+        },
+        get snapshot() {
+          return snapshot;
+        },
+        get mode() {
+          return scanMode;
+        },
+      };
       cy.on('tap', 'node', (evt) => {
         const n = evt.target;
         hoverTip = null;
@@ -1731,6 +1830,14 @@
       <div class="hover-tip" style:left="{hoverTip.x}px" style:top="{hoverTip.y}px">{hoverTip.text}</div>
     {/if}
 
+    {#if perfOpen}
+      <PerfOverlay
+        nodes={snapshot?.nodes.length ?? 0}
+        edges={snapshot?.edges.length ?? 0}
+        tier={perfTierName(snapshot?.nodes.length ?? 0)}
+      />
+    {/if}
+
     <!-- v2.4 节点关键字搜索：标题/id/标签模糊匹配，点击结果居中定位 + 高亮 -->
     {#if snapshot}
       <div class="node-search">
@@ -1817,13 +1924,12 @@
         {/if}
       </div>
 
-    <!-- v1.4 缩放控件（右下角）：滚轮之外的按钮式缩放 + 全局适配 + 图例开关 + v2.14 代码筛选 -->
+    <!-- v1.4 缩放控件（右下角）：滚轮之外的按钮式缩放 + 全局适配 + 图例开关
+         v2.15 注册表渲染：按钮由 toolButtons 描述符数组驱动，加按钮 = 追加一条 -->
     <div class="zoom-controls">
-      <button class="zc-btn" onclick={() => cy?.zoom(cy.zoom() * 1.4)} title="放大（滚轮亦可）">+</button>
-      <button class="zc-btn" onclick={() => cy?.fit(undefined, 60)} title="适配全部节点">⤢</button>
-      <button class="zc-btn" onclick={() => cy?.zoom(cy.zoom() / 1.4)} title="缩小（滚轮亦可）">−</button>
-      <button class="zc-btn" class:active={codeFilter} onclick={toggleCodeFilter} title="高亮有代码骨架的节点（青绿描边 + 辉光，其余压暗）">{'</>'}</button>
-      <button class="zc-btn" onclick={() => (showLegend = !showLegend)} title="图例开关">{showLegend ? '◉' : '○'}</button>
+      {#each toolButtons as b (b.id)}
+        <button class="zc-btn" class:active={b.active} onclick={b.onClick} title={b.title}>{b.label}</button>
+      {/each}
     </div>
 
     <!-- v1.4 颜色图例（左下角）：类型配色 + 状态样式提示 -->

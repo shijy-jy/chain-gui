@@ -50,6 +50,24 @@
   // v2.0 开发模式：链接编辑 + 删除节点（两段式确认）
   let parentSel = $state<string | null>(null);
   let relSel = $state<string>('contains');   // v2.4 递进关系类型
+  // v2.15 父节点搜索式输入（1500 节点 <select> 的 DOM 压力 → 搜索 + 限 20 条）
+  let parentQuery = $state('');
+  let parentOpen = $state(false);
+  const parentOptions = $derived(
+    parentQuery.trim() === ''
+      ? []
+      : allNodes
+          .filter(
+            (n) =>
+              n.id !== node?.id &&
+              (n.title.toLowerCase().includes(parentQuery.trim().toLowerCase()) ||
+                n.id.toLowerCase().includes(parentQuery.trim().toLowerCase())),
+          )
+          .slice(0, 20),
+  );
+  function parentTitle(id: string): string {
+    return allNodes.find((n) => n.id === id)?.title ?? id;
+  }
   let parentBusy = $state(false);
   let parentMessage = $state<string | null>(null);
   let delArmed = $state(false);
@@ -577,12 +595,34 @@
       <div class="field">
         <label for="parent-sel">父节点（链接）</label>
         <div class="parent-row">
-          <select id="parent-sel" bind:value={parentSel} disabled={parentBusy || saving}>
-            <option value={null}>无（独立节点）</option>
-            {#each allNodes.filter((n) => n.id !== node.id) as n (n.id)}
-              <option value={n.id}>{n.title} · {n.id}</option>
-            {/each}
-          </select>
+          <!-- v2.15 搜索式父节点选择：1500 节点工作区不再渲染 1500 个 <option> -->
+          <div class="parent-search-wrap">
+            <input
+              class="parent-search"
+              type="text"
+              placeholder={parentSel ? `${parentTitle(parentSel)} · ${parentSel}` : '搜索父节点（标题/id）…'}
+              bind:value={parentQuery}
+              onfocus={() => (parentOpen = true)}
+              onblur={() => setTimeout(() => (parentOpen = false), 150)}
+              disabled={parentBusy || saving}
+            />
+            {#if parentOpen && parentOptions.length > 0}
+              <div class="parent-results">
+                {#each parentOptions as n (n.id)}
+                  <button
+                    class="parent-opt"
+                    onclick={() => {
+                      parentSel = n.id;
+                      parentQuery = '';
+                      parentOpen = false;
+                    }}
+                  >
+                    {n.title} · {n.id}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
           <button class="parent-apply" onclick={handleChangeParent}
                   disabled={parentBusy || saving || (parentSel === node.parent && relSel === (node.rel ?? 'contains'))}>
             {parentBusy ? '…' : '改链接'}
@@ -1392,6 +1432,48 @@
   /* v2.0 开发模式：链接编辑 + 删除按钮 */
   .parent-row { display: flex; gap: 8px; }
   .parent-row select { flex: 1; }
+  /* v2.15 父节点搜索式输入（1500 节点不再渲染海量 option） */
+  .parent-search-wrap { position: relative; flex: 1; }
+  .parent-search {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 11px;
+    padding: 6px 8px;
+  }
+  .parent-search:focus { outline: none; border-color: rgba(125, 211, 252, 0.55); }
+  .parent-results {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    background: rgba(24, 26, 32, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+  .parent-opt {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 11px;
+    padding: 7px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .parent-opt:hover { background: rgba(125, 211, 252, 0.16); }
   .rel-row {
     margin-top: 6px;
     align-items: center;

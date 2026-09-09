@@ -19,6 +19,23 @@
   let rel = $state<string>('contains');
   let busy = $state(false);
   let error = $state<string | null>(null);
+  // v2.15 父节点搜索式输入（1500 节点工作区不再渲染 1500 个 <option>）
+  let parentQuery = $state('');
+  let parentOpen = $state(false);
+  const parentOptions = $derived(
+    parentQuery.trim() === ''
+      ? []
+      : nodes
+          .filter(
+            (n) =>
+              n.title.toLowerCase().includes(parentQuery.trim().toLowerCase()) ||
+              n.id.toLowerCase().includes(parentQuery.trim().toLowerCase()),
+          )
+          .slice(0, 20),
+  );
+  function parentTitle(pid: string): string {
+    return nodes.find((n) => n.id === pid)?.title ?? pid;
+  }
 
   async function submit() {
     if (busy) return;
@@ -62,12 +79,39 @@
 
     <div class="field">
       <label for="new-parent">父节点（建立链接）</label>
-      <select id="new-parent" bind:value={parent} disabled={busy}>
-        <option value={null}>无（独立节点）</option>
-        {#each nodes as n (n.id)}
-          <option value={n.id}>{n.title} · {n.id}</option>
-        {/each}
-      </select>
+      <div class="parent-search-wrap">
+        <input
+          id="new-parent"
+          class="parent-search"
+          type="text"
+          placeholder={parent ? `${parentTitle(parent)} · ${parent}` : '搜索父节点（标题/id）…'}
+          bind:value={parentQuery}
+          onfocus={() => (parentOpen = true)}
+          onblur={() => setTimeout(() => (parentOpen = false), 150)}
+          disabled={busy}
+        />
+        {#if parentOpen && parentOptions.length > 0}
+          <div class="parent-results">
+            {#each parentOptions as n (n.id)}
+              <button
+                class="parent-opt"
+                onclick={() => {
+                  parent = n.id;
+                  parentQuery = '';
+                  parentOpen = false;
+                }}
+              >
+                {n.title} · {n.id}
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      {#if parent}
+        <button class="parent-clear" onclick={() => (parent = null)} title="清除父节点（独立节点）">
+          清除父节点 ✕
+        </button>
+      {/if}
     </div>
 
     {#if parent}
@@ -160,6 +204,48 @@
     box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.14);
   }
   select option { background: #161618; }
+  /* v2.15 父节点搜索式输入 */
+  .parent-search-wrap { position: relative; }
+  .parent-search { width: 100%; }
+  .parent-results {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    background: rgba(24, 26, 32, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+  .parent-opt {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 12px;
+    padding: 7px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .parent-opt:hover { background: rgba(167, 139, 250, 0.18); }
+  .parent-clear {
+    margin-top: 6px;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+  }
+  .parent-clear:hover { color: #f87171; }
   .error {
     color: #f87171;
     font-size: 12px;
