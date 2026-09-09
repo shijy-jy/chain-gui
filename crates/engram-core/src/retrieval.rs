@@ -32,15 +32,22 @@ pub fn recall(
         return Ok(keyword_fallback(ctx, &snap, q, k, include_archived));
     }
 
-    // 向量模式：模型不可用 → 同样降级（显式声明原因）
-    let Some(embedder) = crate::embed::try_load_embedder() else {
+    // v2.20 向量模式：模型未就绪（后台预热中/加载失败）→ **立即**降级关键词，绝不同步阻塞等模型
+    // （外部实测：旧实现每次 recall 在调用线程内加载模型，首调 120s 挂死——降级承诺必须保响应）
+    crate::embed::warm_up_embedder();
+    let Some(embedder) = crate::embed::embedder_ready() else {
+        let reason = if crate::embed::embedder_failed() {
+            "嵌入模型不可用（加载失败），已降级关键词检索"
+        } else {
+            "嵌入模型后台加载中，本次已降级关键词检索（就绪后自动切回向量召回）"
+        };
         return Ok(keyword_fallback_reason(
             ctx,
             &snap,
             q,
             k,
             include_archived,
-            "嵌入模型不可用（模型缺失或加载失败）",
+            reason,
         ));
     };
     recall_vector(ctx, &snap, q, k, include_archived, embedder.as_ref())
@@ -488,6 +495,37 @@ mod tests {
         )
         .unwrap();
         crate::index::content_hash(&raw)
+    }
+
+    #[test]
+    fn recall_degrades_immediately_while_embedder_loading() {
+        // v2.20 外部实测修复：索引已建但模型加载中 → 立即关键词降级（绝不同步阻塞等模型）
+        let (tmp, ctx) = setup();
+        write_node(&tmp, "a", "目标节点", "2026-09-01T10:00:00+08:00");
+        {
+            let mut ix = ctx.index.lock().unwrap();
+            ix.upsert("a", "h", vec![1.0, 0.0], false, false).unwrap();
+            drop(ix);
+        }
+        crate::embed::set_embedder_state_for_test(Some(crate::embed::EmbedderState::Loading));
+        let t0 = std::time::Instant::now();
+        let v = recall(&ctx, "目标", None, false).unwrap();
+        assert!(t0.elapsed().as_millis() < 2000, "加载中降级必须立即返回，不得阻塞等模型");
+        assert_eq!(v["degraded"], true, "必须显式声明降级：{v}");
+        assert_eq!(v["mode"], "keyword");
+        assert!(
+            v["degrade_reason"].as_str().unwrap().contains("加载中"),
+            "降级原因应说明模型加载中：{v}"
+        );
+        assert_eq!(v["results"][0]["id"], "a", "关键词降级仍应命中：{v}");
+        // 失败态原因不同
+        crate::embed::set_embedder_state_for_test(Some(crate::embed::EmbedderState::Failed));
+        let v2 = recall(&ctx, "目标", None, false).unwrap();
+        assert!(
+            v2["degrade_reason"].as_str().unwrap().contains("不可用"),
+            "失败态原因：{v2}"
+        );
+        crate::embed::set_embedder_state_for_test(None);
     }
 
     #[test]

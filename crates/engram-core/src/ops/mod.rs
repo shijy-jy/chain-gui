@@ -258,6 +258,52 @@ fn ensure_not_frozen(fm: &serde_yaml::Mapping, id: &str) -> Result<(), String> {
 pub fn get_overview(ctx: &Workspace) -> Result<Value, String> {
     ctx.bump_clock()?;
     let snap = ctx.scan()?;
+    // v2.20 入口节点推荐（外部实测建议）：总索引/总览类节点（标题含索引关键词）+
+    // 高连接度节点——「地图先行」导航的二级路由。评分 = 标题命中×10 + 度数，取前 5。
+    // v2.20 入口节点推荐（外部实测建议）：总索引/总览类节点（标题含索引关键词）+
+    // 高连接度节点——「地图先行」导航的二级路由。评分 = 标题命中×10 + 度数，取前 5；
+    // 纯叶子（度 1 且非索引标题）不进推荐；候选为空（链式小图）退化为按度排序。
+    let mut ranked: Vec<(usize, usize, &crate::model::node::Node)> = snap
+        .nodes
+        .iter()
+        .map(|n| {
+            let degree = snap
+                .edges
+                .iter()
+                .filter(|e| e.parent == n.id || e.child == n.id)
+                .count();
+            let title = n.title.to_lowercase();
+            let hub_hit = ["索引", "总览", "总纲", "框架", "地图", "index", "overview", "hub"]
+                .iter()
+                .any(|k| title.contains(k));
+            let score = (if hub_hit { 100 } else { 0 }) + degree;
+            (score, degree, n)
+        })
+        .filter(|(_, d, _)| *d > 0)
+        .collect();
+    ranked.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| b.1.cmp(&a.1))
+            .then_with(|| a.2.id.cmp(&b.2.id))
+    });
+    let mut hubs = ranked.clone();
+    hubs.retain(|(s, d, _)| *d >= 2 || *s >= 100);
+    if hubs.is_empty() {
+        hubs = ranked;
+    }
+    let hubs: Vec<Value> = hubs
+        .into_iter()
+        .take(5)
+        .map(|(_, d, n)| {
+            json!({
+                "id": n.id,
+                "title": n.title,
+                "degree": d,
+                "children_count": snap.nodes.iter().filter(|c| c.parent.as_deref() == Some(n.id.as_str())).count(),
+                "has_code_map": n.code_map.is_some(),
+            })
+        })
+        .collect();
     Ok(json!({
         "workspace": ctx.root.display().to_string(),
         "mode": ctx.mode_str(),
@@ -266,6 +312,7 @@ pub fn get_overview(ctx: &Workspace) -> Result<Value, String> {
         "active_chain": snap.manifest.active_chain,
         "chain_health": snap.manifest.chain_health,
         "guide_version": ctx.guide_version(),
+        "entry_hubs": hubs,
     }))
 }
 
@@ -363,6 +410,17 @@ pub fn read_node(
     id: &str,
     include_neighbors: Option<bool>,
 ) -> Result<Value, String> {
+    read_node_full(ctx, id, include_neighbors, None)
+}
+
+/// read_node 全参数版（v2.20）：include_code_map=true 时附代码骨架——纯 MCP 客户端
+/// 此前拿不到 .chain/code_map/ 派生物，实现级还原被工具封顶（外部实测反馈）
+pub fn read_node_full(
+    ctx: &Workspace,
+    id: &str,
+    include_neighbors: Option<bool>,
+    include_code_map: Option<bool>,
+) -> Result<Value, String> {
     ctx.bump_clock()?;
     if !is_safe_id(id) {
         return Err("节点 id 非法（仅允许字母/数字/连字符/下划线）".into());
@@ -396,6 +454,13 @@ pub fn read_node(
             .map(|n| json!({"id": n.id, "title": n.title, "rel": n.rel}))
             .collect();
         v["neighbors"] = json!({ "parent": parent_node, "children": children });
+    }
+    // v2.20 代码骨架通道：挂载节点的骨架派生文件随读（无骨架/未挂载 → null，不报错）
+    if include_code_map.unwrap_or(false) {
+        v["code_map_md"] = crate::code_map::read_skeleton_md(&ctx.root, id)
+            .map(Value::String)
+            .unwrap_or(Value::Null);
+        v["code_map_stale"] = Value::Bool(crate::code_map::is_stale(&ctx.root, id));
     }
     Ok(v)
 }
@@ -1513,6 +1578,60 @@ mod tests {
         write_node(&tmp, "island", "孤岛", "null", "contains");
         let p2 = read_path(&ctx, "a", "island").unwrap();
         assert_eq!(p2["found"], false);
+    }
+
+    #[test]
+    fn read_node_full_includes_code_map_channel() {
+        // v2.20 外部实测缺口②：纯 MCP 客户端读骨架（此前只有 GUI 通道）
+        let tmp = setup("dev");
+        let content = "---\nid: a\ntype: note\ntitle: 概念节点\nparent: null\nrel: contains\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\ncode_map: lib.rs\n---\n\n# 概念节点\n\n一句概述。\n";
+        fs::write(tmp.path().join(".chain/nodes/a.md"), content).unwrap();
+        fs::create_dir_all(tmp.path().join(".chain/code_map")).unwrap();
+        fs::write(
+            tmp.path().join(".chain/code_map/a.md"),
+            "# 代码骨架：a（rust）\n\n- `fn compute`（lib.rs:4:1）\n",
+        )
+        .unwrap();
+        let ctx = ctx_of(&tmp);
+        let v = read_node_full(&ctx, "a", None, Some(true)).unwrap();
+        assert!(
+            v["code_map_md"].as_str().unwrap().contains("fn compute"),
+            "{v}"
+        );
+        assert_eq!(v["code_map_stale"], false);
+        // 旧签名不带骨架字段
+        let v2 = read_node(&ctx, "a", None).unwrap();
+        assert!(v2.get("code_map_md").is_none(), "{v2}");
+        // 未挂载节点 → null 不报错
+        fs::write(
+            tmp.path().join(".chain/nodes/b.md"),
+            "---\nid: b\ntype: note\ntitle: 无挂载\nparent: null\nrel: contains\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\n---\n\n# 无挂载\n",
+        )
+        .unwrap();
+        let v3 = read_node_full(&ctx, "b", None, Some(true)).unwrap();
+        assert!(v3["code_map_md"].is_null(), "{v3}");
+    }
+
+    #[test]
+    fn get_overview_recommends_entry_hubs() {
+        // v2.20 外部实测建议③：get_overview 直接推荐总索引/高连接度入口
+        let tmp = setup("dev");
+        write_node(&tmp, "root", "知识库索引", "null", "contains");
+        write_node(&tmp, "hub", "框架总览", "root", "contains");
+        write_node(&tmp, "leaf1", "叶1", "hub", "contains");
+        write_node(&tmp, "leaf2", "叶2", "hub", "contains");
+        write_node(&tmp, "other", "普通节点", "root", "contains");
+        let ctx = ctx_of(&tmp);
+        let o = get_overview(&ctx).unwrap();
+        let hubs = o["entry_hubs"].as_array().unwrap();
+        assert!(!hubs.is_empty(), "{o}");
+        // 标题命中（总览）+ 高连接度 → 排最前；度 0 节点不进推荐
+        assert_eq!(hubs[0]["id"], "hub", "{o}");
+        assert_eq!(hubs[0]["degree"], 3, "{o}");
+        assert!(
+            hubs.iter().all(|h| h["id"] != "leaf1" && h["id"] != "leaf2"),
+            "叶节点不应被推荐：{o}"
+        );
     }
 
     #[test]

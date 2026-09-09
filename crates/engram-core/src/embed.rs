@@ -108,6 +108,66 @@ pub fn try_load_embedder() -> Option<Box<dyn Embedder>> {
     load_local_embedder(None).ok()
 }
 
+// ── v2.20 共享嵌入器状态机（修复外部实测「recall 首次调用 120s 挂死」）────────
+// 模型加载（fastembed 初始化）是同步重活，原实现每次 recall 在调用线程内加载 → 客户端超时。
+// 现改为：首次 warm_up 后台线程加载一次，全局共享；未就绪时 recall 立即降级关键词（显式原因），
+// 就绪后自动切回向量——「索引未建立/模型不可用自动降级」的承诺真正兑现（不再挂死）。
+
+pub enum EmbedderState {
+    Loading,
+    Ready(std::sync::Arc<dyn Embedder>),
+    Failed,
+}
+
+static EMBEDDER_STATE: std::sync::RwLock<Option<EmbedderState>> = std::sync::RwLock::new(None);
+static WARMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 后台预热（幂等）：首次调用 spawn 线程加载模型；加载期间/失败时调用方走关键词降级。
+pub fn warm_up_embedder() {
+    if WARMED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| {
+        let state = match load_local_embedder(None) {
+            Ok(e) => EmbedderState::Ready(std::sync::Arc::from(e)),
+            Err(_) => EmbedderState::Failed,
+        };
+        if let Ok(mut g) = EMBEDDER_STATE.write() {
+            *g = Some(state);
+        }
+    });
+}
+
+/// 就绪即返回共享实例；Loading/Failed/未预热返回 None。
+pub fn embedder_ready() -> Option<std::sync::Arc<dyn Embedder>> {
+    let g = EMBEDDER_STATE.read().ok()?;
+    match g.as_ref() {
+        Some(EmbedderState::Ready(e)) => Some(e.clone()),
+        _ => None,
+    }
+}
+
+/// 是否已确定失败（用于区分「加载中」与「不可用」的降级原因文案）。
+pub fn embedder_failed() -> bool {
+    matches!(
+        EMBEDDER_STATE
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|s| matches!(s, EmbedderState::Failed))),
+        Some(true)
+    )
+}
+
+/// 测试钩子：强制状态（单测断言降级原因用；生产路径只经 warm_up 写入）。
+/// 同时置 WARMED=true 抑制真实加载线程——避免后台真模型加载与断言的竞态。
+#[cfg(test)]
+pub fn set_embedder_state_for_test(state: Option<EmbedderState>) {
+    WARMED.store(true, std::sync::atomic::Ordering::SeqCst);
+    if let Ok(mut g) = EMBEDDER_STATE.write() {
+        *g = state;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

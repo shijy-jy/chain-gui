@@ -7,7 +7,8 @@ use crate::guide::{AI_GUIDE_DEV_VERSION, AI_GUIDE_VERSION};
 /// 并同步更新 docs/test-golden/engram-mcp-golden.json。
 /// v3（M7'）：archive_node / unlink_nodes（12 工具），golden 16 条。
 /// v4（M8'）：consolidate（13 工具），golden 18 条。
-pub const TOOL_CONTRACT_VERSION: u32 = 4;
+/// v5（v2.20）：read_node 增 include_code_map（骨架通道）；get_overview 增 entry_hubs 入口推荐。
+pub const TOOL_CONTRACT_VERSION: u32 = 5;
 
 /// 索引/schema 格式版本（宪法第 9 条；§10⑤ 起已实现，见 crate::schema）
 pub const SCHEMA_SPEC_VERSION: Option<&str> = Some("1.1");
@@ -70,7 +71,7 @@ mod tests {
             "格式应为 app+hash 开头：{line}"
         );
         assert!(
-            line.contains("tool-contract v4"),
+            line.contains(&format!("tool-contract v{TOOL_CONTRACT_VERSION}")),
             "应含工具契约版本：{line}"
         );
         assert!(

@@ -39,7 +39,7 @@ fn version_exits_0_with_matrix() {
     assert_eq!(code, 0);
     assert!(stdout.contains("schema v1.1"), "应含 schema v1.1：{stdout}");
     assert!(
-        stdout.contains("tool-contract v4"),
+        stdout.contains("tool-contract v5"),
         "应含工具契约版本：{stdout}"
     );
     assert!(stdout.contains("git "), "应含 git 哈希：{stdout}");

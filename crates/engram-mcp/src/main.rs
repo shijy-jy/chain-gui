@@ -56,6 +56,9 @@ struct ReadNodeParams {
     id: String,
     /// true 时附父节点与子节点列表
     include_neighbors: Option<bool>,
+    /// v2.20：true 时附代码骨架（code_map_md 全文 + code_map_stale 陈旧标记；
+    /// 未挂载骨架时为 null——概念节点的可执行证据，实现级还原走这里）
+    include_code_map: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -176,13 +179,13 @@ impl EngramMcp {
     }
 
     #[tool(
-        description = "读取单个节点完整内容与元数据（含乐观锁用的 updated 字段）。include_neighbors=true 时附父/子节点列表。返回 JSON 文本。"
+        description = "读取单个节点完整内容与元数据（含乐观锁用的 updated 字段）。include_neighbors=true 时附父/子节点列表；include_code_map=true 时附代码骨架（code_map_md/code_map_stale，未挂载为 null）。返回 JSON 文本。"
     )]
     async fn read_node(
         &self,
         Parameters(p): Parameters<ReadNodeParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        to_result(mcp::read_node(&self.ctx, &p.id, p.include_neighbors))
+        to_result(mcp::read_node_full(&self.ctx, &p.id, p.include_neighbors, p.include_code_map))
     }
 
     #[tool(
@@ -362,6 +365,9 @@ async fn main() -> anyhow::Result<()> {
         ctx.mode_str(),
         ctx.guide_version(),
     );
+
+    // v2.20 后台预热嵌入模型：recall 首调不再同步加载模型（外部实测 120s 挂死修复）
+    engram_core::embed::warm_up_embedder();
 
     let server = EngramMcp::new(ctx);
     let service = server.serve(stdio()).await.context("stdio 传输启动失败")?;
