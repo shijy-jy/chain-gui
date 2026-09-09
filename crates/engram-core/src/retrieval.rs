@@ -76,33 +76,44 @@ fn recall_vector(
 
     // 按需重嵌（框架 §4/§5.10，M6' 审核建议 #2）：stale 标记 / 哈希不符 / 索引缺失的
     // 候选节点在 recall 时批量重嵌并落盘；写路径已显式 mark_stale，此处兜底外部编辑。
+    // code_map 节点哈希绑定「title+body+骨架」检索文本（骨架变化自动触发重嵌）；
+    // 无挂载节点保持文件哈希旧约定（存量索引不受影响）。
     {
         let mut ix = ctx.index.lock().map_err(|e| format!("索引锁失败：{e}"))?;
-        let stale_list: Vec<(&crate::model::node::Node, bool)> = {
+        let stale_list: Vec<(&crate::model::node::Node, String, String)> = {
             let entries = ix.entries()?;
             let by_id: std::collections::HashMap<&str, &crate::index::IndexEntry> =
                 entries.iter().map(|(e, _)| (e.id.as_str(), e)).collect();
             candidates
                 .iter()
-                .map(|n| {
+                .filter_map(|n| {
+                    let (text, hash) = if n.code_map.is_some() {
+                        let (t, h) = crate::code_map::node_retrieval_text(
+                            &ctx.root, &n.id, &n.title, &n.body, true,
+                        );
+                        (t, h)
+                    } else {
+                        (format!("{}\n{}", n.title, n.body), n.content_hash.clone())
+                    };
                     match by_id.get(n.id.as_str()) {
-                        None => (n, true), // 索引缺失（新建节点等）→ 重嵌
-                        Some(e) => (n, e.stale || e.hash != n.content_hash),
+                        None => Some((*n, text, hash)), // 索引缺失（新建节点等）→ 重嵌
+                        Some(e) => {
+                            if e.stale || e.hash != hash {
+                                Some((*n, text, hash))
+                            } else {
+                                None
+                            }
+                        }
                     }
                 })
-                .filter(|(_, stale)| *stale)
-                .map(|(n, s)| (*n, s))
                 .collect()
         };
         if !stale_list.is_empty() {
-            let texts: Vec<String> = stale_list
-                .iter()
-                .map(|(n, _)| format!("{}\n{}", n.title, n.body))
-                .collect();
+            let texts: Vec<String> = stale_list.iter().map(|(_, t, _)| t.clone()).collect();
             let vecs = embedder.embed(&texts).map_err(|e| format!("{e}"))?;
-            for ((n, _), v) in stale_list.iter().zip(vecs) {
+            for ((n, _, hash), v) in stale_list.iter().zip(vecs) {
                 // derived 标记随节点走（T9：蒸馏产物检索默认降权 ×0.85）
-                ix.upsert(&n.id, &n.content_hash, v, n.archived, n.derived)?;
+                ix.upsert(&n.id, hash, v, n.archived, n.derived)?;
             }
             ix.flush()?;
         }
@@ -596,6 +607,59 @@ mod tests {
         let mut ix = ctx.index.lock().unwrap();
         let entries = ix.entries().unwrap();
         assert_eq!(entries[0].0.hash, node_hash(&tmp, "a"), "哈希不符应重嵌刷新");
+    }
+
+    #[test]
+    fn recall_vector_reembeds_on_skeleton_change() {
+        // 检索集成（指南 v10 附）：code_map 节点哈希绑定 title+body+骨架——
+        // 骨架重建 → 哈希变化 → 按需重嵌（嵌入文本含骨架）。
+        let (tmp, ctx) = setup();
+        fs::create_dir_all(tmp.path().join(".chain").join("code_map")).unwrap();
+        let node_content = "---\nid: a\ntype: note\ntitle: 概念节点\nparent: null\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\ncode_map: lib.rs\n---\n\n# 概念节点\n\n一句概述。\n";
+        fs::write(tmp.path().join(".chain/nodes/a.md"), node_content).unwrap();
+        fs::write(
+            tmp.path().join(".chain/code_map/a.md"),
+            "# 代码骨架：a（rust）\n\n- `fn compute`（lib.rs:4:1）\n",
+        )
+        .unwrap();
+        let snap = ctx.scan().unwrap();
+        let node = snap.nodes.iter().find(|n| n.id == "a").unwrap();
+        assert!(node.code_map.is_some());
+        let fresh_hash =
+            crate::code_map::node_retrieval_text(&tmp.path(), "a", &node.title, &node.body, true).1;
+        // 索引哈希与检索文本一致 + 存正交向量 → 不重嵌（得分 0 低于 0.35 阈值 → 无结果）
+        {
+            let mut ix = ctx.index.lock().unwrap();
+            ix.upsert("a", &fresh_hash, vec![0.0, 1.0], false, false)
+                .unwrap();
+            drop(ix);
+        }
+        ctx.stats
+            .lock()
+            .unwrap()
+            .touch("a", crate::stats::TouchKind::ReadHit)
+            .unwrap();
+        let stub = Stub {
+            dim: 2,
+            value: vec![1.0, 0.0],
+        };
+        let v = recall_vector(&ctx, &snap, "概念", 10, false, &stub).unwrap();
+        assert_eq!(v["total"], 0, "哈希一致不应重嵌：{v}");
+
+        // 骨架变化 → 检索哈希变化 → 重嵌（stub 向量与 query 同向）→ 命中
+        fs::write(
+            tmp.path().join(".chain/code_map/a.md"),
+            "# 代码骨架：a（rust）\n\n- `fn compute2`（lib.rs:4:1）\n",
+        )
+        .unwrap();
+        let v2 = recall_vector(&ctx, &snap, "概念", 10, false, &stub).unwrap();
+        assert_eq!(v2["results"][0]["id"], "a", "骨架变化应触发重嵌并命中：{v2}");
+        let new_hash =
+            crate::code_map::node_retrieval_text(&tmp.path(), "a", &node.title, &node.body, true).1;
+        assert_ne!(new_hash, fresh_hash, "骨架变化必须改变检索哈希");
+        let mut ix = ctx.index.lock().unwrap();
+        let entries = ix.entries().unwrap();
+        assert_eq!(entries[0].0.hash, new_hash, "重嵌后哈希应绑定新检索文本");
     }
 
     #[test]

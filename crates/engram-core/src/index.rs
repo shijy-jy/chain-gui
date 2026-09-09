@@ -289,7 +289,7 @@ impl IndexStore {
         store.rows.as_mut().unwrap().clear();
         let mut re_embedded = 0usize;
         let mut skipped = 0usize;
-        // (id, 嵌入文本, raw 文件内容, archived, derived)；nodes/ 先入，archive/ 后入（同 id 去重，首见为准）
+        // (id, 嵌入文本, 检索哈希, archived, derived)；nodes/ 先入，archive/ 后入（同 id 去重，首见为准）
         let mut collected: Vec<(String, String, String, bool, bool)> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let collect_dir = |dir: &Path,
@@ -344,7 +344,18 @@ impl IndexStore {
                     .and_then(|v| v.as_str())
                     .unwrap_or(&id)
                     .to_string();
-                collected.push((id, title + "\n" + &body, raw, archived, derived));
+                // code_map 节点：嵌入文本含代码骨架，哈希随骨架走（指南 v10 附「检索语义」）；
+                // 无挂载节点保持旧口径（title+body / 文件哈希），存量索引不失效。
+                let has_code = fm
+                    .get(serde_yaml::Value::String("code_map".into()))
+                    .and_then(|v| v.as_str())
+                    .is_some();
+                let (text, hash) = if has_code {
+                    crate::code_map::node_retrieval_text(root, &id, &title, &body, true)
+                } else {
+                    (format!("{title}\n{body}"), content_hash(&raw))
+                };
+                collected.push((id, text, hash, archived, derived));
             }
             Ok(())
         };
@@ -365,8 +376,8 @@ impl IndexStore {
             let vecs = embedder
                 .embed(&texts)
                 .map_err(|e| format!("全库重嵌失败：{e}"))?;
-            for ((id, _, raw, archived, derived), v) in collected.iter().zip(vecs) {
-                store.upsert(id, &content_hash(raw), v, *archived, *derived)?;
+            for ((id, _, hash, archived, derived), v) in collected.iter().zip(vecs) {
+                store.upsert(id, hash, v, *archived, *derived)?;
                 re_embedded += 1;
             }
         }

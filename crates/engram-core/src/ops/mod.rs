@@ -305,6 +305,15 @@ pub(crate) fn search_impl(
             score = score.max(1);
             matched_on.push("body");
         }
+        // 代码骨架进入关键词检索（指南 v10 附「检索语义」）：模块名/函数名/签名命中
+        if n.code_map.is_some() {
+            if let Some(md) = crate::code_map::read_skeleton_md(&ctx.root, &n.id) {
+                if md.to_lowercase().contains(&q) {
+                    score = score.max(1);
+                    matched_on.push("code");
+                }
+            }
+        }
         if score > 0 {
             hits.push((
                 score,
@@ -984,7 +993,13 @@ pub fn node_memory_info(ctx: &Workspace, id: &str) -> Result<Value, String> {
     };
     let index = {
         let mut ix = ctx.index.lock().map_err(|e| format!("索引锁失败：{e}"))?;
-        ix.entry_status(id, &node.content_hash)?
+        // code_map 节点哈希绑定检索文本（title+body+骨架），否则信息栏会恒显陈旧
+        let hash = if node.code_map.is_some() {
+            crate::code_map::node_retrieval_text(&ctx.root, &node.id, &node.title, &node.body, true).1
+        } else {
+            node.content_hash.clone()
+        };
+        ix.entry_status(id, &hash)?
     };
     let last_touch_ago = match (mem.memory_now as i64, mem.last_touch) {
         (now, Some(t)) => (now - t).max(0),
@@ -1498,6 +1513,33 @@ mod tests {
         write_node(&tmp, "island", "孤岛", "null", "contains");
         let p2 = read_path(&ctx, "a", "island").unwrap();
         assert_eq!(p2["found"], false);
+    }
+
+    #[test]
+    fn search_hits_code_map_skeleton() {
+        // 检索集成（指南 v10 附「检索语义」）：模块名/函数名/签名进入关键词检索
+        let tmp = setup("dev");
+        let content = "---\nid: a\ntype: note\ntitle: 概念节点\nparent: null\nrel: contains\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\ncode_map: lib.rs\n---\n\n# 概念节点\n\n一句概述。\n";
+        fs::write(tmp.path().join(".chain/nodes/a.md"), content).unwrap();
+        fs::create_dir_all(tmp.path().join(".chain/code_map")).unwrap();
+        fs::write(
+            tmp.path().join(".chain/code_map/a.md"),
+            "# 代码骨架：a（rust）\n\n- `fn compute`（lib.rs:4:1）\n",
+        )
+        .unwrap();
+        let ctx = ctx_of(&tmp);
+
+        let r = search(&ctx, "compute", None).unwrap();
+        assert_eq!(r["total"], 1, "{r}");
+        assert_eq!(r["results"][0]["id"], "a");
+        let matched = r["results"][0]["matched_on"].as_array().unwrap();
+        assert!(
+            matched.iter().any(|m| m == "code"),
+            "骨架命中应标注 code：{r}"
+        );
+        // 无挂载节点不受影响：正文里没有的词不命中
+        let r2 = search(&ctx, "不存在的函数名", None).unwrap();
+        assert_eq!(r2["total"], 0);
     }
 
     #[test]

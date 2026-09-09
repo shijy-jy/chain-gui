@@ -595,6 +595,28 @@ pub fn read_skeleton_md(root: &Path, node_id: &str) -> Option<String> {
     }
 }
 
+/// 检索集成（指南 v10 附「检索语义」）：节点检索文本 = title + body + 代码骨架（如有）——
+/// 模块名/函数名/签名随骨架进入召回与关键词检索（骨架即概念的可执行证据）。
+/// 返回 (检索文本, 检索哈希)。哈希与文本绑定：骨架重建 → 哈希变化 → 召回按需重嵌。
+/// 无 code_map 的节点沿用既有口径（title+body / 文件哈希），调用方自行保持旧约定。
+pub fn node_retrieval_text(
+    root: &Path,
+    id: &str,
+    title: &str,
+    body: &str,
+    has_code_map: bool,
+) -> (String, String) {
+    let mut text = format!("{title}\n{body}");
+    if has_code_map {
+        if let Some(md) = read_skeleton_md(root, id) {
+            text.push('\n');
+            text.push_str(&md);
+        }
+    }
+    let hash = crate::index::content_hash(&text);
+    (text, hash)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
