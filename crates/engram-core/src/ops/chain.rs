@@ -39,7 +39,8 @@ pub fn init_chain(root: &Path, mode: ScanMode) -> Result<ChainSnapshot, String> 
         );
         atomic_write(&example, &content).map_err(|e| format!("写示例节点失败：{e}"))?;
     }
-    // AI 使用指南：分析模式版本对比刷新（v1.2）；开发模式写知识库指南（v2.1，缺省才写、不刷新）
+    // AI 使用指南：分析模式版本对比刷新（v1.2）；开发模式缺省才写（v2.1）。
+    // v2.19 开发模式同样「过期即刷新」——旧版知识库指南（如 v2）缺代码内化等新协议，必须跟上
     if !mode.is_dev() {
         refresh_ai_guide_if_stale(root)?;
     } else {
@@ -47,6 +48,14 @@ pub fn init_chain(root: &Path, mode: ScanMode) -> Result<ChainSnapshot, String> 
         if !guide.exists() {
             fs::write(&guide, AI_GUIDE_DEV)
                 .map_err(|e| format!("写开发模式 AI_GUIDE.md 失败：{e}"))?;
+        } else {
+            match crate::guide::parse_guide_version(&fs::read_to_string(&guide).unwrap_or_default()) {
+                Some(v) if v >= crate::guide::AI_GUIDE_DEV_VERSION => {}
+                _ => {
+                    fs::write(&guide, AI_GUIDE_DEV)
+                        .map_err(|e| format!("刷新开发模式 AI_GUIDE.md 失败：{e}"))?;
+                }
+            }
         }
     }
 

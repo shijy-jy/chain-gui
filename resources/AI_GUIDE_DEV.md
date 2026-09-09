@@ -1,4 +1,4 @@
-<!-- CHAIN_GUIDE_DEV_VERSION: 6 -->
+<!-- CHAIN_GUIDE_DEV_VERSION: 7 -->
 # 开发模式 AI 使用指南（知识库搭建）
 
 > 本指南适用于 `.chain/.mode = dev` 的开发模式工作区：自由知识图谱、个人知识库搭建。
@@ -129,6 +129,7 @@ evidence: [artifacts/贝叶斯定理/推导笔记.pdf]   ← 可省略
 - **语言矩阵（自动检测，挂载免手选）**：rust / csharp / cpp（含 hlsl·glsl·cuda 同解析器）；`.cs` 与 shader 族并存目录自动判 **unity**（Unity 工程专用双解析器）
 - **挂载**：在概念节点信息栏「代码」点「挂载源码文件…」选择源码（或手工在 frontmatter 写 `code_map: <源码相对路径>`，文件或目录均可；**v6 起允许绝对路径**——跨盘挂载如 G 盘知识库 ← D 盘 Unity 工程）；**正文只放一句概述**，公开接口与调用关系由骨架派生文件承载
 - **生成/刷新**：信息栏「刷新骨架」或 `engram-cli sync-code-map --workspace <工程根> [--lang auto|rust|csharp|cpp|hlsl|glsl|cuda|unity]` → 公开接口 + 签名 + 文件:行:列 + 调用边 + Mermaid 图，落 `.chain/code_map/<id>.md`
+- **骨架浏览**：信息栏「代码」栏可滚动阅读；内容多时点 **⧉ 展开全屏页**（覆盖整个窗口的大字体全量阅读，Esc/✕ 关闭）
 - **检索语义**：模块名/函数名/签名进入 recall 与关键词检索；骨架即该概念的可执行证据
 - **stale 兜底**：源码变更后骨架标 `stale: true`——AI 进场发现 stale，**先刷新再基于最新骨架工作**（安静优先），绝不基于过期骨架做判断
 - 骨架是**派生物**（可重建、可删除——重跑即恢复），不进事实源；改源码不改骨架不是知识变更，同步一下即可

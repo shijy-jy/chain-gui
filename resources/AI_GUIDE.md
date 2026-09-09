@@ -1,4 +1,4 @@
-<!-- CHAIN_GUIDE_VERSION: 11 -->
+<!-- CHAIN_GUIDE_VERSION: 12 -->
 # AI 工程实践哲学指南（必读 · 思维宪法）
 
 > **使用时机**：在任何 AI Agent、助手、工具即将进入工程实践（接手项目、调用工具、写代码、操作文件、与用户协作）**之前**，先通读本文。它不是操作手册，而是**思维宪法**——帮助 AI 在原则性与灵活性之间保持动态统一，避免两种典型堕落：教条主义（死守流程不顾现实）与机会主义（为进度丢原则）。
@@ -591,6 +591,7 @@ parent: t-002
 - **语言矩阵（自动检测，挂载免手选）**：rust / csharp / cpp（含 hlsl·glsl·cuda 同解析器）；`.cs` 与 shader 族（.shader/.hlsl/.compute/.cginc）并存目录自动判 **unity**（.cs 走 C#、shader 走 C++ 双解析器一次提取，Unity 工程专用）
 - **挂载**：在概念节点信息栏「代码」点「挂载源码文件…」（或手工在 frontmatter 写 `code_map: <源码相对路径>`，相对工作区根；**v11 起允许绝对路径**——跨盘挂载如 G 盘工作区 ← D 盘 Unity 工程；文件或目录均可）；**正文只放一句概述**——公开接口与调用关系由骨架派生文件承载，正文不抄代码
 - **生成/刷新**：信息栏「刷新骨架」或 `engram-cli sync-code-map --workspace <工作区根> [--lang auto|rust|csharp|cpp|hlsl|glsl|cuda|unity]`。骨架落 `.chain/code_map/<node-id>.md`：公开接口（rust pub fn/struct/trait/enum/impl；C# 类型/公开方法/属性；C++ 类/结构/枚举/非 static 函数 + 签名 + 文件:行:列）+ 调用边 + Mermaid 图
+- **骨架浏览**：信息栏「代码」栏可滚动阅读；内容多时点 **⧉ 展开全屏页**（覆盖整个窗口的大字体全量阅读，Esc/✕ 关闭）
 - **检索语义**：模块名/函数名/签名进入检索阶梯；骨架即该概念的可执行证据
 - **stale 兜底**：源码变更后骨架被标 `stale: true`——AI 进场发现 stale，**先刷新再工作**（安静优先），不基于过期骨架做判断
 - 骨架是**派生物**（`.chain/code_map/`，可重建、不进事实源）：删除后重跑 sync-code-map 即恢复；改源码不改骨架不是知识变更，重跑同步即可
