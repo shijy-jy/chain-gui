@@ -1,6 +1,6 @@
 [package]
 name = "engram-core"
-version = "2.11.0"
+version = "2.12.0"
 description = "Engram 领域核心：唯一知道「规则」的纯库（零 Tauri、零 MCP 依赖）"
 authors = ["shijy-jy"]
 license = "MIT"
@@ -18,9 +18,12 @@ walkdir = "2"
 notify = "8.2.0"
 # 本地嵌入（记忆层 L2 语义召回；精确锁防 rc 漂移，框架文档 T10）
 fastembed = "=6.0.3"
-# M-Code 代码骨架（框架 T12 拍板试点语言 Rust；tree-sitter 提取 pub 接口/调用边）
-tree-sitter = "0.22"
-tree-sitter-rust = "0.21"
+# M-Code 代码骨架（框架 T12 试点 Rust；v2.16 扩展 C#/C++/HLSL——用户工程语言覆盖）
+# 0.23 统一 LanguageFn 矩阵（旧 0.22 与 LanguageFn 语法 crate 不互通）
+tree-sitter = "0.23"
+tree-sitter-rust = "0.23"
+tree-sitter-c-sharp = "=0.23.1"
+tree-sitter-cpp = "0.23"
 
 [dev-dependencies]
 tempfile = "3"

@@ -184,10 +184,10 @@ fn run_reindex(args: &[String]) -> i32 {
 /// sync-code-map 子命令（M-Code，框架 §5.8/T13）：提取节点 code_map frontmatter 引用的源码骨架。
 /// 退出码：0 成功（含「无挂载节点」）；5 非工作区/参数非法；1 提取/落盘失败。
 fn run_sync_code_map(args: &[String]) -> i32 {
-    const USAGE_CM: &str =
-        "用法：engram-cli sync-code-map --workspace <工作区目录> [--lang rust] [--node <id>]";
+    const USAGE_CM: &str = "用法：engram-cli sync-code-map --workspace <工作区目录> [--lang auto|rust|csharp|cpp|hlsl|glsl|cuda] [--node <id>]";
     let mut workspace: Option<String> = None;
-    let mut lang = "rust".to_string();
+    // v2.16 多语言：默认 auto = 按各节点 code_map 路径自动检测（单文件扩展名/目录占比）
+    let mut lang = "auto".to_string();
     let mut node: Option<String> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -205,8 +205,11 @@ fn run_sync_code_map(args: &[String]) -> i32 {
         eprintln!("缺少 --workspace <工作区目录>\n{USAGE_CM}");
         return 5;
     };
-    if lang != "rust" {
-        eprintln!("MIGRATE_FAILED: --lang 仅支持 rust（试点语言拍板，框架 T12）");
+    if !matches!(
+        lang.as_str(),
+        "auto" | "rust" | "csharp" | "cpp" | "hlsl" | "glsl" | "cuda" | "unity"
+    ) {
+        eprintln!("MIGRATE_FAILED: --lang 仅支持 auto/rust/csharp/cpp/hlsl/glsl/cuda/unity");
         return 1;
     }
     let root = Path::new(&ws);
@@ -259,11 +262,13 @@ fn run_sync_code_map(args: &[String]) -> i32 {
     let mut ok = 0usize;
     for id in &targets {
         let was_stale = engram_core::code_map::is_stale(root, id);
-        match engram_core::code_map::refresh_code_map(root, id) {
+        let forced = if lang == "auto" { None } else { Some(lang.as_str()) };
+        match engram_core::code_map::refresh_code_map_lang(root, id, forced) {
             Ok(sk) => {
                 println!(
-                    "{}：exports={} call_edges={}{} → .chain/code_map/{}.md",
+                    "{}：lang={} exports={} call_edges={}{} → .chain/code_map/{}.md",
                     id,
+                    sk.language,
                     sk.exports.len(),
                     sk.call_edges.len(),
                     if was_stale { "（刷新前 stale，已重建）" } else { "" },

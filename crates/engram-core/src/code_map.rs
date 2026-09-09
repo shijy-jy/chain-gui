@@ -49,26 +49,164 @@ fn stale_marker(root: &Path, node_id: &str) -> std::path::PathBuf {
 
 // ── tree-sitter 提取 ───────────────────────────────────────
 
-fn ts_language() -> Result<tree_sitter::Language, String> {
-    Ok(tree_sitter_rust::language())
+/// 语言矩阵（v2.16 扩展：rust / csharp / cpp；hlsl·glsl·cuda 走 C 系语法同一解析器）
+fn ts_language(lang: &str) -> Result<tree_sitter::Language, String> {
+    match lang {
+        "rust" => Ok(tree_sitter_rust::LANGUAGE.into()),
+        "csharp" => Ok(tree_sitter_c_sharp::LANGUAGE.into()),
+        "cpp" | "hlsl" | "glsl" | "cuda" => Ok(tree_sitter_cpp::LANGUAGE.into()),
+        other => Err(format!(
+            "不支持的语言「{other}」（支持 rust / csharp / cpp / hlsl / glsl / cuda）"
+        )),
+    }
+}
+
+/// 按源码路径自动判语言：有已知代码扩展名 → 直接按扩展名判（路径可尚未创建）；
+/// 目录 → 浅层统计扩展名占比；.cs 与 shader 族并存 → "unity"（双解析器一次提取）
+pub fn detect_lang(path: &Path) -> String {
+    let ext_lang = |ext: &str| -> &'static str {
+        match ext.trim_start_matches('.').to_ascii_lowercase().as_str() {
+            "cs" => "csharp",
+            "cpp" | "cc" | "cxx" | "hpp" | "hh" | "h" | "cu" | "inl" | "hlsl" | "shader"
+            | "glsl" | "cginc" | "compute" => "cpp",
+            "rs" => "rust",
+            _ => "rust",
+        }
+    };
+    let is_shader_ext = |ext: &str| -> bool {
+        matches!(
+            ext.trim_start_matches('.').to_ascii_lowercase().as_str(),
+            "hlsl" | "shader" | "glsl" | "cginc" | "compute"
+        )
+    };
+    if let Some(e) = path.extension().and_then(|e| e.to_str()) {
+        if path.is_file() || !path.exists() {
+            return ext_lang(e).to_string();
+        }
+    }
+    let mut cs = 0usize;
+    let mut cpp = 0usize;
+    let mut shader = 0usize;
+    if let Ok(rd) = std::fs::read_dir(path) {
+        for entry in rd.flatten().take(300) {
+            let p = entry.path();
+            if p.is_file() {
+                if let Some(e) = p.extension().and_then(|e| e.to_str()) {
+                    match ext_lang(e) {
+                        "csharp" => cs += 1,
+                        "cpp" => {
+                            if is_shader_ext(e) {
+                                shader += 1;
+                            } else {
+                                cpp += 1;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    // 顶层没有代码文件（代码在子目录深处）→ 有界深扫（深度 ≤5、至多 600 文件）
+    if cs == 0 && cpp == 0 && shader == 0 {
+        let mut seen = 0usize;
+        for entry in walkdir::WalkDir::new(path)
+            .max_depth(5)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let p = entry.path();
+            if !p.is_file() {
+                continue;
+            }
+            if let Some(e) = p.extension().and_then(|e| e.to_str()) {
+                match ext_lang(e) {
+                    "csharp" => cs += 1,
+                    "cpp" => {
+                        if is_shader_ext(e) {
+                            shader += 1;
+                        } else {
+                            cpp += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            seen += 1;
+            if seen >= 600 {
+                break;
+            }
+        }
+    }
+    // Unity 混合目录：.cs 与 shader 族并存 → unity 双解析器
+    if cs > 0 && shader > 0 {
+        return "unity".to_string();
+    }
+    if cs >= cpp && cs >= shader && cs > 0 {
+        "csharp".to_string()
+    } else if cpp > 0 {
+        "cpp".to_string()
+    } else if shader > 0 {
+        "cpp".to_string()
+    } else {
+        "rust".to_string()
+    }
+}
+
+/// 各语言参与提取的扩展名集合（目录递归时过滤；unity = .cs + shader 族双解析器）
+fn lang_exts(lang: &str) -> &'static [&'static str] {
+    match lang {
+        "csharp" => &["cs"],
+        "cpp" | "hlsl" | "glsl" | "cuda" => &[
+            "cpp", "cc", "cxx", "hpp", "hh", "h", "cu", "inl", "hlsl", "shader", "glsl", "cginc",
+            "compute",
+        ],
+        "unity" => &["cs", "hlsl", "shader", "glsl", "cginc", "compute"],
+        _ => &["rs"],
+    }
 }
 
 fn node_text<'a>(node: tree_sitter::Node, source: &'a [u8]) -> &'a str {
     node.utf8_text(source).unwrap_or("")
 }
 
-/// 名称（identifier 即名本身；其余取 name 字段；scoped_identifier 取末段）
+/// 名称（identifier 即名本身；其余取 name 字段；scoped/qualified 取末段；field_expression 取 field 名）
 fn name_of(node: tree_sitter::Node, source: &[u8]) -> Option<String> {
     if matches!(
         node.kind(),
-        "identifier" | "type_identifier" | "field_identifier"
+        "identifier" | "type_identifier" | "field_identifier" | "namespace_identifier"
     ) {
         return Some(node_text(node, source).trim().to_string());
     }
     if let Some(id) = node.child_by_field_name("name") {
-        if matches!(id.kind(), "identifier" | "type_identifier" | "field_identifier") {
+        if matches!(
+            id.kind(),
+            "identifier" | "type_identifier" | "field_identifier" | "namespace_identifier"
+        ) {
             return Some(node_text(id, source).trim().to_string());
         }
+        // qualified_name（a.b）/ nested_identifier_specifier（a::b）→ 末段
+        let mut last = None;
+        let mut cursor = id.walk();
+        for c in id.children(&mut cursor) {
+            if matches!(
+                c.kind(),
+                "identifier" | "type_identifier" | "namespace_identifier"
+            ) && c.is_named()
+            {
+                last = Some(node_text(c, source).trim().to_string());
+            }
+        }
+        if last.is_some() {
+            return last;
+        }
+    }
+    // field_expression（x.foo 调用目标）→ field 字段名
+    if node.kind() == "field_expression" {
+        return node
+            .child_by_field_name("field")
+            .and_then(|f| name_of(f, source));
     }
     // scoped_identifier（a::b）→ 末段
     if node.kind() == "scoped_identifier" {
@@ -331,12 +469,335 @@ fn extract_file<'a>(
     );
 }
 
-/// 提取骨架（框架 §5.7）。src 可为单个源文件或目录（目录递归 *.rs，loc 用相对路径）。
-/// 试点语言：rust（T12 拍板）。
-pub fn extract_skeleton(src: &Path, node_id: &str, lang: &str) -> Result<Skeleton, String> {
-    if lang != "rust" {
-        return Err(format!("不支持的试点语言「{lang}」，当前仅支持 rust"));
+// ── C# 提取（v2.16，Unity 工程主语言）───────────────────────
+
+fn extract_file_csharp(
+    path: &str,
+    source: &[u8],
+    tree: &tree_sitter::Tree,
+    exports: &mut Vec<ExportSig>,
+    edges: &mut Vec<CallEdge>,
+) {
+    // 一遍：方法/类型简单名收集（调用边解析）
+    let mut known: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    fn walk_names(
+        node: tree_sitter::Node,
+        source: &[u8],
+        known: &mut std::collections::BTreeSet<String>,
+    ) {
+        if matches!(
+            node.kind(),
+            "method_declaration"
+                | "constructor_declaration"
+                | "class_declaration"
+                | "struct_declaration"
+                | "interface_declaration"
+                | "enum_declaration"
+        ) {
+            if let Some(n) = name_of(node, source) {
+                known.insert(n);
+            }
+        }
+        let mut cursor = node.walk();
+        for c in node.children(&mut cursor) {
+            walk_names(c, source, known);
+        }
     }
+    walk_names(tree.root_node(), source, &mut known);
+
+    // 修饰符可见性：public/internal/protected 才导出（fn item：可被嵌套 walk fn 调用）
+    // 注意：c-sharp 每个修饰符是独立的 (modifier) 子节点，文本即关键字
+    fn has_public_mod(node: tree_sitter::Node, source: &[u8]) -> bool {
+        let mut cursor = node.walk();
+        for c in node.children(&mut cursor) {
+            if c.kind() == "modifier" {
+                let t = node_text(c, source);
+                if t == "public" || t == "internal" || t == "protected" {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn walk(
+        node: tree_sitter::Node,
+        source: &[u8],
+        path: &str,
+        ns: &mut Vec<String>,
+        fn_stack: &mut Vec<String>,
+        exports: &mut Vec<ExportSig>,
+        edges: &mut Vec<CallEdge>,
+        known: &std::collections::BTreeSet<String>,
+    ) {
+        let kind = node.kind();
+        let mut pushed = false;
+        // 类型导出在「自身名入栈」之前：全名 = 外层 ns + 自身名（否则会重复拼出 Class::Class）
+        if matches!(
+            kind,
+            "class_declaration" | "struct_declaration" | "interface_declaration" | "enum_declaration"
+        ) {
+            if let Some(n) = name_of(node, source) {
+                let full = if ns.is_empty() {
+                    n.clone()
+                } else {
+                    format!("{}::{}", ns.join("::"), n)
+                };
+                let sig = String::from_utf8_lossy(&source[node.start_byte()..node.end_byte()])
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                exports.push(ExportSig {
+                    name: full,
+                    kind: kind.trim_end_matches("_declaration").into(),
+                    signature: crate::scanner::frontmatter::truncate_utf8(&sig, 300).to_string(),
+                    loc: loc_str(path, node),
+                });
+            }
+        }
+        if kind == "namespace_declaration"
+            || matches!(
+                kind,
+                "class_declaration" | "struct_declaration" | "interface_declaration"
+            )
+        {
+            if let Some(n) = name_of(node, source) {
+                ns.push(n);
+                pushed = true;
+            }
+        }
+        if matches!(
+            kind,
+            "method_declaration" | "constructor_declaration" | "property_declaration"
+        ) {
+            if has_public_mod(node, source) {
+                if let Some(n) = name_of(node, source) {
+                    let full = if ns.is_empty() {
+                        n.clone()
+                    } else {
+                        format!("{}::{}", ns.join("::"), n)
+                    };
+                    let body = node.child_by_field_name("body");
+                    let end = body.map(|b| b.start_byte()).unwrap_or(node.end_byte());
+                    let sig = String::from_utf8_lossy(&source[node.start_byte()..end])
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    fn_stack.push(full.clone());
+                    exports.push(ExportSig {
+                        name: full,
+                        kind: if kind == "property_declaration" { "property" } else { "fn" }.into(),
+                        signature: crate::scanner::frontmatter::truncate_utf8(&sig, 300).to_string(),
+                        loc: loc_str(path, node),
+                    });
+                }
+            }
+        }
+        if kind == "invocation_expression" {
+            if let Some(target) = node
+                .child_by_field_name("function")
+                .and_then(|f| name_of(f, source))
+            {
+                if let Some(caller) = fn_stack.last() {
+                    if !target.is_empty() && known.contains(&target) && &target != caller {
+                        edges.push(CallEdge {
+                            from: caller.clone(),
+                            to: target,
+                            loc: loc_str(path, node),
+                        });
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for c in node.children(&mut cursor) {
+            walk(c, source, path, ns, fn_stack, exports, edges, known);
+        }
+        if pushed {
+            ns.pop();
+        }
+    }
+    let mut ns = Vec::new();
+    let mut fn_stack = Vec::new();
+    walk(
+        tree.root_node(),
+        source,
+        path,
+        &mut ns,
+        &mut fn_stack,
+        exports,
+        edges,
+        &known,
+    );
+}
+
+// ── C++ 提取（v2.16：render_unified_oss/RESTRI 仓库；hlsl·glsl·cuda 同解析器）──
+
+fn extract_file_cpp(
+    path: &str,
+    source: &[u8],
+    tree: &tree_sitter::Tree,
+    exports: &mut Vec<ExportSig>,
+    edges: &mut Vec<CallEdge>,
+) {
+    // 函数定义名：function_definition → declarator(function_declarator) → declarator(identifier)
+    fn func_name(node: tree_sitter::Node, source: &[u8]) -> Option<String> {
+        let dec = node.child_by_field_name("declarator")?;
+        if dec.kind() == "function_declarator" {
+            return dec
+                .child_by_field_name("declarator")
+                .and_then(|id| name_of(id, source));
+        }
+        None
+    }
+    // 文件内 static 函数/匿名符号不导出（实现细节）
+    fn is_static(node: tree_sitter::Node, source: &[u8]) -> bool {
+        let mut cursor = node.walk();
+        for c in node.children(&mut cursor) {
+            if c.kind() == "storage_class_specifier" && node_text(c, source) == "static" {
+                return true;
+            }
+        }
+        false
+    }
+
+    let mut known: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    fn walk_names(
+        node: tree_sitter::Node,
+        source: &[u8],
+        known: &mut std::collections::BTreeSet<String>,
+    ) {
+        if node.kind() == "function_definition" {
+            if let Some(n) = func_name(node, source) {
+                known.insert(n);
+            }
+        }
+        if matches!(
+            node.kind(),
+            "class_specifier" | "struct_specifier" | "enum_specifier"
+        ) {
+            if let Some(n) = name_of(node, source) {
+                known.insert(n);
+            }
+        }
+        let mut cursor = node.walk();
+        for c in node.children(&mut cursor) {
+            walk_names(c, source, known);
+        }
+    }
+    walk_names(tree.root_node(), source, &mut known);
+
+    fn walk(
+        node: tree_sitter::Node,
+        source: &[u8],
+        path: &str,
+        ns: &mut Vec<String>,
+        fn_stack: &mut Vec<String>,
+        exports: &mut Vec<ExportSig>,
+        edges: &mut Vec<CallEdge>,
+        known: &std::collections::BTreeSet<String>,
+    ) {
+        let kind = node.kind();
+        let mut pushed = false;
+        // 类型导出在「自身名入栈」之前（避免 Class::Class 重复拼名）
+        if matches!(
+            kind,
+            "class_specifier" | "struct_specifier" | "enum_specifier" | "union_specifier"
+        ) {
+            if let Some(n) = name_of(node, source) {
+                let full = if ns.is_empty() {
+                    n.clone()
+                } else {
+                    format!("{}::{}", ns.join("::"), n)
+                };
+                let sig = String::from_utf8_lossy(&source[node.start_byte()..node.end_byte()])
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                exports.push(ExportSig {
+                    name: full,
+                    kind: kind.trim_end_matches("_specifier").into(),
+                    signature: crate::scanner::frontmatter::truncate_utf8(&sig, 300).to_string(),
+                    loc: loc_str(path, node),
+                });
+            }
+        }
+        if kind == "namespace_definition"
+            || matches!(kind, "class_specifier" | "struct_specifier")
+        {
+            if let Some(n) = name_of(node, source) {
+                ns.push(n);
+                pushed = true;
+            }
+        }
+        if kind == "function_definition" && !is_static(node, source) {
+            if let Some(n) = func_name(node, source) {
+                let full = if ns.is_empty() {
+                    n.clone()
+                } else {
+                    format!("{}::{}", ns.join("::"), n)
+                };
+                let body = node.child_by_field_name("body");
+                let end = body.map(|b| b.start_byte()).unwrap_or(node.end_byte());
+                let sig = String::from_utf8_lossy(&source[node.start_byte()..end])
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                fn_stack.push(full.clone());
+                exports.push(ExportSig {
+                    name: full,
+                    kind: "fn".into(),
+                    signature: crate::scanner::frontmatter::truncate_utf8(&sig, 300).to_string(),
+                    loc: loc_str(path, node),
+                });
+            }
+        }
+        if kind == "call_expression" {
+            if let Some(target) = node
+                .child_by_field_name("function")
+                .and_then(|f| name_of(f, source))
+            {
+                if let Some(caller) = fn_stack.last() {
+                    if !target.is_empty() && known.contains(&target) && &target != caller {
+                        edges.push(CallEdge {
+                            from: caller.clone(),
+                            to: target,
+                            loc: loc_str(path, node),
+                        });
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for c in node.children(&mut cursor) {
+            walk(c, source, path, ns, fn_stack, exports, edges, known);
+        }
+        if pushed {
+            ns.pop();
+        }
+    }
+    let mut ns = Vec::new();
+    let mut fn_stack = Vec::new();
+    walk(
+        tree.root_node(),
+        source,
+        path,
+        &mut ns,
+        &mut fn_stack,
+        exports,
+        edges,
+        &known,
+    );
+}
+
+/// 提取骨架（框架 §5.7）。src 可为单个源文件或目录（目录递归，扩展名按语言过滤）。
+/// 语言（v2.16）：rust（T12 试点）/ csharp / cpp（hlsl·glsl·cuda 同解析器）。
+pub fn extract_skeleton(src: &Path, node_id: &str, lang: &str) -> Result<Skeleton, String> {
+    // 语言前置校验（unity 是 .cs+shader 双解析器组合，逐文件再选具体解析器）
+    if lang != "unity" {
+        ts_language(lang)?;
+    }
+    let exts = lang_exts(lang);
     let mut exports = Vec::new();
     let mut edges = Vec::new();
     let mut files: Vec<(String, std::path::PathBuf)> = Vec::new();
@@ -355,7 +816,12 @@ pub fn extract_skeleton(src: &Path, node_id: &str, lang: &str) -> Result<Skeleto
             .filter_map(|e| e.ok())
         {
             let p = entry.path();
-            if p.extension().and_then(|s| s.to_str()) == Some("rs") {
+            let ok = p
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|e| exts.contains(&e))
+                .unwrap_or(false);
+            if ok {
                 let rel = p
                     .strip_prefix(src)
                     .unwrap_or(p)
@@ -369,19 +835,40 @@ pub fn extract_skeleton(src: &Path, node_id: &str, lang: &str) -> Result<Skeleto
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
     if files.is_empty() {
-        return Err(format!("源码目录无 .rs 文件：{}", src.display()));
+        return Err(format!(
+            "源码目录无匹配文件（lang={lang}，扩展名 {:?}）：{}",
+            exts,
+            src.display()
+        ));
     }
     for (rel, p) in files {
         let source = std::fs::read(p.clone())
             .map_err(|e| format!("读源码失败 {}：{e}", p.display()))?;
+        // v2.16 unity 双解析器：按文件扩展名选（.cs → csharp；shader 族 → cpp）
+        let file_lang = if lang == "unity" {
+            let e = p.extension().and_then(|s| s.to_str()).unwrap_or("");
+            if matches!(e, "hlsl" | "shader" | "glsl" | "cginc" | "compute") {
+                "cpp"
+            } else {
+                "csharp"
+            }
+        } else {
+            lang
+        };
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(&ts_language()?)
+            .set_language(&ts_language(file_lang)?)
             .map_err(|e| format!("tree-sitter 语言加载失败：{e}"))?;
         let tree = parser
             .parse(&source, None)
             .ok_or_else(|| format!("解析失败：{}", p.display()))?;
-        extract_file(&rel, &source, &tree, &mut exports, &mut edges);
+        match file_lang {
+            "csharp" => extract_file_csharp(&rel, &source, &tree, &mut exports, &mut edges),
+            "cpp" | "hlsl" | "glsl" | "cuda" => {
+                extract_file_cpp(&rel, &source, &tree, &mut exports, &mut edges)
+            }
+            _ => extract_file(&rel, &source, &tree, &mut exports, &mut edges),
+        }
     }
     let mermaid = build_mermaid(&exports, &edges);
     Ok(Skeleton {
@@ -444,7 +931,7 @@ pub fn skeleton_to_markdown(s: &Skeleton) -> String {
     for e in &s.exports {
         out.push(format!("- `{} {}`（{}）", e.kind, e.name, e.loc));
         out.push(String::new());
-        out.push("```rust".to_string());
+        out.push(format!("```{}", s.language));
         out.push(e.signature.clone());
         out.push("```".to_string());
         out.push(String::new());
@@ -462,9 +949,28 @@ pub fn skeleton_to_markdown(s: &Skeleton) -> String {
     out.join("\n")
 }
 
+/// 解析 code_map 路径：相对工作区根，或 v2.16 跨盘挂载的绝对路径（Path::join 对绝对路径取自身）
+fn resolve_code_map_path(root: &Path, code_map: &str) -> std::path::PathBuf {
+    let p = Path::new(code_map);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        root.join(p)
+    }
+}
+
 /// 重新提取节点引用的源码骨架并写派生文件（框架 §5.7 refresh_code_map）。
-/// 节点 frontmatter `code_map: <相对路径>`（相对工作区根，文件或目录）。
+/// 节点 frontmatter `code_map: <相对路径或绝对路径>`（文件或目录）；语言按路径自动检测。
 pub fn refresh_code_map(root: &Path, node_id: &str) -> Result<Skeleton, String> {
+    refresh_code_map_lang(root, node_id, None)
+}
+
+/// 同 refresh_code_map，但显式指定语言（CLI --lang；None = 自动检测）
+pub fn refresh_code_map_lang(
+    root: &Path,
+    node_id: &str,
+    lang_override: Option<&str>,
+) -> Result<Skeleton, String> {
     let node_file = root.join(".chain").join("nodes").join(format!("{node_id}.md"));
     if !node_file.exists() {
         return Err(format!("节点 {node_id} 不存在"));
@@ -481,8 +987,11 @@ pub fn refresh_code_map(root: &Path, node_id: &str) -> Result<Skeleton, String> 
                 "节点 {node_id} 无 code_map frontmatter（挂载方式：`code_map: <源码相对路径>`，正文只放一句概述）"
             )
         })?;
-    let src = root.join(code_map);
-    let mut sk = extract_skeleton(&src, node_id, "rust")?;
+    let src = resolve_code_map_path(root, code_map);
+    let lang = lang_override
+        .map(|l| l.to_string())
+        .unwrap_or_else(|| detect_lang(&src));
+    let mut sk = extract_skeleton(&src, node_id, &lang)?;
     // refresh = 重新提取 → 骨架新鲜；清除 watcher 留下的 stale 标记（T14）
     sk.stale = false;
     let _ = std::fs::remove_file(stale_marker(root, node_id));
@@ -492,9 +1001,10 @@ pub fn refresh_code_map(root: &Path, node_id: &str) -> Result<Skeleton, String> 
     Ok(sk)
 }
 
-/// 挂载代码骨架（GUI「代码栏」/CLI 通用）：写节点 frontmatter `code_map: <相对路径>`，
+/// 挂载代码骨架（GUI「代码栏」/CLI 通用）：写节点 frontmatter `code_map: <相对或绝对路径>`，
 /// 校验源码路径存在，经核心唯一写路径（revision+1）落盘后提取骨架。
 /// 语义：骨架挂在**理论/概念节点**上（节点信息栏「代码」节），不鼓励独立骨架节点群。
+/// v2.16：允许绝对路径（跨盘挂载，如 G 盘工作区 ← D 盘 Unity 工程）；语言自动检测。
 pub fn attach_code_map(root: &Path, node_id: &str, rel: &str) -> Result<Skeleton, String> {
     let node_file = root.join(".chain").join("nodes").join(format!("{node_id}.md"));
     if !node_file.exists() {
@@ -508,10 +1018,10 @@ pub fn attach_code_map(root: &Path, node_id: &str, rel: &str) -> Result<Skeleton
     if rel.is_empty() {
         return Err("code_map 路径不能为空".into());
     }
-    let src = root.join(&rel);
+    let src = resolve_code_map_path(root, &rel);
     if !src.is_file() && !src.is_dir() {
         return Err(format!(
-            "源码路径不存在（相对工作区根 {root}）：{rel}",
+            "源码路径不存在（相对工作区根 {root} 或绝对路径）：{rel}",
             root = root.display()
         ));
     }
@@ -819,6 +1329,123 @@ pub enum Color {
         assert!(err.contains("code_map"), "{err}");
         // 不支持的试点语言
         let err = extract_skeleton(Path::new("x.rs"), "n", "python").unwrap_err();
-        assert!(err.contains("仅支持 rust"), "{err}");
+        assert!(err.contains("不支持的语言"), "{err}");
+    }
+
+    #[test]
+    fn csharp_extraction_exports_types_and_public_members() {
+        const CS: &str = r#"
+namespace WaterRender {
+    public class OceanFFT {
+        public void Init(int size) { Bake(); }
+        private void Bake() { }
+        public float Height { get; set; }
+    }
+    internal struct WaveConfig { public int N; }
+}
+"#;
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("Ocean.cs"), CS).unwrap();
+        let s = extract_skeleton(&tmp.path().join("Ocean.cs"), "n1", "csharp").unwrap();
+        assert!(
+            s.exports
+                .iter()
+                .any(|e| e.kind == "class" && e.name == "WaterRender::OceanFFT"),
+            "{:?}",
+            s.exports
+        );
+        assert!(
+            s.exports.iter().any(|e| e.kind == "fn" && e.name.ends_with("::Init")),
+            "{:?}",
+            s.exports
+        );
+        assert!(
+            !s.exports.iter().any(|e| e.name.ends_with("::Bake")),
+            "私有方法不得导出：{:?}",
+            s.exports
+        );
+        assert!(
+            s.exports
+                .iter()
+                .any(|e| e.kind == "property" && e.name.ends_with("::Height")),
+            "{:?}",
+            s.exports
+        );
+        assert!(
+            s.exports
+                .iter()
+                .any(|e| e.kind == "struct" && e.name == "WaterRender::WaveConfig"),
+            "{:?}",
+            s.exports
+        );
+        assert!(
+            s.call_edges.iter().any(|e| e.to == "Bake"),
+            "Init→Bake 调用边：{:?}",
+            s.call_edges
+        );
+    }
+
+    #[test]
+    fn cpp_extraction_exports_functions_and_classes() {
+        const CPP: &str = r#"
+namespace rndr {
+class Camera { public: void update(float dt); };
+struct Ray { float ox, oy; };
+static int helper() { return 1; }
+int render(Camera& cam) { helper(); return 1; }
+}
+"#;
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("main.cpp"), CPP).unwrap();
+        let s = extract_skeleton(&tmp.path().join("main.cpp"), "n2", "cpp").unwrap();
+        assert!(
+            s.exports
+                .iter()
+                .any(|e| e.kind == "class" && e.name == "rndr::Camera"),
+            "{:?}",
+            s.exports
+        );
+        assert!(
+            s.exports
+                .iter()
+                .any(|e| e.kind == "struct" && e.name == "rndr::Ray"),
+            "{:?}",
+            s.exports
+        );
+        assert!(
+            s.exports
+                .iter()
+                .any(|e| e.kind == "fn" && e.name == "rndr::render"),
+            "{:?}",
+            s.exports
+        );
+        assert!(
+            !s.exports.iter().any(|e| e.name.ends_with("helper")),
+            "static 函数不得导出：{:?}",
+            s.exports
+        );
+        assert!(
+            s.call_edges.iter().any(|e| e.to == "helper"),
+            "{:?}",
+            s.call_edges
+        );
+    }
+
+    #[test]
+    fn detect_lang_by_extension_and_dir() {
+        assert_eq!(detect_lang(Path::new("x.cs")), "csharp");
+        assert_eq!(detect_lang(Path::new("y.hpp")), "cpp");
+        assert_eq!(detect_lang(Path::new("z.hlsl")), "cpp");
+        assert_eq!(detect_lang(Path::new("w.rs")), "rust");
+        // cs 与 shader 族并存 → unity 双解析器（Unity 工程目录）
+        let mixed = TempDir::new().unwrap();
+        fs::write(mixed.path().join("a.cs"), "").unwrap();
+        fs::write(mixed.path().join("b.shader"), "").unwrap();
+        assert_eq!(detect_lang(mixed.path()), "unity", "cs+shader 混合判 unity");
+        // 纯 cs 目录 → csharp
+        let csonly = TempDir::new().unwrap();
+        fs::write(csonly.path().join("a.cs"), "").unwrap();
+        fs::write(csonly.path().join("b.cs"), "").unwrap();
+        assert_eq!(detect_lang(csonly.path()), "csharp", "纯 cs 目录判 csharp");
     }
 }

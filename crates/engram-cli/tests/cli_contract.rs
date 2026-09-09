@@ -166,7 +166,7 @@ fn sync_code_map_creates_skeleton_and_reports_stale() {
     .unwrap();
     let (code, stdout, _) = run(&["sync-code-map", "--workspace", &ws_path(&tmp)]);
     assert_eq!(code, 0, "stdout: {stdout}");
-    assert!(stdout.contains("n1：exports="), "stdout: {stdout}");
+    assert!(stdout.contains("n1：lang=rust exports="), "stdout: {stdout}");
     let md = std::fs::read_to_string(tmp.path().join(".chain/code_map/n1.md")).unwrap();
     assert!(md.contains("pub fn compute"), "{md}");
     assert!(md.contains("```mermaid"), "{md}");

@@ -2,6 +2,20 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
+## [2.12.0] - 2026-09-09
+
+### 多语言代码内化（C#/C++/HLSL/Unity）+ 代码栏可滚动浏览
+
+**多语言骨架提取（v2.16）**：
+- 语言矩阵：rust / csharp / cpp（hlsl·glsl·cuda 同解析器）/ **unity**（.cs 走 C# + shader 族走 C++ 双解析器，Unity 工程一次提取全覆盖）
+- 语言自动检测：单文件按扩展名；目录浅层占比 + 零计数深扫兜底；`.cs` 与 shader 族并存自动判 unity
+- C# 提取：命名空间/类/结构/接口/枚举 + public/internal/protected 方法/属性 + 调用边；C++ 提取：命名空间/类/结构/枚举 + 非 static 函数 + 调用边
+- **跨盘绝对路径挂载**：`code_map` 允许绝对路径（G 盘工作区 ← D 盘 Unity 工程）；CLI `--lang auto|rust|csharp|cpp|hlsl|glsl|cuda|unity`
+- tree-sitter 0.22 → 0.23（LanguageFn 统一矩阵）；指南 v11/v6；golden 再生成
+- 挂载落地：render_unified_oss 8 节点（d-015..d-021，C++）、RESTRI 2 节点、water 3 节点（unity/csharp/hlsl）、ta 4 节点（SDF shaders 138 exports / windy / windtest / waterrenderer.test）
+
+**代码栏浏览修复**：flex 子项禁止收缩 + `.code-md` 自滚动撑满剩余高度；「⤢/⤡」一键展开/收起（大骨架完整滚动浏览）
+
 ## [2.11.0] - 2026-09-09
 
 ### 1500 节点承载力 + 性能策略中枢 + UI 扩展接口（视觉引擎驱动的全面优化）

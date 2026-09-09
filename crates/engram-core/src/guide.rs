@@ -11,12 +11,12 @@ pub const AI_GUIDE: &str = include_str!("../../../resources/AI_GUIDE.md");
 pub const AI_GUIDE_DEV: &str = include_str!("../../../resources/AI_GUIDE_DEV.md");
 
 /// 分析模式指南版本号（与 resources/AI_GUIDE.md 首行标记一致；改指南时必须同步 +1）
-/// v10：代码骨架内化章节改述——骨架挂理论/概念节点（信息栏「代码」栏），不另建骨架节点群
-pub const AI_GUIDE_VERSION: u32 = 10;
+/// v11：M-Code 语言矩阵（rust/csharp/cpp/hlsl/glsl/cuda/unity）+ 跨盘绝对路径挂载
+pub const AI_GUIDE_VERSION: u32 = 11;
 
 /// 开发模式指南版本号（与 resources/AI_GUIDE_DEV.md 首行 CHAIN_GUIDE_DEV_VERSION 标记一致）
-/// v5：§7 改述——骨架挂理论节点，不建独立骨架节点群；挂载走 GUI「代码」栏
-pub const AI_GUIDE_DEV_VERSION: u32 = 5;
+/// v6：§7 语言矩阵 + 跨盘绝对路径挂载 + CLI --lang 扩展
+pub const AI_GUIDE_DEV_VERSION: u32 = 6;
 
 /// 从指南文本解析版本标记（首行 `<!-- CHAIN_GUIDE_VERSION: N -->` 或 `<!-- CHAIN_GUIDE_DEV_VERSION: N -->`）。
 /// 返回 None = 无标记（旧版指南或人工编辑过）。

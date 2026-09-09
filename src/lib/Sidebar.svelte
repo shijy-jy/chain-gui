@@ -26,6 +26,18 @@
   $effect(() => {
     if (node?.code_map) panel.codeOpen = true;
   });
+  // v2.16 代码栏展开/收起（大骨架：可撑满侧栏大半高度滚动浏览）
+  let codeMax = $state(false);
+  function toggleCodeMax() {
+    codeMax = !codeMax;
+    panel.codeH = codeMax ? Math.max(600, Math.round(window.innerHeight * 0.72)) : 220;
+  }
+  $effect(() => {
+    if (!node?.code_map) {
+      codeMax = false;
+      panel.codeH = 220;
+    }
+  });
 
   // 初始值用字面量（不用 node.xxx），避免 Svelte 5 state_referenced_locally 警告；
   // 实际值由下面的 $effect 同步（组件挂载和 node 切换时都会跑）
@@ -705,6 +717,25 @@
     <span class="chev">{panel.codeOpen ? '▾' : '▸'}</span>代码（M-Code）
     <span class="pane-hint">{node.code_map ? `已挂载：${node.code_map}` : '未挂载'}</span>
     {#if codeStale}<span class="chip chip-stale">stale</span>{/if}
+    <!-- v2.16 展开/收起（避免嵌套 button，用 span+role 承接点击） -->
+    <span
+      class="code-max-btn"
+      role="button"
+      tabindex="0"
+      title={codeMax ? '收起代码栏' : '展开代码栏（大骨架完整滚动浏览）'}
+      onclick={(e) => {
+        e.stopPropagation();
+        toggleCodeMax();
+      }}
+      onkeydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.stopPropagation();
+          toggleCodeMax();
+        }
+      }}
+    >
+      {codeMax ? '⤡' : '⤢'}
+    </span>
   </button>
   {#if panel.codeOpen}
     <div class="pane code-pane" style:height="{panel.codeH}px">
@@ -987,6 +1018,15 @@
   .chip-derived { color: #a78bfa; border-color: rgba(167, 139, 250, 0.5); background: rgba(167, 139, 250, 0.12); }
   .chip-code { color: #34d399; border-color: rgba(52, 211, 153, 0.5); background: rgba(52, 211, 153, 0.12); }
   .chip-stale { color: #f87171; border-color: rgba(248, 113, 113, 0.55); background: rgba(248, 113, 113, 0.12); }
+  /* v2.16 代码栏展开按钮 */
+  .code-max-btn {
+    margin-left: auto;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+    cursor: pointer;
+    padding: 0 4px;
+  }
+  .code-max-btn:hover { color: #34d399; }
 
   /* v2.12 M-Code 骨架面板（加性） */
   .code-pane {
@@ -995,6 +1035,9 @@
     flex-direction: column;
     gap: 8px;
   }
+  /* v2.16 修复「骨架看不全」：flex 子项默认 shrink 会把超长内容压缩进固定高度（滚动失效）；
+     禁止收缩让 pre 自己长出滚动条，撑满剩余高度 */
+  .code-pane > * { flex-shrink: 0; }
   .code-mermaid {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1014,6 +1057,9 @@
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 60px;
   }
   /* v2.13 代码栏操作行 */
   .code-actions { display: flex; gap: 8px; flex-shrink: 0; }
