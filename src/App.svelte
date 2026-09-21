@@ -13,6 +13,7 @@
   import WorkspaceSidebar from './components/WorkspaceSidebar.svelte';
   import PerfOverlay from './components/PerfOverlay.svelte';
   import CodeViewer from './lib/CodeViewer.svelte';
+  import ReaderMode from './lib/ReaderMode.svelte';
   import { panel, SIDEBAR_COLLAPSED_WIDTH } from './lib/panel_state.svelte.ts';
   import { perfPolicy, perfTierName, fnv1a, createFrameMonitor, type FrameMonitor } from './lib/ui/perf';
   import type { ChainSnapshot, ChainNode, NodeStatus, NodeType, ScanMode, WorkspaceInfo } from './lib/types';
@@ -552,6 +553,11 @@
   let showCreate = $state(false);
   // v2.12 归档视图开关（加性）：淡色虚线纳入归档节点（默认关，零破坏）
   let showArchived = $state(false);
+  // v2.19 显示方式切换：图谱视图 ↔ 阅读模式（节点文件树 + 全文阅读）。
+  // ⚠️ 阅读模式是人类专属视图（刻意设计）：不写工作区任何文件、不注册 MCP 工具、不进 AI 指南副本、
+  //    不进 __engramDebug 调试接缝；视图偏好只落 GUI 本地 localStorage——AI 读 .chain/ 看不到痕迹，
+  //    既无法识别也无法使用（详见 src/lib/ReaderMode.svelte 头部不变量说明）。
+  let readMode = $state(localStorage.getItem('engram-view-mode') === 'read');
   // v2.12 重嵌按钮（记忆层 L2）：状态消息
   let reindexMsg = $state<string | null>(null);
   let reindexBusy = $state(false);
@@ -568,6 +574,43 @@
     } finally {
       reindexBusy = false;
     }
+  }
+
+  // ── v2.19 阅读模式（人专用）：图结构 ↔ 节点文件树的显示方式切换 ────────────
+  // 只切"怎么显示"：不动数据、不动布局参数、不动侧栏编辑语义（ARCHITECTURE §5 加性改动）。
+  function enterReadMode() {
+    readMode = true;
+    localStorage.setItem('engram-view-mode', 'read');
+    // 覆盖层下水面/涟漪不可见：停掉渲染循环（退出时恢复），阅读时不空烧 CPU
+    stopWaterLoop();
+  }
+
+  function exitReadMode() {
+    readMode = false;
+    localStorage.setItem('engram-view-mode', 'graph');
+    startWaterLoop();
+  }
+
+  function toggleReadMode() {
+    if (readMode) exitReadMode();
+    else enterReadMode();
+  }
+
+  // 阅读模式下选中的节点 = 图上选中的节点（退出阅读模式即落在刚读的那篇上）
+  function handleReadSelect(n: ChainNode | null) {
+    selectedNode = n;
+  }
+
+  // 阅读模式里的「⧉ 代码骨架」：复用全屏代码页（z 更高，Esc 先关它）
+  function handleReadOpenCode(n: ChainNode) {
+    selectedNode = n;
+    panel.codeFullscreen = true;
+  }
+
+  // 阅读模式里的「在图谱中定位」：退出阅读模式并把该节点居中高亮（看图结构关系）
+  function handleReadLocate(id: string) {
+    exitReadMode();
+    jumpToNode(id);
   }
 
   // v2.1 多工作区：左侧栏管理；每个文件夹绑定自己的模式（.chain/.mode 标签）
@@ -591,6 +634,8 @@
     snapshot = null;
     selectedNode = null;
     sidebarCollapsed = false;
+    // v2.19 工作区没了就没有可读的东西：阅读模式一并退出
+    if (readMode) exitReadMode();
     focusNodeId = null;      // v2.6 切模式层重置双击聚焦
     focusSet = null;
     hoverTip = null;
@@ -901,6 +946,8 @@
 
   function drawWater(cyRef: Core | null, t: number, frame: number) {
     if (!waterCanvas) return;
+    // v2.19 阅读模式覆盖层下水面不可见：不绘制（循环若被其它路径重启也保持零开销）
+    if (readMode) return;
     if (!waterCtx) waterCtx = waterCanvas.getContext('2d');
     const ctx = waterCtx;
     if (!ctx) return;
@@ -1239,6 +1286,8 @@
     },
     // v2.14 代码骨架挂载：青绿描边（图上一眼可见哪些节点有代码栏；置于 :selected 之前，选中态白描边仍优先生效）
     { selector: 'node[codeMap]', style: { 'border-width': 2, 'border-color': '#34d399', 'border-opacity': 0.95, 'border-style': 'solid' } },
+    // v2.16 支链闭环：任务无验证子节点 → 琥珀虚线框（图上开环一目了然；置于 codeMap 后，开环警示优先于代码描边）
+    { selector: 'node[openLoop]', style: { 'border-width': 2, 'border-color': '#fbbf24', 'border-opacity': 0.9, 'border-style': 'dashed' } },
     // v2.14 「代码」筛选：非代码节点压暗、代码节点青绿辉光
     { selector: 'node.code-dim', style: { 'opacity': 0.1, 'text-opacity': 0.08 } },
     { selector: 'node.code-lit', style: { 'shadow-blur': 22, 'shadow-opacity': 0.85, 'shadow-color': '#34d399' } },
@@ -1609,7 +1658,7 @@
         hoverTip = {
           x: rp.x,
           y: rp.y - 24,
-          text: `${n.id()} · ${NODE_TYPE_LABEL[n.data('nodeType') as NodeType] ?? ''}${n.data('codeMap') ? ' · 代码骨架' : ''}`,
+          text: `${n.id()} · ${NODE_TYPE_LABEL[n.data('nodeType') as NodeType] ?? ''}${n.data('codeMap') ? ' · 代码骨架' : ''}${n.data('openLoop') ? ' · 未闭环（缺验证节点）' : ''}`,
         };
       });
       cy.on('mouseout', 'node', () => (hoverTip = null));
@@ -1652,6 +1701,8 @@
           panel.codeFullscreen = false;
           return;
         }
+        // v2.19 阅读模式：Esc 归 ReaderMode 自己管（先退出筛选输入，再退出阅读模式）
+        if (readMode) return;
         if (focusNodeId !== null && cy) {
           focusNodeId = null;
           focusSet = null;
@@ -1669,7 +1720,8 @@
     // 前端去抖：watcher 后端已有 300ms 去抖，但 AI 批量操作时前端再兜一层防连环打断
     let chainDebounce: ReturnType<typeof setTimeout> | undefined;
     listen<ChainSnapshot>('chain-changed', (e) => {
-      if (selectedNode) return;
+      // v2.19 阅读模式是纯阅读（无编辑在途）：不吃"编辑中不覆盖"的保护，外部/AI 写入实时进文件树
+      if (selectedNode && !readMode) return;
       clearTimeout(chainDebounce);
       chainDebounce = setTimeout(() => { snapshot = e.payload; }, 150);
     }).then(u => unlisten = u);
@@ -1801,6 +1853,15 @@
     <span class="mode-chip" class:dev={scanMode === 'dev'} title={scanMode === 'dev' ? '开发模式：自由知识图谱' : '分析模式：严格链协议'}>
       {scanMode === 'dev' ? '开发' : '分析'}
     </span>
+    <!-- v2.19 显示方式切换：图谱 ↔ 阅读模式（人专用；AI 无此入口） -->
+    {#if snapshot}
+      <button class="pick read-toggle" class:active={readMode} onclick={toggleReadMode}
+              title={readMode
+                ? '返回图谱视图（Esc）：结束阅读模式'
+                : '阅读模式：按节点图结构梳理成文件树，在软件内直接阅读节点全文（人专用视图——不写工作区文件、MCP 无此工具、AI 不可识别不可用）'}>
+        {readMode ? '◧ 图谱视图' : '📖 阅读模式'}
+      </button>
+    {/if}
     <span class="spacer"></span>
     {#if snapshot}
       {#if (snapshot.archived?.length ?? 0) > 0}
@@ -2022,6 +2083,7 @@
         <div class="legend-row"><span class="dot dot-dim"></span><span class="legend-label">待开始（半透明）</span></div>
         <div class="legend-row"><span class="dot dot-dash"></span><span class="legend-label">阻塞（虚线框）</span></div>
         <div class="legend-row"><span class="dot dot-code"></span><span class="legend-label">已挂载代码骨架（青绿描边 + {'</>'} 角标）</span></div>
+        <div class="legend-row"><span class="dot dot-openloop"></span><span class="legend-label">任务未闭环（缺验证节点，琥珀虚线框）</span></div>
         <div class="legend-sep"></div>
         <div class="legend-row"><span class="legend-label small">圆点大小 = 连接数（平缓）</span></div>
         <div class="legend-row"><span class="legend-label small">单击节点 = 波源 + 信息栏 · 双击 = 聚焦视图（再双击退出） · 再点波源 = 停止</span></div>
@@ -2077,6 +2139,21 @@
 
   <StatusBar snapshot={snapshot} chainDir={chainDir} mode={scanMode} onrescan={loadChain} />
   </div>
+
+  <!-- v2.19 阅读模式：覆盖整个窗口的独立阅读视图（左=节点文件树，右=节点全文）。
+       图谱与画布保持原样挂在下面（零破坏、退出即原状）；本视图不进 __engramDebug，脚本/AI 无从识别。 -->
+  {#if readMode && snapshot}
+    <ReaderMode
+      snapshot={snapshot}
+      chainDir={chainDir}
+      mode={scanMode}
+      initialNodeId={selectedNode?.id ?? null}
+      onExit={exitReadMode}
+      onSelect={handleReadSelect}
+      onOpenCode={handleReadOpenCode}
+      onLocate={handleReadLocate}
+    />
+  {/if}
 </main>
 
 <style>
@@ -2109,6 +2186,18 @@
     background: rgba(52, 211, 153, 0.1);
     border-color: rgba(52, 211, 153, 0.3);
     box-shadow: 0 0 14px rgba(52, 211, 153, 0.12);
+  }
+  /* v2.19 阅读模式切换按钮（图谱 ↔ 文件树；激活态呼应阅读覆盖层的青蓝色） */
+  .read-toggle {
+    font-size: 11.5px;
+    padding: 5px 13px;
+    letter-spacing: 0.5px;
+  }
+  .read-toggle.active {
+    color: #a5d2ff;
+    background: rgba(165, 210, 255, 0.16);
+    border-color: rgba(165, 210, 255, 0.55);
+    box-shadow: 0 0 14px rgba(165, 210, 255, 0.16);
   }
   .toolbar {
     display: flex;
@@ -2649,6 +2738,11 @@
   .dot-code {
     background: transparent;
     border: 2px solid #34d399;
+  }
+  /* v2.16 图例：任务未闭环样点（琥珀虚线） */
+  .dot-openloop {
+    background: transparent;
+    border: 2px dashed #fbbf24;
   }
   .legend-sep {
     height: 1px;
