@@ -11,8 +11,8 @@ pub const AI_GUIDE: &str = include_str!("../../../resources/AI_GUIDE.md");
 pub const AI_GUIDE_DEV: &str = include_str!("../../../resources/AI_GUIDE_DEV.md");
 
 /// 分析模式指南版本号（与 resources/AI_GUIDE.md 首行标记一致；改指南时必须同步 +1）
-/// v13：MCP 骨架通道（read_node include_code_map）
-pub const AI_GUIDE_VERSION: u32 = 13;
+/// v14：支链闭环规则（task 完成必须挂 verification 验收）
+pub const AI_GUIDE_VERSION: u32 = 14;
 
 /// 开发模式指南版本号（与 resources/AI_GUIDE_DEV.md 首行 CHAIN_GUIDE_DEV_VERSION 标记一致）
 /// v8：MCP 骨架通道（read_node include_code_map）
