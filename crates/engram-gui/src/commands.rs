@@ -71,6 +71,51 @@ pub fn create_node(
     engram_core::ops::node_edit::create_node(Path::new(&dir), &input, scan_mode)
 }
 
+// ── v2.20 人用通道（GUI 文件树模式）：分析模式也允许人编辑结构 ──────────────
+// 护栏在 core（create_node_human/delete_node_human/set_parent_human）；MCP 工具仍走
+// 上面三个非 human 版本（分析模式一律拒绝）——AI 侧工具契约与行为零变化。
+
+#[command]
+pub fn create_node_human(
+    dir: String,
+    input: CreateNodeInput,
+    mode: Option<String>,
+) -> Result<ChainSnapshot, String> {
+    let scan_mode = mode
+        .as_deref()
+        .map(ScanMode::parse_lenient)
+        .unwrap_or(ScanMode::Analysis);
+    engram_core::ops::node_edit::create_node_human(Path::new(&dir), &input, scan_mode)
+}
+
+#[command]
+pub fn delete_node_human(
+    dir: String,
+    node_id: String,
+    mode: Option<String>,
+) -> Result<ChainSnapshot, String> {
+    let scan_mode = mode
+        .as_deref()
+        .map(ScanMode::parse_lenient)
+        .unwrap_or(ScanMode::Analysis);
+    engram_core::ops::node_edit::delete_node_human(Path::new(&dir), &node_id, scan_mode)
+}
+
+#[command]
+pub fn set_parent_human(
+    dir: String,
+    node_id: String,
+    parent: Option<String>,
+    mode: Option<String>,
+    rel: Option<String>,
+) -> Result<ChainSnapshot, String> {
+    let scan_mode = mode
+        .as_deref()
+        .map(ScanMode::parse_lenient)
+        .unwrap_or(ScanMode::Analysis);
+    engram_core::ops::node_edit::set_parent_human(Path::new(&dir), &node_id, parent, scan_mode, rel)
+}
+
 #[command]
 pub fn delete_node(
     dir: String,

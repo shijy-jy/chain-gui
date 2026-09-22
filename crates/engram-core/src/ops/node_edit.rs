@@ -4,7 +4,13 @@
 //! - `set_parent`：建立/断开链接（改写子节点 frontmatter 的 parent）
 //! - `update_node_fields`：GUI 侧字段更新（分析/开发双模式）
 //!
-//! 以上编辑仅开发模式可用（update_node_fields 除外）；分析模式的链结构由 AI 按协议维护。
+//! 两条写入通道（唯一写路径都在这里，入口 crate 只做适配）：
+//! - **MCP/AI 通道**（create_node / delete_node / set_parent）：仅开发模式；分析模式一律拒绝，
+//!   链结构由 AI 按协议直接维护节点文件；
+//! - **人用通道 v2.20**（create_node_human / delete_node_human / set_parent_human）：GUI 文件树模式
+//!   专用，分析模式也允许人编辑结构，但 core 内守协议护栏（新建必挂已存在父节点、禁删根、
+//!   禁删还有子节点的节点、改链接禁断根禁成环）。
+//! `update_node_fields` 双模式通用（内容字段：标题/状态/正文/标签/证据）。
 //! 所有写入都走 core 的原子写与统一解析原语（宪法第 5 条：入口不得直写文件）。
 
 use crate::model::chain::ChainSnapshot;
@@ -91,7 +97,27 @@ pub fn create_node(
     input: &CreateNodeInput,
     mode: ScanMode,
 ) -> Result<ChainSnapshot, String> {
-    if !mode.is_dev() {
+    create_node_inner(root, input, mode, false)
+}
+
+/// v2.20 人用通道（GUI 文件树模式）：人在分析模式也能新建节点，但守协议护栏——
+/// 必须挂到已存在的父节点下（严格单根树：不允许新增根）、类型/状态限本模式词表。
+/// MCP 工具不走这里（仍 create_node → 分析模式一律拒绝），工具契约与 AI 行为零变化。
+pub fn create_node_human(
+    root: &Path,
+    input: &CreateNodeInput,
+    mode: ScanMode,
+) -> Result<ChainSnapshot, String> {
+    create_node_inner(root, input, mode, true)
+}
+
+fn create_node_inner(
+    root: &Path,
+    input: &CreateNodeInput,
+    mode: ScanMode,
+    human: bool,
+) -> Result<ChainSnapshot, String> {
+    if !mode.is_dev() && !human {
         return Err("仅开发模式可自由新建节点（分析模式的链由 AI 按协议维护）".into());
     }
     // v2.1 模式强绑定
@@ -99,6 +125,39 @@ pub fn create_node(
     let nodes_dir = root.join(".chain").join("nodes");
     if !nodes_dir.is_dir() {
         return Err("nodes 目录不存在，请先初始化".into());
+    }
+
+    // ── v2.20 人用护栏（分析模式）：父节点必填且必须已存在；类型/状态限协议词表 ──
+    if !mode.is_dev() && human {
+        let snap = walker::scan_chain_dir_mode(root, mode).map_err(|e| format!("重扫失败：{e}"))?;
+        let parent = input
+            .parent
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty());
+        let Some(parent) = parent else {
+            return Err(
+                "分析模式新建必须挂在父节点下（严格单根树：不允许新增根节点；根 goal 由初始化创建）"
+                    .into(),
+            );
+        };
+        if !snap.nodes.iter().any(|n| n.id == parent) {
+            return Err(format!("父节点 {parent} 不存在——分析模式只允许挂到已有节点下"));
+        }
+        if let Some(t) = input.node_type.as_deref() {
+            if !crate::profile::ANALYSIS_TYPES.contains(&t) {
+                return Err(format!(
+                    "类型 {t} 不属于分析模式协议词表（goal / design / task / verification）"
+                ));
+            }
+        }
+        if let Some(s) = input.status.as_deref() {
+            if !crate::profile::ANALYSIS_STATUSES.contains(&s) {
+                return Err(format!(
+                    "状态 {s} 不属于分析模式协议词表（pending / in_progress / success / failed / blocked）"
+                ));
+            }
+        }
     }
 
     let id = match &input.id {
@@ -121,8 +180,23 @@ pub fn create_node(
     } else {
         input.title.trim().to_string()
     };
-    let node_type = normalize_type(&input.node_type);
-    let status = normalize_status(&input.status);
+    // 分析模式缺省走协议默认（task / pending），开发模式保持 note / none 中性默认
+    let node_type = if mode.is_dev() {
+        normalize_type(&input.node_type)
+    } else {
+        match input.node_type.as_deref() {
+            Some(t) if crate::profile::ANALYSIS_TYPES.contains(&t) => t.to_string(),
+            _ => "task".to_string(),
+        }
+    };
+    let status = if mode.is_dev() {
+        normalize_status(&input.status)
+    } else {
+        match input.status.as_deref() {
+            Some(s) if crate::profile::ANALYSIS_STATUSES.contains(&s) => s.to_string(),
+            _ => "pending".to_string(),
+        }
+    };
     let parent_line = match &input.parent {
         Some(p) if !p.trim().is_empty() => p.trim().to_string(),
         _ => "null".to_string(),
@@ -139,7 +213,26 @@ pub fn create_node(
 
 /// 删除节点文件（仅开发模式）。返回重扫后的快照。
 pub fn delete_node(root: &Path, node_id: &str, mode: ScanMode) -> Result<ChainSnapshot, String> {
-    if !mode.is_dev() {
+    delete_node_inner(root, node_id, mode, false)
+}
+
+/// v2.20 人用通道：人在分析模式也能删节点，但守协议护栏——不能删根（链必须保留唯一根）、
+/// 不能删还有子节点的节点（否则留下悬空分支）。
+pub fn delete_node_human(
+    root: &Path,
+    node_id: &str,
+    mode: ScanMode,
+) -> Result<ChainSnapshot, String> {
+    delete_node_inner(root, node_id, mode, true)
+}
+
+fn delete_node_inner(
+    root: &Path,
+    node_id: &str,
+    mode: ScanMode,
+    human: bool,
+) -> Result<ChainSnapshot, String> {
+    if !mode.is_dev() && !human {
         return Err("仅开发模式可自由删除节点（分析模式的链由 AI 按协议维护）".into());
     }
     // v2.1 模式强绑定
@@ -152,6 +245,31 @@ pub fn delete_node(root: &Path, node_id: &str, mode: ScanMode) -> Result<ChainSn
     if !file.exists() {
         return Err(format!("节点 {node_id} 不存在"));
     }
+
+    // ── v2.20 人用护栏（分析模式）：保根 + 不留悬空 ──
+    if !mode.is_dev() && human {
+        let snap = walker::scan_chain_dir_mode(root, mode).map_err(|e| format!("重扫失败：{e}"))?;
+        let Some(node) = snap.nodes.iter().find(|n| n.id == node_id) else {
+            return Err(format!("节点 {node_id} 不在当前链里"));
+        };
+        if node.parent.is_none() {
+            return Err("根节点不能删除（链协议要求保留唯一根 goal）".into());
+        }
+        let children: Vec<&str> = snap
+            .nodes
+            .iter()
+            .filter(|n| n.parent.as_deref() == Some(node_id))
+            .map(|n| n.id.as_str())
+            .collect();
+        if !children.is_empty() {
+            return Err(format!(
+                "该节点还有 {} 个子节点（{}）——先把子节点改挂到别处或删除，链不能出现悬空分支",
+                children.len(),
+                children.join("、")
+            ));
+        }
+    }
+
     std::fs::remove_file(&file).map_err(|e| format!("删除失败：{e}"))?;
 
     walker::scan_chain_dir_mode(root, mode).map_err(|e| format!("重扫失败：{e}"))
@@ -165,7 +283,30 @@ pub fn set_parent(
     mode: ScanMode,
     rel: Option<String>,
 ) -> Result<ChainSnapshot, String> {
-    if !mode.is_dev() {
+    set_parent_inner(root, node_id, parent, mode, rel, false)
+}
+
+/// v2.20 人用通道：人在分析模式也能改链接，但守协议护栏——必须挂到已存在的父节点
+/// （不允许断开成根）、不允许成环（新父节点不能在本节点的子树里）。
+pub fn set_parent_human(
+    root: &Path,
+    node_id: &str,
+    parent: Option<String>,
+    mode: ScanMode,
+    rel: Option<String>,
+) -> Result<ChainSnapshot, String> {
+    set_parent_inner(root, node_id, parent, mode, rel, true)
+}
+
+fn set_parent_inner(
+    root: &Path,
+    node_id: &str,
+    parent: Option<String>,
+    mode: ScanMode,
+    rel: Option<String>,
+    human: bool,
+) -> Result<ChainSnapshot, String> {
+    if !mode.is_dev() && !human {
         return Err("仅开发模式可自由编辑链接（分析模式的链由 AI 按协议维护）".into());
     }
     // v2.1 模式强绑定
@@ -177,6 +318,44 @@ pub fn set_parent(
     let file = nodes_dir.join(format!("{node_id}.md"));
     if !file.exists() {
         return Err(format!("节点 {node_id} 不存在"));
+    }
+
+    // ── v2.20 人用护栏（分析模式）：不许断根、不许成环 ──
+    if !mode.is_dev() && human {
+        let snap = walker::scan_chain_dir_mode(root, mode).map_err(|e| format!("重扫失败：{e}"))?;
+        let new_parent = parent
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(|p| p.to_string());
+        let Some(new_parent) = new_parent else {
+            return Err("分析模式不允许断开链接（链必须保持单根树；请改挂到其它节点）".into());
+        };
+        if new_parent == node_id {
+            return Err("不能把节点挂到自己下面".into());
+        }
+        if !snap.nodes.iter().any(|n| n.id == new_parent) {
+            return Err(format!("父节点 {new_parent} 不存在——只允许挂到已有节点下"));
+        }
+        // 环检测：从新父节点沿 parent 向上回溯，若遇到本节点 → 成环
+        let mut cur = Some(new_parent.clone());
+        let mut hops = 0usize;
+        while let Some(c) = cur {
+            if c == node_id {
+                return Err(
+                    "这会形成环（新父节点在本节点自己的子树里）——链协议禁止环".into(),
+                );
+            }
+            hops += 1;
+            if hops > snap.nodes.len() + 1 {
+                break; // 现存数据本就有环：不无限循环，交给校验器报告
+            }
+            cur = snap
+                .nodes
+                .iter()
+                .find(|n| n.id == c)
+                .and_then(|n| n.parent.clone());
+        }
     }
 
     // 父节点（若指定）必须存在，避免生成永远无效的链接
@@ -193,8 +372,13 @@ pub fn set_parent(
     let rel = normalize_rel(&rel).to_string();
 
     let raw = std::fs::read_to_string(&file).map_err(|e| format!("读取失败：{e}"))?;
-    // 开发模式宽松解析：无 frontmatter 时先补最小 frontmatter（唯一写路径共用原语）
-    let (mut fm, body) = parse_lenient(&raw, node_id)?;
+    // 开发模式宽松解析：无 frontmatter 时先补最小 frontmatter（唯一写路径共用原语）；
+    // 分析模式严格解析（文件畸形要报错而不是猜）
+    let (mut fm, body) = match frontmatter::parse(&raw) {
+        Ok(result) => result,
+        Err(_) if mode.is_dev() => parse_lenient(&raw, node_id)?,
+        Err(e) => return Err(format!("解析 frontmatter 失败：{e}")),
+    };
 
     let fields = UpdateFields {
         title: None,
@@ -275,6 +459,7 @@ pub fn update_node_fields(
 mod tests {
     use super::*;
     use crate::model::node::NodeStatus;
+    use crate::model::node::NodeType;
     use std::fs;
     use tempfile::TempDir;
 
@@ -327,6 +512,152 @@ mod tests {
         let tmp = setup();
         let res = create_node(tmp.path(), &input("x"), ScanMode::Analysis);
         assert!(res.is_err(), "分析模式应拒绝自由新建节点: {res:?}");
+    }
+
+    // ── v2.20 人用通道（GUI 文件树模式）：分析模式结构编辑的护栏 ────────────────
+    // 契约要点：MCP 走的 create_node/delete_node/set_parent 一律不变（分析模式拒绝），
+    // 只有 GUI 的 *_human 三件套允许人在分析模式编辑结构，且必须守住链协议。
+
+    fn write_analysis_node(tmp: &TempDir, id: &str, ntype: &str, parent: Option<&str>) {
+        let parent_line = match parent {
+            Some(p) => p.to_string(),
+            None => "null".to_string(),
+        };
+        let content = format!(
+            "---\nid: {id}\ntype: {ntype}\ntitle: {id} 标题\nparent: {parent_line}\nrel: contains\nstatus: pending\ncreated: 2026-01-01T00:00:00+08:00\nupdated: 2026-01-01T00:00:00+08:00\nrevision: 1\ntags: []\n---\n\n# {id} 标题\n\n正文\n"
+        );
+        fs::write(
+            tmp.path().join(".chain").join("nodes").join(format!("{id}.md")),
+            content,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_create_node_human_analysis_requires_existing_parent() {
+        let tmp = setup();
+        write_analysis_node(&tmp, "g-001", "goal", None);
+        // 没有父节点 → 拒绝（严格单根树不许新增根）
+        let err = create_node_human(tmp.path(), &input("新任务"), ScanMode::Analysis).unwrap_err();
+        assert!(err.contains("父节点"), "应提示必须挂父节点: {err}");
+        // 父节点不存在 → 拒绝
+        let mut orphan = input("新任务");
+        orphan.parent = Some("d-404".into());
+        assert!(
+            create_node_human(tmp.path(), &orphan, ScanMode::Analysis).is_err(),
+            "父节点不存在应被拒绝"
+        );
+        // MCP 通道契约不变：分析模式仍然一律拒绝
+        assert!(create_node(tmp.path(), &input("x"), ScanMode::Analysis).is_err());
+    }
+
+    #[test]
+    fn test_create_node_human_analysis_ok_with_protocol_vocab() {
+        let tmp = setup();
+        write_analysis_node(&tmp, "g-001", "goal", None);
+        write_analysis_node(&tmp, "d-001", "design", Some("g-001"));
+        let mut req = input("新任务");
+        req.id = Some("t-001".into());
+        req.parent = Some("d-001".into());
+        req.node_type = Some("task".into());
+        req.status = Some("pending".into());
+        let snap = create_node_human(tmp.path(), &req, ScanMode::Analysis).unwrap();
+        let created = snap.nodes.iter().find(|n| n.id == "t-001").expect("新节点应进链");
+        assert_eq!(created.parent.as_deref(), Some("d-001"));
+        assert_eq!(created.node_type, NodeType::Task);
+        assert_eq!(created.status, NodeStatus::Pending);
+        assert_eq!(snap.edges.len(), 2, "新节点应带一条挂载边");
+        assert!(
+            snap.validation.valid,
+            "护栏保证下不应产生结构错误: {:?}",
+            snap.validation.errors
+        );
+    }
+
+    #[test]
+    fn test_create_node_human_analysis_rejects_dev_only_vocab() {
+        let tmp = setup();
+        write_analysis_node(&tmp, "g-001", "goal", None);
+        let mut note = input("笔记");
+        note.parent = Some("g-001".into());
+        note.node_type = Some("note".into());
+        let err = create_node_human(tmp.path(), &note, ScanMode::Analysis).unwrap_err();
+        assert!(err.contains("词表"), "note 不属于分析词表: {err}");
+
+        let mut none_status = input("任务");
+        none_status.parent = Some("g-001".into());
+        none_status.status = Some("none".into());
+        let err2 = create_node_human(tmp.path(), &none_status, ScanMode::Analysis).unwrap_err();
+        assert!(err2.contains("词表"), "none 不属于分析词表: {err2}");
+    }
+
+    #[test]
+    fn test_delete_node_human_analysis_guards() {
+        let tmp = setup();
+        write_analysis_node(&tmp, "g-001", "goal", None);
+        write_analysis_node(&tmp, "d-001", "design", Some("g-001"));
+        write_analysis_node(&tmp, "t-001", "task", Some("d-001"));
+        // 根不能删
+        let err = delete_node_human(tmp.path(), "g-001", ScanMode::Analysis).unwrap_err();
+        assert!(err.contains("根节点"), "根应拒绝删除: {err}");
+        // 还有子节点不能删
+        let err2 = delete_node_human(tmp.path(), "d-001", ScanMode::Analysis).unwrap_err();
+        assert!(err2.contains("子节点"), "有子节点应拒绝删除: {err2}");
+        // 叶子可以删
+        let snap = delete_node_human(tmp.path(), "t-001", ScanMode::Analysis).unwrap();
+        assert_eq!(snap.nodes.len(), 2);
+        // MCP 通道契约不变
+        assert!(delete_node(tmp.path(), "d-001", ScanMode::Analysis).is_err());
+    }
+
+    #[test]
+    fn test_set_parent_human_analysis_guards_and_cycle() {
+        let tmp = setup();
+        write_analysis_node(&tmp, "g-001", "goal", None);
+        write_analysis_node(&tmp, "d-001", "design", Some("g-001"));
+        write_analysis_node(&tmp, "t-001", "task", Some("d-001"));
+        // 不允许断开（会新增第二个根）
+        let err = set_parent_human(tmp.path(), "t-001", None, ScanMode::Analysis, None).unwrap_err();
+        assert!(err.contains("断开"), "断开链接应被拒绝: {err}");
+        // 成环：把 d-001 挂到自己的子树 t-001 下
+        let err2 = set_parent_human(
+            tmp.path(),
+            "d-001",
+            Some("t-001".into()),
+            ScanMode::Analysis,
+            None,
+        )
+        .unwrap_err();
+        assert!(err2.contains("环"), "成环应被拒绝: {err2}");
+        // 父节点不存在
+        assert!(
+            set_parent_human(tmp.path(), "t-001", Some("nope".into()), ScanMode::Analysis, None)
+                .is_err()
+        );
+        // 正常改挂：t-001 移到 g-001 下（rel=solves）
+        let snap = set_parent_human(
+            tmp.path(),
+            "t-001",
+            Some("g-001".into()),
+            ScanMode::Analysis,
+            Some("solves".into()),
+        )
+        .unwrap();
+        let moved = snap.nodes.iter().find(|x| x.id == "t-001").unwrap();
+        assert_eq!(moved.parent.as_deref(), Some("g-001"));
+        assert_eq!(moved.rel.as_deref(), Some("solves"));
+        assert!(snap.validation.valid, "合法改挂后校验应通过");
+        // MCP 通道契约不变
+        assert!(set_parent(tmp.path(), "t-001", Some("d-001".into()), ScanMode::Analysis, None).is_err());
+    }
+
+    #[test]
+    fn test_create_node_human_dev_keeps_permissive_defaults() {
+        let tmp = setup();
+        let snap = create_node_human(tmp.path(), &input("自由笔记"), ScanMode::Dev).unwrap();
+        assert_eq!(snap.nodes.len(), 1);
+        assert_eq!(snap.nodes[0].node_type, NodeType::Note, "开发模式仍默认中性 note");
+        assert_eq!(snap.nodes[0].status, NodeStatus::None, "开发模式仍默认无状态");
     }
 
     #[test]

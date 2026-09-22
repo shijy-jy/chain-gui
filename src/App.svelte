@@ -613,6 +613,111 @@
     jumpToNode(id);
   }
 
+  // ── v2.20 文件树模式 = 人的编辑面（写路径全部走 core 守门）────────────────
+  // 结构编辑走后端 *_human 通道：开发模式规则不变；分析模式允许人编辑结构，
+  // 但 core 内守协议护栏（新建必挂父节点、禁删根/删带子节点的节点、改链接禁成环）。
+  // MCP 工具仍走非 human 版本——AI 侧工具契约与行为零变化。
+
+  // v2.20 自写窗口：我们自己的写入会让 watcher 在 300-450ms 后推来"这次写入之前"的扫描结果，
+  // 晚到的旧 payload 会覆盖刚写回的 snapshot（表现为新建节点正文闪回旧值）。
+  // 写入期间忽略 watcher 推送（写入返回的 snapshot 才是最新）；窗口外的外部写入照常实时刷新。
+  let selfWriteUntil = 0;
+  function markSelfWrite() {
+    selfWriteUntil = performance.now() + 1200;
+  }
+
+  /** 保存内容字段（标题/状态/标签/正文）：与信息栏保存同一条 update_node */
+  async function handleReadSave(nodeId: string, fields: { title: string; status: NodeStatus | null; body: string; tags: string[]; evidence: string[] }) {
+    if (!chainDir) return;
+    markSelfWrite();
+    const newSnapshot = await invoke<ChainSnapshot>('update_node', {
+      dir: chainDir,
+      nodeId,
+      fields,
+      mode: scanMode,
+    });
+    snapshot = newSnapshot;
+    selectedNode = newSnapshot.nodes.find((x) => x.id === nodeId) ?? null;
+  }
+
+  /** 新建节点（文件树里的「＋ 新建」）：挂到选定父节点下，图谱与文件树同一份链同时长出它 */
+  async function handleReadCreate(input: {
+    id: string;
+    title: string;
+    nodeType: NodeType;
+    status: NodeStatus | null;
+    parent: string | null;
+    rel: string;
+    tags: string[];
+    body: string;
+  }): Promise<string | null> {
+    if (!chainDir) return null;
+    markSelfWrite();
+    const before = new Set((snapshot?.nodes ?? []).map((n) => n.id));
+    const created0 = await invoke<ChainSnapshot>('create_node_human', {
+      dir: chainDir,
+      input: {
+        id: input.id || null,
+        title: input.title,
+        node_type: input.nodeType,
+        status: input.status,
+        parent: input.parent,
+        rel: input.rel,
+      },
+      mode: scanMode,
+    });
+    const created = created0.nodes.find((n) => !before.has(n.id)) ?? null;
+    // 先落地结构：即便接下来的内容写入失败，新节点/挂载也已经进树进图（错误照常抛给界面）
+    snapshot = created0;
+    selectedNode = created;
+    // 正文/标签：CreateNodeInput 不含这两个字段（与 MCP 契约同构）→ 建完立刻补一次内容写入
+    if (created && ((input.body ?? '').trim() !== '' || input.tags.length > 0)) {
+      const finalSnapshot = await invoke<ChainSnapshot>('update_node', {
+        dir: chainDir,
+        nodeId: created.id,
+        fields: {
+          title: input.title,
+          status: scanMode === 'dev' ? null : input.status,
+          body: input.body,
+          tags: input.tags,
+          evidence: [],
+        },
+        mode: scanMode,
+      });
+      snapshot = finalSnapshot;
+      selectedNode = finalSnapshot.nodes.find((n) => n.id === created.id) ?? created;
+    }
+    return created?.id ?? null;
+  }
+
+  /** 删除节点（两段式确认在文件树界面里完成）：分析模式不能删根、不能删还有子节点的节点 */
+  async function handleReadDelete(nodeId: string) {
+    if (!chainDir) return;
+    markSelfWrite();
+    const newSnapshot = await invoke<ChainSnapshot>('delete_node_human', {
+      dir: chainDir,
+      nodeId,
+      mode: scanMode,
+    });
+    snapshot = newSnapshot;
+    selectedNode = null;
+  }
+
+  /** 改挂载位置（父节点 + 关系）：分析模式不允许断成根、不允许成环 */
+  async function handleReadSetParent(nodeId: string, parent: string | null, rel: string) {
+    if (!chainDir) return;
+    markSelfWrite();
+    const newSnapshot = await invoke<ChainSnapshot>('set_parent_human', {
+      dir: chainDir,
+      nodeId,
+      parent,
+      rel,
+      mode: scanMode,
+    });
+    snapshot = newSnapshot;
+    selectedNode = newSnapshot.nodes.find((x) => x.id === nodeId) ?? null;
+  }
+
   // v2.1 多工作区：左侧栏管理；每个文件夹绑定自己的模式（.chain/.mode 标签）
   let workspaces = $state<WorkspaceInfo[]>([]);
   let wsBusy = $state(false);
@@ -1720,7 +1825,9 @@
     // 前端去抖：watcher 后端已有 300ms 去抖，但 AI 批量操作时前端再兜一层防连环打断
     let chainDebounce: ReturnType<typeof setTimeout> | undefined;
     listen<ChainSnapshot>('chain-changed', (e) => {
-      // v2.19 阅读模式是纯阅读（无编辑在途）：不吃"编辑中不覆盖"的保护，外部/AI 写入实时进文件树
+      // v2.20 自写窗口内：刚写回的 snapshot 才是最新，晚到的旧扫描结果直接丢弃（防闪回）
+      if (performance.now() < selfWriteUntil) return;
+      // v2.19 文件树模式是纯阅读/编辑面（无侧栏在途编辑）：不吃"编辑中不覆盖"的保护，外部写入实时进树
       if (selectedNode && !readMode) return;
       clearTimeout(chainDebounce);
       chainDebounce = setTimeout(() => { snapshot = e.payload; }, 150);
@@ -1853,13 +1960,13 @@
     <span class="mode-chip" class:dev={scanMode === 'dev'} title={scanMode === 'dev' ? '开发模式：自由知识图谱' : '分析模式：严格链协议'}>
       {scanMode === 'dev' ? '开发' : '分析'}
     </span>
-    <!-- v2.19 显示方式切换：图谱 ↔ 阅读模式（人专用；AI 无此入口） -->
+    <!-- v2.19 显示方式切换：图谱 ↔ 文件树（两种显示 = 两种编辑面；人专用入口，AI 无此入口） -->
     {#if snapshot}
       <button class="pick read-toggle" class:active={readMode} onclick={toggleReadMode}
               title={readMode
-                ? '返回图谱视图（Esc）：结束阅读模式'
-                : '阅读模式：按节点图结构梳理成文件树，在软件内直接阅读节点全文（人专用视图——不写工作区文件、MCP 无此工具、AI 不可识别不可用）'}>
-        {readMode ? '◧ 图谱视图' : '📖 阅读模式'}
+                ? '返回图谱模式（Esc）：结束文件树模式'
+                : '文件树模式（原阅读模式，v2.20 起可新建/编辑/删除节点）：按节点图结构梳理成文件树，在软件内直接阅读与编辑——人专用视图（不写工作区额外文件、MCP 无此工具、AI 不可识别不可用）'}>
+        {readMode ? '◧ 图谱模式' : '🗂 文件树模式'}
       </button>
     {/if}
     <span class="spacer"></span>
@@ -2140,8 +2247,9 @@
   <StatusBar snapshot={snapshot} chainDir={chainDir} mode={scanMode} onrescan={loadChain} />
   </div>
 
-  <!-- v2.19 阅读模式：覆盖整个窗口的独立阅读视图（左=节点文件树，右=节点全文）。
-       图谱与画布保持原样挂在下面（零破坏、退出即原状）；本视图不进 __engramDebug，脚本/AI 无从识别。 -->
+  <!-- v2.19/v2.20 文件树模式：覆盖整个窗口的独立视图（左=节点文件树，右=阅读/编辑/新建）。
+       图谱与画布保持原样挂在下面（零破坏、退出即原状）；本视图不进 __engramDebug，脚本/AI 无从识别。
+       写操作（新建/编辑/删除/改挂载）全部经 App 回调 → 后端 core 守门。 -->
   {#if readMode && snapshot}
     <ReaderMode
       snapshot={snapshot}
@@ -2152,6 +2260,10 @@
       onSelect={handleReadSelect}
       onOpenCode={handleReadOpenCode}
       onLocate={handleReadLocate}
+      onSave={handleReadSave}
+      onCreate={handleReadCreate}
+      onDelete={handleReadDelete}
+      onSetParent={handleReadSetParent}
     />
   {/if}
 </main>

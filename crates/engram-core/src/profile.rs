@@ -32,7 +32,9 @@ pub struct Profile {
     pub strict: bool,
 }
 
-/// 分析模式 profile：严格链协议（AI 按协议维护链，GUI 不可自由增删）
+/// 分析模式 profile：严格链协议（链结构默认由 AI 按协议维护；v2.20 起人可在 GUI
+/// 文件树模式通过 *_human 通道做结构编辑，护栏在 core：新建必挂父节点、禁删根/删带子节点的
+/// 节点、改链接禁成环——词表仍是唯一数据源）
 pub const ANALYSIS: Profile = Profile {
     mode: ScanMode::Analysis,
     rel_vocab: REL_TYPES,

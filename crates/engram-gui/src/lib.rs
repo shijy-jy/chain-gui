@@ -43,6 +43,11 @@ pub fn run() {
             commands::create_node,
             commands::delete_node,
             commands::set_parent,
+            // v2.20 人用通道（文件树模式）：分析模式也允许人编辑结构；core 内守协议护栏，
+            // MCP 工具仍走上面三个非 human 版本（AI 侧契约零变化）
+            commands::create_node_human,
+            commands::delete_node_human,
+            commands::set_parent_human,
             commands::list_workspaces,
             commands::add_workspace,
             commands::remove_workspace,
