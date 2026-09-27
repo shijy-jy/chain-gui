@@ -20,6 +20,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "app"
 path = "src/main.rs"
 
+# v3.1 修复「改了前端但 release 看不到」：
+# tauri 的 build.rs 用 `let dev = !has_feature("custom-protocol")` 判定运行模式 ——
+# 没有这个 feature 的 release 构建**仍然是 dev 模式**，运行时去请求 devUrl
+# (http://localhost:1420) 而**不内嵌前端**，于是 frontendDist(dist/) 根本没用上。
+# cargo tauri build 会自动加 --features custom-protocol，但直接 `cargo build --release`
+# 不会 —— 这就是"前端重建了、二进制还是旧的"的根因（实测：vite 一停就 chrome-error）。
+# 补上这段标准特性块后，两种构建方式行为一致。
+[features]
+# this feature is used for production builds or when a dev server is not specified,
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
 
