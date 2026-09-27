@@ -1,8 +1,15 @@
 # Engram 节点布局重设计方案（v3.0 布局专项）
 
 > 状态：**已实现并验证**（算法层 + 渲染层 + 交互层全部落地）
+>
+> ⚠️ **后续变更（v3.3）**：**图谱上不再显示节点名称**（用户要求）。名称与正文由右侧常驻信息栏承载，
+> 节点身份改为「类型配色 + 圆点大小(度) + 悬停看 id · 类型」。因此 §10 描述的整套标签预算系统
+> （`src/lib/label_layout.ts`、`tools/label_verify.cjs`、字号与标签数滑条）**已随该决定删除**。
+> 保留 §10 是为了记录当时的诊断与踩坑——`text-max-width` 后写不生效、取景与标签的振荡回路、
+> 动画期间算标签导致错位等；这些结论对将来任何"要在图上渲染动态文字"的需求依然成立。
+
 > 数据来源：`G:\perf1500`（1500 节点真实基准）、`D:\TA`（80 节点）、`G:\ta`（74 节点）、`G:\engram`、`test-data`
-> 复现脚本：`tools/layout_verify.cjs`（算法回归，接入 CI 用）、`_scratch/graph_stats.cjs`、`_scratch/layout_ab.cjs`、`_scratch/layout_detail.cjs`、`_scratch/layout_radial.cjs`、`_scratch/make_layout_svg.cjs`
+> 复现脚本：`tools/layout_verify.cjs`（算法回归）、`_scratch/graph_stats.cjs`、`_scratch/layout_ab.cjs`、`_scratch/layout_detail.cjs`、`_scratch/layout_radial.cjs`、`_scratch/make_layout_svg.cjs`（标签回归 `tools/label_verify.cjs` 已随 v3.3 删除）
 > 对比图：`_shots/layout-compare.png`；实测截图：`_shots/v3-ta-80-clean.png`、`_shots/v3-perf1500-depth3.png`
 > 外部依据：d3-force 源码（`main` 分支）、Obsidian 官方 Graph view 文档、`obsidian-graph-spawn` 逆向记录
 >
@@ -521,7 +528,10 @@ Obsidian 对用户只暴露**四个**力参数：
 
 一个 26px 的圆点配一块最宽 150px 的标签板，节点一多必然互相盖住、也盖住节点本身。
 
-### 10.2 解法：屏幕空间标签装箱（`src/lib/label_layout.ts`）
+### 10.2 解法：屏幕空间标签装箱（v3.3 已删除；代码见 git 历史 `6971211`）
+
+> 该方案在 v3.3 被整体删除——用户决定"图谱上不显示名称"。下面的记录保留给将来需要
+> 在图上渲染动态文字时参考（尤其是 10.3 的三个坑，与"显示什么"无关、是渲染器行为）。
 
 不再"画所有标签"，而是**在屏幕空间里挑选画哪些**，三条硬约束按优先级：
 
@@ -530,7 +540,7 @@ Obsidian 对用户只暴露**四个**力参数：
 3. **标签总覆盖面积 ≤ 视口 14%** —— 避免整屏是字
 
 满足约束的前提下按重要性贪心放入：**度 → 深度 → id**（枢纽节点优先被标出，稳定可复现）。
-纯函数、可离线回归（`tools/label_verify.cjs`）。
+纯函数、可离线回归（当时的 `tools/label_verify.cjs`）。
 
 配套的几何压缩：`max-width 150→72`（≈7 汉字/行）、最多 2 行（超出加省略号）、下移 8→5。
 
@@ -583,10 +593,6 @@ Obsidian 对用户只暴露**四个**力参数：
 # ★ 算法回归（生产模块 + 真实数据；架构不变量都在这里守卫）
 node tools\layout_verify.cjs "G:\perf1500" "D:\TA" "G:\ta"
 #   断言：交叉数=0 / 同输入同输出 / 层高对齐且层间距未变形 / 可见节点全部拿到坐标 / 边界不崩
-
-# ★ 标签布局回归（屏幕空间装箱的三条硬约束）
-node tools\label_verify.cjs "G:\perf1500" "D:\TA" "G:\ta"
-#   断言：覆盖率 ≤15% / 预算生效 / 显示数+各类拒绝=候选数 / 几何估算与截断
 
 # 图结构表征（节点/边/分量/深度/度分布/多父/环）
 node _scratch\graph_stats.cjs   "G:\perf1500" "D:\TA" "G:\ta" "G:\engram"
