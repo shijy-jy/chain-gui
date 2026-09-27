@@ -133,11 +133,11 @@ function minGap(pos) {
 }
 
 const opts = (mode) => ({ mode, levelGap: 96, siblingGap: 46, ringGap: 96, maxRadius: 6000 });
-/** 与 App.svelte 的 relayout 同一套形态回退规则（纯函数，便于回归） */
+/** 与 App.svelte 的 relayout 同一套形态选择规则（纯函数，便于回归） */
 function resolveMode(snapshot, vis, wanted) {
-  if (wanted !== 'layered') return wanted;
-  const est = L.estimateLayeredSize(snapshot, vis, 46, 96);
-  return L.preferLayered(est) ? 'layered' : 'radial';
+  if (wanted !== 'layered' && wanted !== 'radial') return wanted;
+  // auto 语义 = chooseLayoutMode；这里 wanted 是 auto 时传入的初值
+  return L.chooseLayoutMode(snapshot, vis, 46, 96, 980, 749).mode;
 }
 let failures = 0;
 const check = (name, ok, detail) => {
@@ -152,8 +152,8 @@ for (const dir of process.argv.slice(2)) {
   console.log(`\n########## ${dir}  n=${n} m=${snap.edges.length} root=${snap.manifest.root} ##########`);
 
   const idIndex = new Map(snap.nodes.map((x, i) => [x.id, i]));
-  for (const wanted of ['layered', 'radial']) {
-    // 全量布局（经形态回退；记录回退以便判断断言口径）
+  // 形态两选一：分层 / 径向（auto 语义）
+  for (const wanted of ['auto', 'radial']) {
     const actual = resolveMode(snap, null, wanted);
     const r1 = L.computeTreeLayout(snap, null, opts(actual));
     const r2 = L.computeTreeLayout(snap, null, opts(actual));   // 复跑：可复现性
