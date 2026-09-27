@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
@@ -1762,9 +1762,10 @@
         // v3.3 图上不显示名称的自检：应恒为 0（名称只在右侧信息栏）
         get names() {
           if (!cy) return null;
+          // 注意 cytoscape 的 style() 返回字符串（'0' 而非数字 0），比较要按字符串
           return {
             nodesWithVisibleLabel: cy.nodes().filter(
-              (n: any) => n.style('text-opacity') !== 0 || (n.style('label') ?? '') !== '',
+              (n: any) => String(n.style('label') ?? '') !== '' || String(n.style('text-opacity')) !== '0',
             ).length,
           };
         },
