@@ -161,28 +161,69 @@ export const MIN_READABLE_NODE_PX = 9;
 const MIN_LAYERED_WIDTH = 1200;
 
 /**
- * 分层 or 径向？判据不是"扁平"本身，而是**fit 到参考视口后节点还剩几个像素**。
+ * 分层 or 径向？**两种形态都估一遍，比 fit 后可读性，选大的**。
  *
- * 走过的弯路：一开始用"宽高比 > 8 就回退"。结果 80 节点的真实图（3399×384，宽高比 8.85）
- * 被误判回退——而它恰恰是分层的理想场景（fit 后节点 11.8px、层间距直观可读）。
- * 扁平本身不是问题，"fit 完看不见"才是问题，所以直接算可读性。
+ * 判据演进（两次都被实测推翻）：
+ *  1. 起初用"宽高比 > 8 就回退径向"→ 80 节点真实图（3399×384，比值 8.85）被误判，
+ *     而它恰是分层的理想场景（fit 后节点 11.8px）。
+ *  2. 改成"分层 fit 后可读性 < 9px 就回退"→ 仍是单边判据：径向只是兜底，
+ *     于是 1500 节点图只展开 2 层（44 节点）时选了分层，fit zoom 仅 0.363、节点 9.4px；
+ *     而同样 44 节点径向是 752×753（接近方形），fit zoom 0.766、节点 19.9px —— **2.1 倍**。
+ * 所以正确做法是把径向也估出来直接比：谁 fit 后节点更大就选谁。
  *
- * @param size 分层布局的估算世界尺寸（estimateLayeredSize 的返回值）
+ * 分层尺寸：estimateLayeredSize（精确递推）
+ * 径向尺寸：约等于 2×maxRadius；maxRadius 由每环弧长需求推出（与 radial() 同一套公式）
  */
-export function preferLayered(
-  size: { w: number; h: number; meanSize?: number },
-  viewportW = 1600,
-  viewportH = 900,
-  minNodePx = MIN_READABLE_NODE_PX,
-): boolean {
-  if (!isFinite(size.w) || !isFinite(size.h) || size.w <= 0) return true;   // 太小，一律分层
-  const w = Math.max(size.w, MIN_LAYERED_WIDTH);
-  const h = Math.max(size.h, 1);
-  const zoom = Math.min((viewportW - 60) / w, (viewportH - 120) / h);
-  // 用**实际平均直径**而非"最小叶节点 14px"估算：小图的节点往往比 14px 大不少
-  // （D:\TA 均值约 19px），用 14px 会把"其实读得清"的图误判成要回退（实测被误伤过）。
-  const mean = size.meanSize && size.meanSize > 0 ? size.meanSize : 14;
-  return mean * zoom >= minNodePx;
+export function chooseLayoutMode(
+  snapshot: ChainSnapshot,
+  visible: Set<string> | null,
+  siblingGap: number,
+  levelGap: number,
+  viewportW = 980,
+  viewportH = 749,
+): { mode: LayoutMode; layeredPx: number; radialPx: number } {
+  const est = estimateLayeredSize(snapshot, visible, siblingGap, levelGap);
+  const layeredPx = fittedNodePx(est.w, est.h, est.meanSize, viewportW, viewportH);
+  const rad = estimateRadialExtent(snapshot, visible, siblingGap, levelGap);
+  const radialPx = fittedNodePx(rad * 2, rad * 2, est.meanSize, viewportW, viewportH);
+  return {
+    mode: radialPx > layeredPx ? 'radial' : 'layered',
+    layeredPx,
+    radialPx,
+  };
+}
+
+/** 世界尺寸 fit 到视口后，节点在屏幕上的直径（px）；估不准时返回 0（等于放弃该形态） */
+function fittedNodePx(w: number, h: number, meanSize: number | undefined, vw: number, vh: number): number {
+  if (!isFinite(w) || !isFinite(h) || w <= 0 || h <= 0) return 0;
+  const zoom = Math.min((vw - 120) / (w + 68), (vh - 120) / (h + 68));
+  return (meanSize && meanSize > 0 ? meanSize : 14) * Math.max(zoom, 0);
+}
+
+/** 径向布局的最大半径估算（与 radial() 的 radiusOfLevel 同一套递推） */
+function estimateRadialExtent(
+  snapshot: ChainSnapshot,
+  visible: Set<string> | null,
+  siblingGap: number,
+  levelGap: number,
+): number {
+  const P = prepare(snapshot, visible);
+  const N = P.ids.length;
+  if (N < 3) return Infinity;
+  const { depth, maxDepth } = computeExtents(P, siblingGap);
+  const needPerLevel = new Float64Array(maxDepth + 1);
+  const countPerLevel = new Int32Array(maxDepth + 1);
+  for (let i = 0; i < N; i++) {
+    const d = depth[i];
+    countPerLevel[d]++;
+    needPerLevel[d] += P.sizes[i] + siblingGap;
+  }
+  let prev = 0;
+  for (let d = 1; d <= maxDepth; d++) {
+    const arc = countPerLevel[d] > 1 ? needPerLevel[d] / (Math.PI * 2) : 0;
+    prev = Math.max(prev + levelGap, arc);
+  }
+  return prev;
 }
 
 interface Prepared {

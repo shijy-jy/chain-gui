@@ -9,10 +9,10 @@
   import {
     computeTreeLayout,
     pickMode,
-    estimateLayeredSize,
-    preferLayered,
+    chooseLayoutMode,
     type LayoutMode,
   } from './lib/tree_layout';
+  import { selectVisibleLabels, DEFAULT_LABEL_METRICS } from './lib/label_layout';
   import { computeRippleLayers, ripplePulseAmp, type RippleLayers } from './lib/ripple';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
@@ -69,6 +69,151 @@
   // v3.0 被深度裁剪隐藏的节点 id（relayout 自己维护，避免用 el.style() 反查样式）
   let hiddenNodes: Set<string> = new Set();
 
+  // ── v3.0 标签预算（"节点一多文字把节点挡住"的解法）──────────────────────────
+  // 不是把字号调小（那只是显示得更小、照样互相压），而是**在屏幕空间里少显示**：
+  // 按重要性（度 → 深度）贪心放入，与已接受标签重叠、或压住任何其它节点的一律跳过。
+  // 详见 src/lib/label_layout.ts。
+  //
+  // 渲染字号下限：低于这个屏幕字号，标签字就糊成一团，不如不画。
+  // 用**绝对值**而不是 ui/perf.ts 的 minZoomedFont —— 后者按"总节点数"分档
+  // （1500 节点档位是 10），于是一张图只展开 44 个节点时，标签也被压到 zoom>0.9 才出现，
+  // 与实际可读性无关（实测：zoom 0.35/0.62/0.95 全被闷掉，zoom 1.3 才冒出 16 个）。
+  // 标签是否出现应该只取决于"屏幕上有没有位置"，所以口径统一由标签预算独占。
+  const MIN_LABEL_FONT_PX = 7.5;
+  let maxLabels = $state(Number(localStorage.getItem('engram-max-labels') ?? 60));
+  // 标签字号（屏幕 px）：可调，因为"多小算读得清"跟屏幕/习惯有关
+  let labelFontSize = $state(Number(localStorage.getItem('engram-label-font') ?? DEFAULT_LABEL_METRICS.fontSize));
+  let labelUpdateTimer: ReturnType<typeof setTimeout> | undefined;
+  /** 当前带标签的节点 id（与 cytoscape 的 no-label 类互补） */
+  let labeledIds: Set<string> = new Set();
+  /** 最近一次标签预算的统计（性能浮层/回归脚本） */
+  let labelStats: Record<string, number> | null = null;
+  /** 当前写入 cytoscape 的世界字号（用于判断是否需要改样式，避免每次重算都写样式） */
+  let currentWorldFont = 0;
+  /** 上一次用于计算的相机状态（zoom + 平移取整），无变化就不重算 */
+  let lastCamSig = '';
+  /** 标签几何参数：单一来源，样式与预算共用，避免"样式改了但预算还按旧尺寸算" */
+  const LABEL_METRICS = { ...DEFAULT_LABEL_METRICS };
+  currentWorldFont = LABEL_METRICS.fontSize;   // 初始世界字号 = 屏幕字号（zoom=1 时的情形）
+
+  /** 字号改变：同步样式 + 重算预算（样式与预算必须用同一个字号，否则装箱判定失真） */
+  function applyLabelFont(px: number) {
+    labelFontSize = px;
+    LABEL_METRICS.fontSize = px;
+    localStorage.setItem('engram-label-font', String(px));
+    const cyRef = cy;
+    if (cyRef) {
+      cyRef.style().selector('node').style({ 'font-size': `${px}px` }).update();
+      // 字号变了 → 标签框尺寸变了 → 上一轮的 camera 签名作废，强制重算
+      lastCamSig = '';
+      updateLabels(cyRef);
+    }
+  }
+
+  /** 重算并应用标签预算（同步；调用方负责节流） */
+  function updateLabels(cyRef: Core) {
+    const visibleNodes = cyRef.nodes().filter((nd: any) => !hiddenNodes.has(nd.id()));
+    const zoom = cyRef.zoom();
+    const vp = { x: cyRef.pan().x, y: cyRef.pan().y };
+    const w = cyRef.width();
+    const h = cyRef.height();
+
+    // v3.0 标签"屏幕恒字号"：cytoscape 的 font-size 是世界单位，会被 zoom 缩放。
+    // 直接用固定 px 会导致缩到总览时标签糊到不可读（实测 fit 后 zoom≈0.35，11px→3.9px，
+    // 被渲染下限全部闷掉 → 图上光秃秃没有字）。这里按 1/zoom 反算世界字号，
+    // 使标签在屏幕上恒为 labelFontSize px（Obsidian 的标签也是屏幕恒定大小）。
+    // 上限 4 倍字号相当于"标签不再跟着放大"，避免近距离时字大得盖住图。
+    const wantWorldFont = LABEL_METRICS.fontSize / Math.max(zoom, 1e-6);
+    const cappedWorldFont = Math.min(wantWorldFont, LABEL_METRICS.fontSize * 4);
+    if (Math.abs(cappedWorldFont - currentWorldFont) > 0.5) {
+      currentWorldFont = cappedWorldFont;
+      cyRef.style().selector('node').style({ 'font-size': `${cappedWorldFont.toFixed(2)}px` }).update();
+    }
+    // 候选的屏幕坐标用于装箱；渲染字号是否够大改由该反算值判定（屏幕恒字号 → 恒等于 labelFontSize）
+    const effectiveFontPx = cappedWorldFont * zoom;
+
+    // 世界坐标 → 屏幕坐标（cytoscape 语义：rendered = world * zoom + pan）
+    const candidates = visibleNodes.map((nd: any) => {
+      const p = nd.position();
+      const wp = { x: p.x * zoom + vp.x, y: p.y * zoom + vp.y };
+      // 候选用"屏幕坐标 / zoom"表达世界坐标，保持纯函数接口只吃 zoom
+      return {
+        id: nd.id(),
+        x: wp.x / zoom,
+        y: wp.y / zoom,
+        size: nd.width(),                 // 世界单位（cytoscape 的 width 即世界坐标）
+        text: String(nd.data('label') ?? nd.id()),
+        degree: nd.degree(),
+        depth: labelDepth.get(nd.id()) ?? 0,
+      };
+    });
+    const res = selectVisibleLabels(candidates, {
+      metrics: LABEL_METRICS,
+      zoom,
+      viewportW: w,
+      viewportH: h,
+      maxLabels,
+      maxScreenAreaRatio: 0.14,
+      nodeClearance: 2,
+      // 渲染字号下限：低于它就糊成一团，不如不画（口径由预算独占）
+      minRenderedFontPx: MIN_LABEL_FONT_PX,
+      // 传入实际屏幕字号：标签框尺寸按它算，而不是按"假定字号"（否则装箱判定与实际不符）
+      renderedFontPxOverride: effectiveFontPx,
+    });
+
+    // ⚠️ 两个必须遵守的点（都踩过坑）：
+    //  1. 切类必须在**所有**路径上执行，包括"渲染字号太小 → 空集"的提前返回。
+    //     早前把应用逻辑放在其后，zoom 缩到字太小时旧类没清，预算说 0 个、画面挂着 44 个标签。
+    //  2. 必须遍历**全部**节点而不只是可见节点。被深度裁剪隐藏的节点不在可见集合里，
+    //     它们的 no-label 类若不清掉，一旦重新显示就会带着陈旧状态（表现为"计数与画面不一致"）。
+    const next = res.visible;
+    const toAdd: any[] = [];
+    const toRemove: any[] = [];
+    cyRef.nodes().forEach((nd: any) => {
+      const isVisible = !hiddenNodes.has(nd.id());
+      const want = isVisible && next.has(nd.id());
+      const hasNoLabel = nd.hasClass('no-label');
+      if (want && hasNoLabel) toAdd.push(nd);
+      else if (!want && !hasNoLabel) toRemove.push(nd);
+    });
+    if (toAdd.length || toRemove.length) {
+      cyRef.batch(() => {
+        for (const nd of toAdd) nd.removeClass('no-label');
+        for (const nd of toRemove) nd.addClass('no-label');
+      });
+    }
+    labeledIds = next;
+    labelStats = res.stats as unknown as Record<string, number>;
+    lastCamSig = `${zoom.toFixed(3)}|${Math.round(vp.x / 8)}|${Math.round(vp.y / 8)}|${visibleNodes.length}`;
+  }
+
+  /** 节流重算（相机/布局变化后调用；默认 150ms 内多次调用合并为一次） */
+  function scheduleLabelUpdate(delay = 150) {
+    clearTimeout(labelUpdateTimer);
+    labelUpdateTimer = setTimeout(() => {
+      const cyRef = cy;
+      if (!cyRef || !snapshot) return;
+      // 相机没动就不重算（平移/缩放之外的样式变化不需要重排标签）
+      const sig = `${cyRef.zoom().toFixed(3)}|${Math.round(cyRef.pan().x / 8)}|${Math.round(cyRef.pan().y / 8)}`;
+      if (sig === lastCamSig.split('|').slice(0, 3).join('|') && labelStats !== null) return;
+      updateLabels(cyRef);
+    }, delay);
+  }
+
+  /** 节点 id → 深度（标签优先级用；随快照变化） */
+  let labelDepth: Map<string, number> = new Map();
+
+  /** 量取图例面板相对画布的矩形（用于遮挡判定；DOM 侧数据，只在需要时读一次） */
+  function measureLegendRect(cyRef: Core | null) {
+    if (typeof document === 'undefined') return;
+    const el = document.querySelector('.legend') as HTMLElement | null;
+    const host = cyRef?.container() as HTMLElement | undefined;
+    if (!el || !host) { legendRect = null; return; }
+    const a = el.getBoundingClientRect();
+    const b = host.getBoundingClientRect();
+    legendRect = { x: a.left - b.left, y: a.top - b.top, w: a.width, h: a.height };
+  }
+
   // 兼容旧调用点（clearGraph / onDestroy / 重建路径）：停掉正在跑的补间
   function stopForce() {
     if (layoutRaf !== null) {
@@ -82,6 +227,8 @@
 
   // 最近一次布局的元信息（诊断浮层用）
   let layoutInfo = $state<{ mode: LayoutMode; ms: number; visible: number; total: number } | null>(null);
+  /** v3.0 最近一次形态选择的两个候选可读性（px），用于解释"为什么选了径向/分层" */
+  let lastModePick: { layeredPx: number; radialPx: number } | null = null;
   // v3.0 自检埋点：最近一次 relayout 的入参/结果（回归脚本据此断言核心不变量）
   let lastRelayoutTrace: {
     visSize: number; visNull: boolean; visibleDepth: number;
@@ -184,13 +331,17 @@
     const vis = visibleSet();
     const visibleCount = vis ? vis.size : total;
     let reqMode: LayoutMode = layoutMode === 'auto' ? pickMode(visibleCount) : layoutMode;
-    // 形态回退：分层整洁树的宽度 ∝ 叶子总数，浅宽树展开后是极扁的长条
-    // （1500 节点实测 12000×118px，fit 后节点 3.3px）。判据不是"扁平"本身，
-    // 而是 fit 到视口后节点还剩几像素——80 节点真实图宽高比 8.85 但 fit 后 11.8px，
-    // 恰恰是分层的理想场景，所以按可读性判（早期按宽高比判会误伤它）。
-    if (reqMode === 'layered') {
-      const est = estimateLayeredSize(snap, vis, siblingGap, levelGap);
-      if (!preferLayered(est)) reqMode = 'radial';
+    // 形态选择：auto 时把分层/径向**都估一遍**比可读性（见 chooseLayoutMode 的判据演进记录）；
+    // 手动锁定形态则尊重用户，不再自动切换。
+    if (layoutMode === 'auto') {
+      const pick = chooseLayoutMode(
+        snap, vis, siblingGap, levelGap,
+        Math.max(cyRef.width(), 320), Math.max(cyRef.height(), 240),
+      );
+      reqMode = pick.mode;
+      lastModePick = { layeredPx: Math.round(pick.layeredPx * 10) / 10, radialPx: Math.round(pick.radialPx * 10) / 10 };
+    } else {
+      lastModePick = null;
     }
 
     const result = computeTreeLayout(snap, vis, {
@@ -303,19 +454,28 @@
       });
       if (t < 1) {
         layoutRaf = requestAnimationFrame(step);
-      } else if (fit) {
-        // 落位后适配视口：聚焦态适配聚焦范围内可见节点，否则适配全部可见元素
-        const focusNow = focusSet;
-        if (focusNow) {
-          const focusEles = cyRef.nodes().filter(
-            (nd: any) => focusNow.has(nd.id()) && !hiddenNodes.has(nd.id()),
-          );
-          if (focusEles.length > 0) {
-            cyRef.animate({ fit: { eles: focusEles, padding: 90 }, duration: 260, easing: 'ease-out' });
+      } else {
+        // 落位后处理：
+        //  - 先按"与标签无关"的包围盒适配视口（fitVisible；fit 不能把标签算进去，否则与
+        //    "标签预算随 zoom 变化"构成振荡回路）
+        //  - 再按新的 zoom 重算标签预算（此时 zoom 已定，标签是 zoom 的纯函数）
+        if (fit) {
+          const focusNow = focusSet;
+          if (focusNow) {
+            const focusEles = cyRef.nodes().filter(
+              (nd: any) => focusNow.has(nd.id()) && !hiddenNodes.has(nd.id()),
+            );
+            if (focusEles.length > 0) {
+              cyRef.animate({ fit: { eles: focusEles, padding: 90 }, duration: 260, easing: 'ease-out' });
+            }
+          } else {
+            fitVisible(cyRef, { animate: true, padding: 60 });
           }
-        } else {
-          fitVisible(cyRef, { animate: true, padding: 60 });
         }
+        // 标签预算重算（zoom 变了、隐藏集变了、位置变了，三个都要跟）
+        scheduleLabelUpdate(360);
+        // 图例遮挡检查（图例是 DOM 覆盖层，看不到图，只能用几何判定）
+        setTimeout(() => { const c = cy; if (c) { measureLegendRect(c); autoCollapseLegend(c); } }, 380);
       }
     };
     layoutRaf = requestAnimationFrame(step);
@@ -323,21 +483,39 @@
 
   /**
    * 适配视口（v3.0 统一出口）。
-   * - fit 的**元素集**必须排除被深度裁剪隐藏的节点，否则 fit 会把"看不见的节点"算进包围盒。
-   *   注意不要用 el.style('display') 反查：那是逐元素样式重算，1500 节点下很贵；
-   *   直接用布局层维护的 hiddenNodes 集合。
+   *
+   * 两个坑都在这里踩过：
+   *  1. fit 的元素集必须排除被深度裁剪隐藏的节点，否则看不见的节点也算进包围盒。
+   *     注意不要用 el.style('display') 反查（逐元素样式重算，1500 节点很贵），
+   *     直接用布局层维护的 hiddenNodes 集合。
+   *  2. **必须用"与标签无关"的包围盒**：cytoscape 的 fit 走的是元素渲染包围盒，
+   *     而标签属于渲染包围盒 —— 于是"标签显示 → 包围盒变大 → zoom 变小 → 标签隐藏 → 包围盒变小"
+   *     构成振荡回路。这里显式用 `nodes.boundingBox()` 加上节点半径自己算，
+   *     标签再多也不影响取景，标签预算因此是 zoom 的纯函数（无反馈）。
    */
   function fitVisible(cyRef: Core, o: { animate?: boolean; padding?: number } = {}) {
-    const vis = cyRef.elements().filter(
-      (el: any) => !hiddenNodes.has(el.id())
-        && !(el.isEdge() && (hiddenNodes.has(el.source().id()) || hiddenNodes.has(el.target().id()))),
-    );
-    if (vis.length === 0) return;
+    const nodes = cyRef.nodes().filter((nd: any) => !hiddenNodes.has(nd.id()));
+    if (nodes.length === 0) return;
+    const bb = nodes.boundingBox();
     const pad = o.padding ?? 60;
+    // 把节点半径与标签高度余量算进去（否则边缘节点的标签会贴边被裁）
+    const inflate = 34;
+    const zoomTarget = Math.min(
+      Math.max(cyRef.width() - pad * 2, 1) / Math.max(bb.w + inflate * 2, 1),
+      Math.max(cyRef.height() - pad * 2, 1) / Math.max(bb.h + inflate * 2, 1),
+    );
+    const z = Math.max(cyRef.minZoom(), Math.min(cyRef.maxZoom(), zoomTarget));
+    // cytoscape 的 center 只接受元素集，不接受坐标点 → 直接算 pan：
+    //   屏幕位置 = 世界坐标 × zoom + pan，要让图心落在视口中心，故 pan = 视口中心 − 图心 × zoom
+    const pan = {
+      x: cyRef.width() / 2 - (bb.x1 + bb.w / 2) * z,
+      y: cyRef.height() / 2 - (bb.y1 + bb.h / 2) * z,
+    };
     if (o.animate) {
-      cyRef.animate({ fit: { eles: vis, padding: pad }, duration: 260, easing: 'ease-out' });
+      cyRef.animate({ zoom: z, pan }, { duration: 260, easing: 'ease-out' });
     } else {
-      cyRef.fit(vis, pad);
+      cyRef.zoom(z);
+      cyRef.pan(pan);
     }
   }
 
@@ -1123,6 +1301,47 @@
     color: NODE_TYPE_COLOR[t],
   }));
   let showLegend = $state(true);
+  // v3.0 图例遮挡自动收起：图例会盖住图（实测 80 节点图约占 1/3 画布）。
+  // 用户显式点过图例开关后就不再自动干预（存 localStorage）。
+  let legendUserSet = typeof localStorage !== 'undefined' && localStorage.getItem('engram-legend-user') === '1';
+  let legendRect: { x: number; y: number; w: number; h: number } | null = null;
+
+  /**
+   * 图例是否压住了图。
+   *
+   * 判据演进：一开始只看"有多少节点落在图例矩形内"，结果漏判——图例常压在
+   * **连线与空白**上（节点是离散的，图例恰好从节点缝隙穿过），此时画面依然被切掉一块。
+   * 改为与**图的包围盒**比面积：图例占掉图面积的 12% 以上就认为挡到了。
+   */
+  function autoCollapseLegend(cyRef: Core) {
+    if (legendUserSet || !showLegend || !legendRect) return;
+    const zoom = cyRef.zoom();
+    const pan = cyRef.pan();
+    const r = legendRect;
+    // 可见节点在屏幕上的包围盒
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let count = 0;
+    cyRef.nodes().forEach((nd: any) => {
+      if (hiddenNodes.has(nd.id())) return;
+      const p = nd.position();
+      const sx = p.x * zoom + pan.x;
+      const sy = p.y * zoom + pan.y;
+      if (sx < minX) minX = sx;
+      if (sx > maxX) maxX = sx;
+      if (sy < minY) minY = sy;
+      if (sy > maxY) maxY = sy;
+      count++;
+    });
+    if (count === 0) return;
+    const gx0 = Math.max(minX, 0), gy0 = Math.max(minY, 0);
+    const gx1 = Math.min(maxX, cyRef.width()), gy1 = Math.min(maxY, cyRef.height());
+    const graphArea = Math.max(gx1 - gx0, 1) * Math.max(gy1 - gy0, 1);
+    const ox = Math.min(r.x + r.w, gx1) - Math.max(r.x, gx0);
+    const oy = Math.min(r.y + r.h, gy1) - Math.max(r.y, gy0);
+    const overlap = Math.max(ox, 0) * Math.max(oy, 0);
+    if (overlap / graphArea > 0.12) showLegend = false;
+  }
+
   // v2.14 「代码」筛选开关：一键高亮有代码骨架的节点（其余压暗）
   let codeFilter = $state(false);
   // v2.15 性能浮层开关
@@ -1144,19 +1363,22 @@
       style: {
         'shape': 'ellipse',
         'label': 'data(label)',   // v1.7 显示名 = 「类型 · 标题」，生成见 chain_to_cytoscape
-        'font-size': '11px',
+        // v3.0 标签几何压缩（原来 11px + max-width 150px + 换行 = 一块板，节点一多就盖住图）：
+        //   字号 11→10、最大宽度 150→72（≈7 个汉字/行）、下移 8→5、最多 2 行（由 label_layout 截断）
+        // 真正"显示哪些标签"由 src/lib/label_layout.ts 的屏幕空间装箱决定（no-label 类）
+        'font-size': `${LABEL_METRICS.fontSize}px`,
         'color': 'rgba(255,255,255,0.92)',
         'text-opacity': 1,
-        // v2.15 标签按 zoom 裁剪（cytoscape 内建：渲染字号小于阈值就不画标签——
-        // 大图缩到总览时标签是 canvas 大头；阈值随后按节点数分档调高）
-        'min-zoomed-font-size': 6,
+        // v3.0 标签可见性完全交给标签预算（node.no-label）。这里设 0 = 关闭 cytoscape 内建
+        // 的 zoom 裁剪，否则它会按"总节点数"档位把只展开少量节点的图也闷掉（实测踩过）
+        'min-zoomed-font-size': 0,
         // v2.8 UI 打磨：标签暗色描边，任意背景下可读（黑底/节点/水面）
-        'text-outline-width': 2,
+        'text-outline-width': LABEL_METRICS.outline,
         'text-outline-color': '#0a0a0a',
         'text-valign': 'bottom',
-        'text-margin-y': 8,
+        'text-margin-y': LABEL_METRICS.marginY,
         'text-wrap': 'wrap',
-        'text-max-width': 150,
+        'text-max-width': LABEL_METRICS.maxWidth,
         'width': nodeSize,
         'height': nodeSize,
         'background-color': '#888888',
@@ -1172,6 +1394,12 @@
         'transition-duration': '0.25s',
       } as any,
     },
+    // v3.0 标签预算的落点：被预算筛掉的节点加 .no-label（隐藏文字但保留节点与悬停提示）
+    { selector: 'node.no-label', style: { 'text-opacity': 0 } },
+    // v3.0 渲染字号下限交给标签预算（见 MIN_LABEL_FONT_PX 说明）。
+    // 这里把 cytoscape 内建的 min-zoomed-font-size 设成 0，避免它与预算口径打架：
+    // 它的档位按"总节点数"取，会在大图里把只展开几十个节点的标签也一并闷掉（实测踩过）。
+    { selector: 'node.too-small-to-label', style: { 'text-opacity': 0 } },
     // 类型 = 颜色
     { selector: 'node[nodeType = "goal"]',         style: { 'background-color': '#a78bfa' } },
     { selector: 'node[nodeType = "design"]',       style: { 'background-color': '#60a5fa' } },
@@ -1393,7 +1621,18 @@
     { id: 'zoom-out', label: '−', title: '缩小（滚轮亦可）', active: false, onClick: () => cy?.zoom(cy.zoom() / 1.4) },
     { id: 'code', label: '</>', title: '高亮有代码骨架的节点（青绿描边 + 辉光，其余压暗）', active: codeFilter, onClick: toggleCodeFilter },
     { id: 'perf', label: '⚡', title: '性能浮层：FPS/帧耗时/规模分档', active: perfOpen, onClick: () => (perfOpen = !perfOpen) },
-    { id: 'legend', label: showLegend ? '◉' : '○', title: '图例开关', active: false, onClick: () => (showLegend = !showLegend) },
+    {
+      id: 'legend',
+      label: showLegend ? '◉' : '○',
+      title: '图例开关（图例挡到图时 v3.0 会自动收起；手动点过之后就听你的）',
+      active: false,
+      onClick: () => {
+        showLegend = !showLegend;
+        // 用户显式操作 → 记下来，不再自动收起
+        legendUserSet = true;
+        localStorage.setItem('engram-legend-user', '1');
+      },
+    },
   ]);
 
   // v1.3：折叠子链（两段式确认在 Sidebar 内完成，这里只执行；v2.0 仅分析模式）
@@ -1476,17 +1715,18 @@
       // v3.0 布局态重置：新图不继承旧图的半径覆盖/隐藏集合
       nodeSizeOverride = new Map();
       hiddenNodes = new Set();
+      // 标签优先级需要深度表（浅层优先被标出）；同时清掉旧的标签类
+      labelDepth = shallowDepth(snap);
+      labeledIds = new Set();
+      lastCamSig = '';
       // 自动深度：按新图规模取一个"能读"的展开层数（用户手动调过则尊重用户）
       if (autoDepth) visibleDepth = autoDepthFor(snap.nodes.length);
       // v2.4 两模式统一：连线渲染为"若有若无"的淡线（.ghost），点击后整组淡出改由涟漪表达
       cyRef.add(chainToElements(snap, { withEdges: true, includeArchived: showArchived }));
       cyRef.edges().addClass('ghost');
-      // v2.15 按规模调整标签裁剪阈值（perf 分档：大图缩到总览时标签是 canvas 大头）
-      cyRef
-        .style()
-        .selector('node')
-        .style({ 'min-zoomed-font-size': perfPolicy(snap.nodes.length).minZoomedFont })
-        .update();
+      // v3.0 不再按规模设 min-zoomed-font-size：标签可见性由标签预算独占（见 MIN_LABEL_FONT_PX 注释）。
+      // 这里保持 0，确保"预算说有标签"与"画面真有标签"永远一致。
+      cyRef.style().selector('node').style({ 'min-zoomed-font-size': 0 }).update();
       applyCodeFilter();   // v2.14 全量重建会清空类，筛选开着重放
       startWaterLoop();
       // v1.7 首帧视图：以前在这里同步 fit 全图 + 根节点居中（消除"左上角堆叠→跳中央"的闪烁）。
@@ -1534,6 +1774,11 @@
         maxZoom: 4,
       });
       updateRippleStyle(cy);   // v2.4 亮度对比公式接管 rip-dN 样式（滑条默认值）
+      // v3.0 恢复用户上次的标签字号（样式与预算共用同一个值）
+      if (labelFontSize !== DEFAULT_LABEL_METRICS.fontSize) {
+        LABEL_METRICS.fontSize = labelFontSize;
+        cy.style().selector('node').style({ 'font-size': `${labelFontSize}px` }).update();
+      }
       // v2.15 调试/自动化钩子（CDP 驱动验证与未来插件扩展的稳定接缝，只读访问）
       (window as any).__engramDebug = {
         get cy() {
@@ -1545,47 +1790,33 @@
         get mode() {
           return scanMode;
         },
-        // v3.0 布局自检接缝（回归脚本用：验证交叉数/静止性/可复现性，避免读私有变量）
+        // v3.0 布局自检接缝（回归脚本用：验证静止性/可复现性/可见性不变量，避免读私有变量）
         get hiddenCount() {
           return hiddenNodes.size;
-        },
-        get overrideCount() {
-          return nodeSizeOverride.size;
         },
         get relayoutTrace() {
           return lastRelayoutTrace;
         },
-        // 直接核对三个口径：集合大小 / 集合过滤后的可见数 / 渲染器实际隐藏数
+        // 可见节点数（渲染器口径）—— 用于断言"预算说显示多少，画面就真的显示多少"
         get visibleCount() {
           if (!cy) return -1;
           return cy.nodes().filter((n: any) => !hiddenNodes.has(n.id())).length;
         },
-        get styleHiddenCount() {
-          if (!cy) return -1;
-          return cy.nodes().filter((n: any) => n.style('display') === 'none').length;
-        },
-        // 直接暴露可见集推导链，用于定位"谁被裁掉了"
-        get visProbe() {
-          const snap = snapshot;
-          if (!snap) return null;
-          const vis = visibleSet();
-          const depthMap = shallowDepth(snap);
-          const rid = rootNodeId(snap);
-          const hidden = cy ? cy.nodes().filter((n: any) => n.style('display') === 'none') : [];
-          const hiddenSet = new Set(hidden.map((n: any) => n.id()));
-          const keptIds = snap.nodes.map((n) => n.id).filter((id) => (vis ? vis.has(id) : true));
+        // v3.0 标签预算自检接缝
+        get labels() {
           return {
-            visibleDepth,
-            manifestRoot: snap.manifest?.root ?? null,
-            resolvedRoot: rid,
-            resolvedRootDepth: rid ? (depthMap.get(rid) ?? -99) : null,
-            visSize: vis ? vis.size : -1,
-            visIsNull: vis === null,
-            keptCount: keptIds.length,
-            shownKeptCount: keptIds.filter((id) => !hiddenSet.has(id)).length,
-            droppedByRenderSample: keptIds.filter((id) => hiddenSet.has(id)).slice(0, 6),
+            maxLabels,
+            labeled: labeledIds.size,
+            // 画面口径：没有 no-label 类且未被深度裁剪的节点数。
+            // 必须与 stats.accepted 相等——两者不等就说明类没同步干净（踩过两次）
+            renderedLabels: cy
+              ? cy.nodes().filter((n: any) => !n.hasClass('no-label') && !hiddenNodes.has(n.id())).length
+              : -1,
+            stats: labelStats,
+            zoom: cy ? +cy.zoom().toFixed(4) : 0,
           };
         },
+        relabel: () => { if (cy) updateLabels(cy); },
         get layout() {
           return {
             info: layoutInfo,
@@ -1594,6 +1825,7 @@
             siblingGap,
             visibleDepth,
             autoDepth,
+            modePick: lastModePick,
             visible: cy ? cy.nodes().filter((n: any) => !hiddenNodes.has(n.id())).length : 0,
             hidden: hiddenNodes.size,
             positions: cy
@@ -1685,7 +1917,11 @@
       error = `[cytoscape init failed] ${(e as Error).message}`;
     }
 
-    const onResize = () => { cy?.resize(); if (cy) fitVisible(cy, { padding: 60 }); };
+    // v3.0 相机变化 → 重算标签预算（节流 150ms；平移/缩放的 CSS 过渡本身是流畅的，
+    // 标签晚 150ms 跟上，比每帧重算 1500 个标签框划算得多）
+    cy?.on('zoom pan', () => scheduleLabelUpdate(150));
+
+    const onResize = () => { cy?.resize(); if (cy) fitVisible(cy, { padding: 60 }); scheduleLabelUpdate(200); };
     window.addEventListener('resize', onResize);
     // v2.6 Esc：优先退出双击聚焦视图；否则收起右侧信息栏（常驻侧栏无"关闭"语义）
     const onKeydown = (e: KeyboardEvent) => {
@@ -1903,6 +2139,26 @@
               onchange={(e) => siblingGap = +(e.target as HTMLInputElement).value} />
             <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.325)" title="默认值 46px，点击恢复"
                     onclick={(e) => { e.preventDefault(); siblingGap = 46; }}></button>
+          </span>
+        </label>
+        <label class="slider-label" title="标签字号（v3.0）：标签文字的屏幕字号。越大越易读但越占地方，配合下面的「标签数」一起调">字号<span class="slider-val">{labelFontSize}px</span>
+          <span class="slider-track">
+            <input type="range" min="9" max="13" step="1" value={labelFontSize}
+              onchange={(e) => applyLabelFont(+(e.target as HTMLInputElement).value)} />
+            <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.5)" title="默认 11px，点击恢复"
+                    onclick={(e) => { e.preventDefault(); applyLabelFont(DEFAULT_LABEL_METRICS.fontSize); }}></button>
+          </span>
+        </label>
+        <label class="slider-label" title="标签数上限（v3.0）：屏幕上同时显示多少个节点标题。标签按重要性（连接数 → 层级）挑选，并保证不互相压字、不盖住任何节点；调小可换取更干净的画布，悬停仍可看 id">标签数<span class="slider-val">{maxLabels === 0 ? '不限' : maxLabels}</span>
+          <span class="slider-track">
+            <input type="range" min="0" max="200" step="10" value={maxLabels}
+              onchange={(e) => {
+                maxLabels = +(e.target as HTMLInputElement).value;
+                localStorage.setItem('engram-max-labels', String(maxLabels));
+                scheduleLabelUpdate(0);
+              }} />
+            <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.3)" title="默认 60，点击恢复"
+                    onclick={(e) => { e.preventDefault(); maxLabels = 60; localStorage.setItem('engram-max-labels', '60'); scheduleLabelUpdate(0); }}></button>
           </span>
         </label>
         <label class="slider-label" title="布局形态（v3.0）：分层=父在上子在下（贴合链式阅读，适合中小图）；径向=根居中向外辐射（大图唯一能压住规模的形态）；自动=按可见节点数选（≤300 分层，否则径向）">形态<span class="slider-val">{layoutMode === 'auto' ? `自动·${layoutInfo?.mode === 'radial' ? '径向' : '分层'}` : layoutMode === 'radial' ? '径向' : '分层'}</span>
