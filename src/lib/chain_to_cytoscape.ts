@@ -1,10 +1,9 @@
 import type { ElementDefinition } from 'cytoscape';
 import type { ChainSnapshot, NodeType } from './types';
 
-// v1.7 图谱节点显示命名：「类型 · 标题」——id 是机器标识（文件名/交叉引用）不带语义，
-// 标题才承载"这条链在干什么"的宏观作用。画布标签以 title 为主 + 类型前缀
-// （强调前后逻辑关系：目标→设计→任务→验证）；id 移出画布标签，
-// 点击节点在侧栏可见、悬停节点在浮层可见（见 App.svelte hover-tip）。
+// v1.7 图谱节点显示命名：「类型 · 标题」——曾用于画布标签。
+// v3.3 起**图谱上不显示任何名称**（用户要求）：节点的身份靠类型配色 + 大小（度）+
+// 悬停浮层（id · 类型）+ 点击右侧信息栏承载。这里保留两张表是因为图例与悬停提示仍在用。
 export const NODE_TYPE_LABEL: Record<NodeType, string> = {
   goal: '目标',
   design: '设计',
@@ -21,14 +20,6 @@ export const NODE_TYPE_COLOR: Record<NodeType, string> = {
   verification: '#34d399',
   note: '#94a3b8',
 };
-
-function displayLabel(type: NodeType, title: string): string {
-  const max = 20;
-  const t = title.length > max ? `${title.slice(0, max)}…` : title;
-  // v2.0 开发模式中性类型 note：不加「笔记」前缀（知识库节点标题即显示名，类型可忽略）
-  if (type === 'note') return t;
-  return `${NODE_TYPE_LABEL[type]} · ${t}`;
-}
 
 export function chainToElements(
   snap: ChainSnapshot,
@@ -53,15 +44,12 @@ export function chainToElements(
   for (const e of snap.edges) parentSet.add(e.parent);
 
   nodes.forEach((node) => {
-    // v2.14 代码骨架角标：挂载 code_map 的节点标签尾缀 </>，数据带 codeMap 字段
-    // （App.svelte 据此画青绿描边 + 「代码」筛选高亮）
-    const codeBadge = node.code_map ? ' </>' : '';
+    // v3.3 不再生成 label 数据（图谱不显示名称，见文件头说明）
     const openLoop =
       node.type === 'task' && !parentSet.has(node.id) && !(node.body ?? '').includes('自验收');
     elements.push({
       data: {
         id: node.id,
-        label: displayLabel(node.type, node.title) + codeBadge,
         nodeType: node.type,
         nodeStatus: node.status,
         chainParent: node.parent,  // 注意：不能用 `parent` 字段名——那是 cytoscape 保留字段（compound 复合节点），会把子节点渲染进父节点内部撑出巨型容器；chain 协议的父子关系由 edge 表达，这里仅保留信息备查
@@ -83,7 +71,6 @@ export function chainToElements(
       elements.push({
         data: {
           id: node.id,
-          label: displayLabel(node.type, node.title),
           nodeType: node.type,
           nodeStatus: node.status,
           chainParent: node.parent,
