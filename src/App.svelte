@@ -1312,12 +1312,15 @@
         'shape': 'ellipse',
         // v3.3 图谱上**不再显示节点名称**（用户要求：以后不在图上显示）。
         // 节点的身份靠：类型配色 + 大小（度）+ 悬停浮层（显示 id · 类型 + 角标）+ 点击右侧信息栏。
-        // 下面所有 text-* 属性保持"显式关闭"，避免 cytoscape 默认值把 label 又画出来。
-        'label': '',
-        'text-opacity': 0,
+        //
+        // 实测确认（release 版逐节点量过）：真正让文字消失的是 **label 置空**
+        // （label 盒 0x0、图上零文字）；而 `text-opacity: 0` 在这个 cytoscape 版本里
+        // **写进去不生效**（读出来仍是 "1"）—— 所以不要依赖它，也别用它做自检口径。
+        // 这三条是"文字不出现"的完整保证，缺任何一条都可能被默认值补回来：
+        'label': '',                 // ← 真正的开关
+        'text-wrap': 'none',
         'min-zoomed-font-size': 0,
         'text-outline-width': 0,
-        'text-wrap': 'none',
         'width': nodeSize,
         'height': nodeSize,
         'background-color': '#888888',
@@ -1759,14 +1762,19 @@
         get relayoutTrace() {
           return lastRelayoutTrace;
         },
-        // v3.3 图上不显示名称的自检：应恒为 0（名称只在右侧信息栏）
+        // v3.3 图上不显示名称的自检：应恒为 0（名称只在右侧信息栏）。
+        // 口径用"label 是否为空"—— 这才是真正决定画不画字的开关；
+        // 不要用 text-opacity 判定：这个版本里它写进去不生效（实测读数恒为 "1"）。
         get names() {
           if (!cy) return null;
-          // 注意 cytoscape 的 style() 返回字符串（'0' 而非数字 0），比较要按字符串
+          let withLabelBox = 0;
+          cy.nodes().forEach((n: any) => {
+            const lb = n.boundingBox({ includeNodes: false, includeEdges: false, includeLabels: true, includeOverlays: false });
+            if (lb.w > 0.01 || lb.h > 0.01) withLabelBox++;
+          });
           return {
-            nodesWithVisibleLabel: cy.nodes().filter(
-              (n: any) => String(n.style('label') ?? '') !== '' || String(n.style('text-opacity')) !== '0',
-            ).length,
+            nodesWithNonEmptyLabel: cy.nodes().filter((n: any) => String(n.style('label') ?? '') !== '').length,
+            nodesWithLabelBox: withLabelBox,   // 更客观：label 有尺寸就说明真的画了字
           };
         },
         // 可见节点数（渲染器口径）—— 用于断言"预算说显示多少，画面就真的显示多少"
