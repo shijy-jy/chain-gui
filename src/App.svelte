@@ -6,6 +6,13 @@
   import cytoscape from 'cytoscape';
   import type { StylesheetJson, Core } from 'cytoscape';
   import { chainToElements, NODE_TYPE_LABEL, NODE_TYPE_COLOR } from './lib/chain_to_cytoscape';
+  import {
+    computeTreeLayout,
+    pickMode,
+    estimateLayeredSize,
+    preferLayered,
+    type LayoutMode,
+  } from './lib/tree_layout';
   import { computeRippleLayers, ripplePulseAmp, type RippleLayers } from './lib/ripple';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
@@ -18,524 +25,319 @@
   import { perfPolicy, perfTierName, fnv1a, createFrameMonitor, type FrameMonitor } from './lib/ui/perf';
   import type { ChainSnapshot, ChainNode, NodeStatus, NodeType, ScanMode, WorkspaceInfo } from './lib/types';
 
-  // v1.5：cose 在链式图上会缩成团块 → 换自研全局力导向模拟（d3-force 风格）：
-  //   所有节点两两斥力（库仑式）+ 边弹簧吸引 + 弱中心引力 = 神经元式全局铺开
-  // v2.5 布局主参数 = 最小间距（参考 d3-force forceCollide / fcose nodeSeparation / Graphviz nodesep）：
-  //   - 碰撞力每帧硬保证：任意两节点中心距 ≥ minDist + 两节点半径和（与节点数无关，天然自适应）
-  //   - minDist 间接驱动引力和斥力：边弹簧理想长 = 2×minDist，斥力常数 ∝ minDist²（默认 40 对应 30000）
-  //   - 用户只需调这一个间距；「引力」滑条保留为刚度微调
-  let minDist = $state(40);
-  let repulsion = $state(30000);   // 由 minDist 派生（30000 × (minDist/40)²）
-  let gravity = $state(0.15);      // 链接弹簧刚度（相连节点吸引）
-  let edgeLen = $state(80);        // 由 minDist 派生（2 × minDist）
-  // v2.5 无关节点（无链接的节点/节点链，即不同连通分量）之间的最大间距上限——
-  // 每帧做"碰撞力反向"的拉回修正，防止分量各自飘远、全局观察被拉得太散。
-  // 下限保护：实际生效值 ≥ 6×minDist，避免与最小间距冲突
-  let maxDist = $state(240);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // v3.0 布局层：树感知确定性布局（替代 v1.5–v2.17 的自研力导向模拟）
+  //
+  // 为什么换：Engram 的图在数学上是森林（每节点最多一个 parent、无环，实测 5 个工作区
+  // 全是 multiParentNodes=0 / cycles=0）。树有 O(n) 解析解，用力导向去逼近它是用迭代法
+  // 解一元一次方程。实测对照（1500 节点真实基准 G:\perf1500）：
+  //     力导向：361997 次边交叉、世界 46023×49541、80 帧后仍以 26521px/帧漂移、174ms
+  //     树布局：0 次交叉、世界 1056×1132、完全静止、1.4ms
+  // 小图同样没收敛（80 节点真实图末帧仍 211px/帧、48 对间距违例）——"不流畅不舒服"
+  // 的主体其实是这个永不静止的漂移，而不是大图性能。
+  //
+  // 新结构：布局是**纯函数**（同输入同输出，见 lib/tree_layout.ts），
+  // 动画只是"旧坐标 → 新坐标"的补间，不再有物理迭代 ⇒ 不可能抖、不可能超调。
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  function applyMinDist(md: number) {
-    minDist = md;
-    edgeLen = Math.round(md * 2);
-    repulsion = Math.round(30000 * (md / 40) ** 2);
+  // 布局模式：auto 按可见规模自动选（≤300 分层 / 否则径向），也可手动锁定
+  let layoutMode = $state<'auto' | LayoutMode>(
+    (localStorage.getItem('engram-layout-mode') as 'auto' | LayoutMode) || 'auto',
+  );
+  let levelGap = $state(96);      // 层间距（px）
+  let siblingGap = $state(46);    // 同层最小中心距（px）
+  // 大图安全阀：世界半径上限（px）。径向布局 1500 节点实测半径约 570，远在阈值内；
+  // 仅在极端规模下压缩，避免世界撑到六位数像素
+  const MAX_WORLD_RADIUS = 6000;
+
+  // 渐进披露：可见深度（1 = 只看根与第一层）。屏幕像素有物理下限——
+  // 实测可读预算约 150–300 节点，所以大图默认只展开浅层，而不是把 1500 个点压成雾。
+  let visibleDepth = $state(Number(localStorage.getItem('engram-visible-depth') ?? 3));
+  let autoDepth = $state(true);   // 自动：按节点规模选一个"能读"的深度（用户手动调过则关闭）
+
+  function applyLayoutMode(m: 'auto' | LayoutMode) {
+    layoutMode = m;
+    localStorage.setItem('engram-layout-mode', m);
   }
 
-  // v1.5 力导向模拟运行时（requestAnimationFrame 句柄；null = 未在运行）
-  let forceRun: number | null = null;
+  // v3.0 补间动画运行时（requestAnimationFrame 句柄；null = 未在运行）
+  let layoutRaf: number | null = null;
 
+  // v3.0 可见度派生半径覆盖表：渐进披露裁剪后节点的"可见度"变小，
+  // 圆点应随之收敛（不再被看不见的连接撑着）。由 relayout 填充，style 映射读取。
+  let nodeSizeOverride: Map<string, number> = new Map();
+  // v3.0 被深度裁剪隐藏的节点 id（relayout 自己维护，避免用 el.style() 反查样式）
+  let hiddenNodes: Set<string> = new Set();
+
+  // 兼容旧调用点（clearGraph / onDestroy / 重建路径）：停掉正在跑的补间
   function stopForce() {
-    if (forceRun !== null) {
-      cancelAnimationFrame(forceRun);
-      forceRun = null;
+    if (layoutRaf !== null) {
+      cancelAnimationFrame(layoutRaf);
+      layoutRaf = null;
     }
   }
 
-  // v1.7：初始散点位置改由 chainToElements 预写入（根节点锚定原点，其余绕根圆环），
-  // 这里统一"从当前位置续排"——首次加载从预散点起排，拖动/滑条调整从当前位置起排。
-  // v2.0 性能修复（大图卡死根因）：
-  //   - id→index Map 替代 indexOf（O(n·m)→O(m)）
-  //   - cy.batch() 批量写位置（cytoscape 官方性能建议：避免每帧逐元素触发样式重算）
-  //   - 早停：最大位移 <0.3px 连续 12 帧 → 收敛
-  //   - 自适应迭代上限：节点越多帧数越少；n>400 直接跳过模拟（O(n²)/帧 不可行）
-  // v2.4 连线交叉最小化辅助：线段相交判定（方向积法；共线/共享端点不算交叉）
-  const segCross = (
-    p1: { x: number; y: number }, p2: { x: number; y: number },
-    p3: { x: number; y: number }, p4: { x: number; y: number },
-  ): boolean => {
-    const cross = (o: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) =>
-      (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-    const d1 = cross(p3, p4, p1);
-    const d2 = cross(p3, p4, p2);
-    const d3 = cross(p1, p2, p3);
-    const d4 = cross(p1, p2, p4);
-    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
-  };
+  // 平滑缓动：一次算完的布局不需要物理，只需要"看着它落位"
+  const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
 
-  // v2.17 网格分桶交叉计数（O(E·k) 替代 O(E²)，1500 边可负担）：
-  // 按边中点分桶，cell = 最大边长——任意交叉对的中点距 ≤ maxLen，5×5 邻域必然覆盖（不漏计）
-  const countCrossings = (pos: { x: number; y: number }[], edgeIdx: [number, number][]): number => {
-    if (edgeIdx.length < 2) return 0;
-    let maxLen = 0;
-    for (const [a, b] of edgeIdx) {
-      const l = Math.hypot(pos[b].x - pos[a].x, pos[b].y - pos[a].y);
-      if (l > maxLen) maxLen = l;
+  // 最近一次布局的元信息（诊断浮层用）
+  let layoutInfo = $state<{ mode: LayoutMode; ms: number; visible: number; total: number } | null>(null);
+  // v3.0 自检埋点：最近一次 relayout 的入参/结果（回归脚本据此断言核心不变量）
+  let lastRelayoutTrace: {
+    visSize: number; visNull: boolean; visibleDepth: number;
+    targetSize: number; showCount: number; hideCount: number;
+  } | null = null;
+
+  /** 当前可见节点集合（渐进披露裁剪）；null = 全部可见 */
+  function visibleSet(): Set<string> | null {
+    const snap = snapshot;
+    if (!snap) return null;
+    // 深度裁剪只由 visibleDepth 决定（不按规模设门槛）：
+    // 早前小图直接 return null，导致「可见深度」滑条在 80 节点图上完全没反应（实测发现）。
+    // 小图默认就是"全部"（autoDepthFor 返回 99），所以不需要额外的规模门槛。
+    if (visibleDepth >= 99) return null;
+    const depth = shallowDepth(snap);
+    const keep = new Set<string>();
+    for (const n of snap.nodes) {
+      if ((depth.get(n.id) ?? 0) < visibleDepth) keep.add(n.id);
     }
-    const cell = Math.max(80, maxLen);
-    const key = (cx: number, cy: number) => cx * 100003 + cy;
-    const cells = new Map<number, number[]>();
-    for (let e = 0; e < edgeIdx.length; e++) {
-      const [a, b] = edgeIdx[e];
-      const k = key(
-        Math.floor(((pos[a].x + pos[b].x) / 2) / cell),
-        Math.floor(((pos[a].y + pos[b].y) / 2) / cell),
-      );
-      const arr = cells.get(k);
-      if (arr) arr.push(e);
-      else cells.set(k, [e]);
+    // 至少留 2 个节点，否则整体隐藏反而像"图没了"
+    return keep.size >= 2 ? keep : null;
+  }
+
+  /**
+   * 真正的根节点 id。
+   *
+   * 踩坑记录：一直以为 `snap.manifest.root` 是根节点 id，实测它是**工作区路径**
+   * （如 `D:\TA`），拿它当 id 去查节点必然查不到——于是真正的根（无父节点者，
+   * 如 `知识库索引`）在深度表里拿不到 depth，深度裁剪时被判成"深度未知"而排除，
+   * 结果根节点被隐藏、图上只剩几个散点（实测踩过）。
+   * 正确口径：出现在任何边 child 端的节点都不是根；优先取 manifest.root 若它确实是节点 id。
+   */
+  function rootNodeId(snap: ChainSnapshot): string | null {
+    const idSet = new Set(snap.nodes.map((n) => n.id));
+    const mr = snap.manifest?.root;
+    if (mr && idSet.has(mr)) {
+      const isChild = snap.edges.some((e) => e.child === mr);
+      if (!isChild) return mr;
     }
-    let c = 0;
-    for (let e = 0; e < edgeIdx.length; e++) {
-      const [a1, b1] = edgeIdx[e];
-      const cx0 = Math.floor(((pos[a1].x + pos[b1].x) / 2) / cell);
-      const cy0 = Math.floor(((pos[a1].y + pos[b1].y) / 2) / cell);
-      for (let gx = -2; gx <= 2; gx++) {
-        for (let gy = -2; gy <= 2; gy++) {
-          const arr = cells.get(key(cx0 + gx, cy0 + gy));
-          if (!arr) continue;
-          for (const f of arr) {
-            if (f <= e) continue;   // 每对只算一次
-            const [a2, b2] = edgeIdx[f];
-            if (a1 === a2 || a1 === b2 || b1 === a2 || b1 === b2) continue;
-            if (segCross(pos[a1], pos[b1], pos[a2], pos[b2])) c++;
+    const hasParent = new Set(snap.edges.map((e) => e.child));
+    for (const n of snap.nodes) if (!hasParent.has(n.id)) return n.id;
+    return snap.nodes.length > 0 ? snap.nodes[0].id : null;
+  }
+
+  /** 轻量深度表（只走 parent 边，O(n)；布局内部还会自己算一遍，但那是在裁剪之后） */
+  function shallowDepth(snap: ChainSnapshot): Map<string, number> {
+    const children = new Map<string, string[]>();
+    for (const n of snap.nodes) children.set(n.id, []);
+    const hasParent = new Set<string>();
+    for (const e of snap.edges) {
+      children.get(e.parent)?.push(e.child);
+      hasParent.add(e.child);
+    }
+    const depth = new Map<string, number>();
+    const rid = rootNodeId(snap);
+    const roots: string[] = [];
+    if (rid) roots.push(rid);
+    for (const n of snap.nodes) if (!hasParent.has(n.id) && n.id !== rid) roots.push(n.id);
+    for (const r of roots) {
+      if (depth.has(r)) continue;
+      depth.set(r, 0);
+      const q = [r];
+      let h = 0;
+      while (h < q.length) {
+        const cur = q[h++];
+        for (const c of children.get(cur) ?? []) {
+          if (!depth.has(c)) {
+            depth.set(c, (depth.get(cur) ?? 0) + 1);
+            q.push(c);
           }
         }
       }
     }
-    return c;
-  };
+    // 未被覆盖的（悬空/不可达）按最深处理：宁可让它默认可见，也不要凭空隐藏
+    for (const n of snap.nodes) if (!depth.has(n.id)) depth.set(n.id, 0);
+    return depth;
+  }
 
-  // v2.4 质心（barycenter）后处理：经典交叉归约启发式——每轮把节点向邻居质心拉近，
-  // 只接受不增加交叉的轮次，连续停滞或变差即回退停止。树/链结构几轮内即收敛到少交叉布局。
-  const polishCrossings = (
-    pos: { x: number; y: number }[],
-    edgeIdx: [number, number][],
-    cyRef: Core,
-    nodeArr: any[],
-    nodeRadii: number[],
-  ) => {
-    const n = pos.length;
-    if (edgeIdx.length < 2) return;
-    let best = countCrossings(pos, edgeIdx);
-    if (best === 0) return;
-    const MAX_SWEEPS = 40;
-    const LERP = 0.35;
-    let stagnant = 0;
-    const centroids = new Array(n);
-    // v2.4 修复"切图后没完全展开"：质心归约会把图向中心压缩（面积收缩换零交叉），
-    // 必须保持铺开程度——记录初始包围盒面积，每轮收缩超阈值就按比例拉回。
-    const bboxArea = () => {
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const p of pos) {
-        if (p.x < minX) minX = p.x;
-        if (p.x > maxX) maxX = p.x;
-        if (p.y < minY) minY = p.y;
-        if (p.y > maxY) maxY = p.y;
-      }
-      const w = maxX - minX;
-      const h = maxY - minY;
-      return { area: w * h, w, h, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+  /** 自动深度：在"看得见结构"和"标签还能读"之间取平衡 */
+  function autoDepthFor(total: number): number {
+    if (total <= 300) return 99;    // 不裁剪
+    if (total <= 800) return 4;
+    if (total <= 2000) return 3;
+    return 2;
+  }
+
+  /**
+   * 重排全图（v3.0 核心）。
+   * - 位置：computeTreeLayout 纯函数一次算完（O(n)，毫秒级）
+   * - 动画：旧坐标 → 新坐标的 300ms 缓动补间；期间不跑任何物理
+   * - 收敛：补间结束即完全静止（不再有任何 rAF）
+   * @param fit 结束后是否平滑适配视口
+   */
+  function relayout(cyRef: Core, fit = true) {
+    stopForce();
+    const snap = snapshot;
+    if (!snap || snap.nodes.length === 0) return;
+
+    const total = snap.nodes.length;
+    const vis = visibleSet();
+    const visibleCount = vis ? vis.size : total;
+    let reqMode: LayoutMode = layoutMode === 'auto' ? pickMode(visibleCount) : layoutMode;
+    // 形态回退：分层整洁树的宽度 ∝ 叶子总数，浅宽树展开后是极扁的长条
+    // （1500 节点实测 12000×118px，fit 后节点 3.3px）。判据不是"扁平"本身，
+    // 而是 fit 到视口后节点还剩几像素——80 节点真实图宽高比 8.85 但 fit 后 11.8px，
+    // 恰恰是分层的理想场景，所以按可读性判（早期按宽高比判会误伤它）。
+    if (reqMode === 'layered') {
+      const est = estimateLayeredSize(snap, vis, siblingGap, levelGap);
+      if (!preferLayered(est)) reqMode = 'radial';
+    }
+
+    const result = computeTreeLayout(snap, vis, {
+      mode: reqMode,
+      levelGap,
+      siblingGap,
+      // radial 的环间距直接用「层间距」滑条——早前这里固定成 DEFAULT_LAYOUT_OPTIONS.ringGap，
+      // 导致径向模式下"层间距"滑条完全没反应（实测发现），用户看不到任何反馈
+      ringGap: levelGap,
+      maxRadius: MAX_WORLD_RADIUS,
+    });
+    layoutInfo = { mode: result.mode, ms: result.ms, visible: visibleCount, total };
+    // v3.0 自检埋点：记录本次重排的入参/结果。核心不变量 = targetSize 应等于可见集规模
+    // （除被用户钉住的节点外）——"索引错位导致部分可见节点拿不到坐标"那个 bug 就是在这里暴露的。
+    lastRelayoutTrace = {
+      visSize: vis ? vis.size : -1,
+      visNull: vis === null,
+      visibleDepth,
+      targetSize: 0,
+      showCount: 0,
+      hideCount: 0,
     };
-    const b0 = bboxArea();
-    if (b0.w < 4 || b0.h < 4) return;   // 已塌缩成一团，交归约无意义
-    const MIN_AREA_RATIO = 0.75;
-    for (let s = 0; s < MAX_SWEEPS && best > 0; s++) {
-      const prev = pos.map((p) => ({ x: p.x, y: p.y }));
-      for (let i = 0; i < n; i++) centroids[i] = { x: 0, y: 0, cnt: 0 };
-      for (const [a, b] of edgeIdx) {
-        centroids[a].x += pos[b].x; centroids[a].y += pos[b].y; centroids[a].cnt++;
-        centroids[b].x += pos[a].x; centroids[b].y += pos[a].y; centroids[b].cnt++;
+
+    // id → 目标坐标（只对可见节点写入）
+    const target = new Map<string, { x: number; y: number }>();
+    const sizeMap = new Map<string, number>();
+    snap.nodes.forEach((n, i) => {
+      if (vis && !vis.has(n.id)) return;
+      const p = result.positions[i];
+      const sz = result.sizes[i];
+      if (p) {
+        target.set(n.id, p);
+        if (sz !== undefined) sizeMap.set(n.id, sz);
       }
-      for (let i = 0; i < n; i++) {
-        const c = centroids[i];
-        if (c.cnt === 0) continue;
-        const cx = c.x / c.cnt;
-        const cy = c.y / c.cnt;
-        pos[i].x += (cx - pos[i].x) * LERP;
-        pos[i].y += (cy - pos[i].y) * LERP;
-      }
-      // 面积保持：收缩过深则以质心为中心等比放大回阈值（交叉数与缩放无关，归约照常生效）
-      const bb = bboxArea();
-      if (bb.area < MIN_AREA_RATIO * b0.area && bb.area > 1) {
-        const scale = Math.sqrt((MIN_AREA_RATIO * b0.area) / bb.area);
-        for (const p of pos) {
-          p.x = bb.cx + (p.x - bb.cx) * scale;
-          p.y = bb.cy + (p.y - bb.cy) * scale;
-        }
-      }
-      const now = countCrossings(pos, edgeIdx);
-      if (now < best) {
-        best = now;
-        stagnant = 0;
-      } else if (now === best) {
-        stagnant++;
-        if (stagnant > 10) { pos.length = 0; pos.push(...prev); break; }
-      } else {
-        pos.length = 0;
-        pos.push(...prev);
-        break;
-      }
-    }
-    // v2.5 归约位移不得破坏最小间距：跑几轮碰撞修正（d3 collide 式直接推开）
-    if (minDist > 0) {
-      for (let pass = 0; pass < 8; pass++) {
-        let moved = false;
-        for (let i = 0; i < n; i++) {
-          for (let j = i + 1; j < n; j++) {
-            const req = minDist + nodeRadii[i] + nodeRadii[j];
-            let dx = pos[j].x - pos[i].x;
-            let dy = pos[j].y - pos[i].y;
-            let d = Math.hypot(dx, dy);
-            if (d < req) {
-              if (d < 0.001) {
-                dx = Math.random() - 0.5;
-                dy = Math.random() - 0.5;
-                d = Math.hypot(dx, dy) || 1;
-              }
-              const push = ((req - d) / d) * 0.5;
-              pos[i].x -= dx * push;
-              pos[i].y -= dy * push;
-              pos[j].x += dx * push;
-              pos[j].y += dy * push;
-              moved = true;
-            }
-          }
-        }
-        if (!moved) break;
-      }
+    });
+    // v3.0 钉住的节点（用户手动拖过）：只跳过"位置归位"，仍参与可见性/半径判断
+    const locked = new Set<string>();
+    cyRef.nodes().forEach((nd: any) => { if (nd.locked()) locked.add(nd.id()); });
+
+    // 可见性同步：被裁掉的节点不渲染（cytoscape 用 display:none，保留元素身份与状态）。
+    // v3.0 性能：不用 el.style('display') 反查（那会逐元素重算样式，1500 节点下很贵），
+    // 直接与布局层自己维护的 hiddenNodes 集合求差。
+    //
+    // 关键修复：hiddenNodes 必须是**完整期望集**（所有不在 target 的节点），
+    // 不能用本帧新增的 hideNodes 做增量赋值——从"全部展开"跳到更浅的深度时
+    // （如 depth 99→2），首帧时 wasHidden 全为 false，hideNodes 只装到"深层节点"，
+    // 而 target 里被排除掉的可见层节点（如根）既不在 hideNodes、又不在 hiddenNodes，
+    // 于是"该藏的没藏、该露的被漏"，根节点被误隐藏，图上只剩 1 个点（实测踩过）。
+    const showNodes: any[] = [];
+    const hideNodes: any[] = [];
+    const nextHidden = new Set<string>();
+    cyRef.nodes().forEach((nd: any) => {
+      const wantHidden = !target.has(nd.id());
+      if (wantHidden) nextHidden.add(nd.id());
+      const wasHidden = hiddenNodes.has(nd.id());
+      if (wasHidden && !wantHidden) showNodes.push(nd);
+      else if (!wasHidden && wantHidden) hideNodes.push(nd);
+    });
+    const hideEdges = cyRef.edges().filter((ed: any) =>
+      !target.has(ed.source().id()) || !target.has(ed.target().id()),
+    );
+    if (lastRelayoutTrace) {
+      lastRelayoutTrace.targetSize = target.size;
+      lastRelayoutTrace.showCount = showNodes.length;
+      lastRelayoutTrace.hideCount = hideNodes.length;
     }
     cyRef.batch(() => {
-      for (let i = 0; i < n; i++) nodeArr[i].position({ x: pos[i].x, y: pos[i].y });
-    });
-  };
-
-  function runForceLayout(cyRef: Core) {
-    stopForce();
-    const nodeArr = cyRef.nodes().toArray();   // 固定顺序的节点数组（模拟期间成员不变）
-    const edges = cyRef.edges();
-    const n = nodeArr.length;
-    if (n === 0) return;
-    if (n === 1) {
-      cyRef.fit(undefined, 80);
-      return;
-    }
-
-    const pos = nodeArr.map((nd) => ({ x: nd.position('x'), y: nd.position('y') }));
-    const policy = perfPolicy(n);   // v2.15 分档：迭代数/涟漪深度等按规模取值
-
-    // id → 索引映射
-    const idx = new Map<string, number>();
-    nodeArr.forEach((nd, i) => idx.set(nd.id(), i));
-
-    // v2.4 边端点索引预计算（弹簧 + 交叉惩罚 + 质心后处理共用；O(E²) 仅在小图启用）
-    const edgeIdx: [number, number][] = [];
-    edges.forEach((e) => {
-      const si = idx.get(e.source().id());
-      const ti = idx.get(e.target().id());
-      if (si !== undefined && ti !== undefined) edgeIdx.push([si, ti]);
-    });
-    // v2.17 交叉工作扩展到 800 边（分桶后 O(E·k)）；超大图靠首帧质心排序 + 收敛后质心归约
-    const doCrossWork = edgeIdx.length >= 2 && edgeIdx.length <= 800;
-
-    // v2.5 连通分量（并查集）：无关节点间距上限只作用于不同分量之间。
-    // v2.15 超大图（>800）跳过跨分量上限（O(n²) 不划算，中心引力已防漂移）
-    let comp: Int32Array | null = null;
-    let compCount = 1;
-    if (n <= 800) {
-      comp = new Int32Array(n);
-      for (let i = 0; i < n; i++) comp[i] = i;
-      const findComp = (x: number): number => {
-        while (comp![x] !== x) {
-          comp![x] = comp![comp![x]];
-          x = comp![x];
-        }
-        return x;
-      };
-      for (const [a, b] of edgeIdx) {
-        const ra = findComp(a);
-        const rb = findComp(b);
-        if (ra !== rb) comp[ra] = rb;
-      }
-      for (let i = 0; i < n; i++) comp[i] = findComp(i);
-      const seen = new Set<number>();
-      for (let i = 0; i < n; i++) seen.add(comp[i]);
-      compCount = seen.size;
-    }
-    const capDist = Math.max(maxDist, Math.round(minDist * 2.5));   // 下限保护：必须 ≥ 最小间距+半径才可行
-
-    // v2.5 碰撞半径（中心距下限 = minDist + 两节点半径和；大小与连接数挂钩）
-    const nodeRadii = nodeArr.map((nd: any) => nodeSize(nd) / 2);
-    let maxR = 0;
-    for (const r of nodeRadii) if (r > maxR) maxR = r;
-
-    // v2.15 空间哈希网格：斥力 + 碰撞合一为「只查 3×3 邻胞」的近似 O(n)——
-    // 单元大小保证所有可能碰撞对必在同/邻胞；1500 节点不再跑 225 万对/帧
-    const cell = Math.max(edgeLen, 2 * (minDist + 2 * maxR));
-
-    const vx = new Float64Array(n);
-    const vy = new Float64Array(n);
-
-    const K = repulsion;   // 库仑斥力常数（近邻近似）
-    const SPRING = gravity; // 边弹簧刚度
-    const REST = edgeLen;   // 弹簧理想长度
-
-    // v1.6 钳制：单次力上限 + 每帧位移上限（近距离不爆炸）
-    const MAX_F = 60;
-    const MAX_STEP = 10;
-
-    let alpha = 1.0;
-    const ALPHA_DECAY = 0.97;   // 模拟冷却
-    // v2.15 自适应迭代上限：节点越多每帧越贵，代数按档递减（网格版 1500 节点也能在预算内铺开）
-    const MAX_ITER = policy.forceMaxIter;
-    // v2.4 修复：前 MIN_ITER 帧禁止早停——低斥力或初始散点接近弹簧平衡时，
-    // 旧逻辑十几帧内就"收敛"在密集起点，铺开动画看起来像没播放
-    const MIN_ITER = n > 400 ? 12 : 30;
-
-    let iter = 0;
-    let still = 0;   // 连续低位移帧计数（早停）
-    const grabbed = new Int8Array(n);   // v2.15 拖拽标记 O(1)（原 grabbedNow.includes O(n)）
-
-    const gridKey = (cx: number, cy: number) => cx * 100003 + cy;
-    const buildGrid = () => {
-      const cells = new Map<number, number[]>();
-      for (let i = 0; i < n; i++) {
-        const cx = Math.floor(pos[i].x / cell);
-        const cy = Math.floor(pos[i].y / cell);
-        const k = gridKey(cx, cy);
-        const arr = cells.get(k);
-        if (arr) arr.push(i);
-        else cells.set(k, [i]);
-      }
-      return cells;
-    };
-
-    const tick = () => {
-      forceRun = null;
-      if (iter++ >= MAX_ITER || (iter >= MIN_ITER && (alpha < 0.01 || still > 12))) {
-        // v2.4 收敛后先做质心交叉归约，再平滑适配视野
-        // v2.17 全规模启用：交叉计数已网格分桶（O(E·k)），1500 边也可负担
-        if (edgeIdx.length >= 2) polishCrossings(pos, edgeIdx, cyRef, nodeArr, nodeRadii);
-        // v2.6 聚焦视图下收敛适配聚焦范围（而非全图），保持"拉近"状态不被重排弹回
-        const focusNow = focusSet;
-        const fitEles = focusNow ? cyRef.nodes().filter((nd) => focusNow.has(nd.id())) : cyRef.elements();
-        cyRef.animate({
-          fit: { eles: fitEles, padding: focusNow ? 90 : 60 },
-          duration: 300,
-          easing: 'ease-out',
-        });
-        return;
-      }
-      // v2.4 拖拽不再停模拟：把被抓节点的最新位置同步进 pos 并冻结其速度，
-      // 其余节点围绕被拖节点实时重排——布局从此不会被任何输入事件杀死（冻结根因之一）
-      grabbed.fill(0);
-      if (dragging) {
-        cyRef.nodes(':grabbed').forEach((g: any) => {
-          const gi = idx.get(g.id());
-          if (gi !== undefined) {
-            pos[gi].x = g.position('x');
-            pos[gi].y = g.position('y');
-            vx[gi] = 0;
-            vy[gi] = 0;
-            grabbed[gi] = 1;
-          }
-        });
-      }
-      const cells = buildGrid();
-      // 1) 近邻斥力 + 2.6) 碰撞力 合一（3×3 邻胞，每对只算一次；被抓节点只受碰撞推挤不积累力）
-      for (let i = 0; i < n; i++) {
-        const cx = Math.floor(pos[i].x / cell);
-        const cy = Math.floor(pos[i].y / cell);
-        for (let gx = -1; gx <= 1; gx++) {
-          for (let gy = -1; gy <= 1; gy++) {
-            const arr = cells.get(gridKey(cx + gx, cy + gy));
-            if (!arr) continue;
-            for (let a = 0; a < arr.length; a++) {
-              const j = arr[a];
-              if (j <= i) continue;   // 每对只算一次（j>i）
-              let dx = pos[j].x - pos[i].x;
-              let dy = pos[j].y - pos[i].y;
-              let d2 = dx * dx + dy * dy;
-              const req = minDist + nodeRadii[i] + nodeRadii[j];
-              if (d2 < req * req) {
-                // 碰撞：硬推开（重合时随机方向解耦）
-                let d = Math.sqrt(d2);
-                if (d < 0.001) {
-                  dx = Math.random() - 0.5;
-                  dy = Math.random() - 0.5;
-                  d = Math.hypot(dx, dy) || 1;
-                }
-                const push = ((req - d) / d) * 0.5;
-                if (!grabbed[i]) {
-                  pos[i].x -= dx * push;
-                  pos[i].y -= dy * push;
-                }
-                if (!grabbed[j]) {
-                  pos[j].x += dx * push;
-                  pos[j].y += dy * push;
-                }
-              }
-              if (d2 < 4) {
-                d2 = 4;
-                dx = (Math.random() - 0.5) * 4;
-                dy = (Math.random() - 0.5) * 4;
-              }
-              const d = Math.sqrt(d2);
-              const f = Math.min((K / d2) * alpha, MAX_F);
-              const fx = (dx / d) * f;
-              const fy = (dy / d) * f;
-              if (!grabbed[i]) {
-                vx[i] -= fx;
-                vy[i] -= fy;
-              }
-              if (!grabbed[j]) {
-                vx[j] += fx;
-                vy[j] += fy;
-              }
-            }
-          }
-        }
-      }
-      // 2) 边弹簧吸引：F = 刚度 × (当前长 - 理想长)，沿边方向
-      for (const [si, ti] of edgeIdx) {
-        let dx = pos[ti].x - pos[si].x;
-        let dy = pos[ti].y - pos[si].y;
-        const d = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
-        const f = SPRING * (d - REST) * alpha;
-        const fx = (dx / d) * f;
-        const fy = (dy / d) * f;
-        vx[si] += fx;
-        vy[si] += fy;
-        vx[ti] -= fx;
-        vy[ti] -= fy;
-      }
-      // 2.5) v2.4 交叉惩罚：交叉边的中点互相推开。
-      // v2.17 网格分桶（cell=当前最大边长，5×5 邻域不漏对）替代 O(E²)——上限放宽到 800 边
-      if (doCrossWork) {
-        const CROSS_F = 16;
-        let maxLen = 0;
-        for (const [a, b] of edgeIdx) {
-          const l = Math.hypot(pos[b].x - pos[a].x, pos[b].y - pos[a].y);
-          if (l > maxLen) maxLen = l;
-        }
-        const cell = Math.max(80, maxLen);
-        const key = (cx: number, cy: number) => cx * 100003 + cy;
-        const cells = new Map<number, number[]>();
-        for (let e = 0; e < edgeIdx.length; e++) {
-          const [a, b] = edgeIdx[e];
-          const k = key(
-            Math.floor(((pos[a].x + pos[b].x) / 2) / cell),
-            Math.floor(((pos[a].y + pos[b].y) / 2) / cell),
-          );
-          const arr = cells.get(k);
-          if (arr) arr.push(e);
-          else cells.set(k, [e]);
-        }
-        for (let e = 0; e < edgeIdx.length; e++) {
-          const [a1, b1] = edgeIdx[e];
-          const cx0 = Math.floor(((pos[a1].x + pos[b1].x) / 2) / cell);
-          const cy0 = Math.floor(((pos[a1].y + pos[b1].y) / 2) / cell);
-          for (let gx = -2; gx <= 2; gx++) {
-            for (let gy = -2; gy <= 2; gy++) {
-              const arr = cells.get(key(cx0 + gx, cy0 + gy));
-              if (!arr) continue;
-              for (const idx of arr) {
-                if (idx <= e) continue;   // 每对只处理一次
-                const [a2, b2] = edgeIdx[idx];
-                if (a1 === a2 || a1 === b2 || b1 === a2 || b1 === b2) continue;
-                if (!segCross(pos[a1], pos[b1], pos[a2], pos[b2])) continue;
-                const m1x = (pos[a1].x + pos[b1].x) / 2;
-                const m1y = (pos[a1].y + pos[b1].y) / 2;
-                const m2x = (pos[a2].x + pos[b2].x) / 2;
-                const m2y = (pos[a2].y + pos[b2].y) / 2;
-                let dx = m1x - m2x;
-                let dy = m1y - m2y;
-                const dd = Math.hypot(dx, dy) || 1;
-                const f = Math.min((CROSS_F / dd) * alpha, 20);
-                dx = (dx / dd) * f;
-                dy = (dy / dd) * f;
-                vx[a1] += dx; vy[a1] += dy;
-                vx[b1] += dx; vy[b1] += dy;
-                vx[a2] -= dx; vy[a2] -= dy;
-                vx[b2] -= dx; vy[b2] -= dy;
-              }
-            }
-          }
-        }
-      }
-      // 2.7) v2.5 无关节点间距上限（碰撞力的对称版）：不同连通分量的节点对相距超 capDist
-      //     就向中点拉回，迭代 3 次近似收敛——独立节点/节点链不会各自飘远，全局观察不被拉散
-      if (comp !== null && compCount > 1 && capDist > 0) {
-        for (let pass = 0; pass < 3; pass++) {
-          for (let i = 0; i < n; i++) {
-            if (grabbed[i]) continue;
-            for (let j = i + 1; j < n; j++) {
-              if (grabbed[j]) continue;
-              if (comp[i] === comp[j]) continue;
-              const dx = pos[j].x - pos[i].x;
-              const dy = pos[j].y - pos[i].y;
-              const d = Math.hypot(dx, dy);
-              if (d > capDist) {
-                const pull = ((d - capDist) / d) * 0.5;
-                pos[i].x += dx * pull;
-                pos[i].y += dy * pull;
-                pos[j].x -= dx * pull;
-                pos[j].y -= dy * pull;
-              }
-            }
-          }
-        }
-      }
-      // 3) 弱中心引力（防整体漂移）
-      const gc = 0.05 * alpha;
-      for (let i = 0; i < n; i++) {
-        vx[i] -= pos[i].x * gc;
-        vy[i] -= pos[i].y * gc;
-      }
-      // 4) 阻尼 + 积分 + 位移钳制（v1.6: 每帧最多 MAX_STEP，杜绝飞出/爆开）
-      //    v2.4 被拖节点跳过积分——位置由鼠标决定，模拟不得与之对抗
-      let maxStep = 0;
-      for (let i = 0; i < n; i++) {
-        if (grabbed[i]) continue;
-        vx[i] *= 0.86;
-        vy[i] *= 0.86;
-        let sx = vx[i];
-        let sy = vy[i];
-        const sp = Math.hypot(sx, sy);
-        if (sp > MAX_STEP) {
-          sx = (sx / sp) * MAX_STEP;
-          sy = (sy / sp) * MAX_STEP;
-        }
-        pos[i].x += sx;
-        pos[i].y += sy;
-        if (sp > maxStep) maxStep = sp;
-      }
-      alpha *= ALPHA_DECAY;
-      if (maxStep < 0.3) still++; else still = 0;
-      // 5) 写回画布（v2.0 批量写入：一次样式重算而非每节点一次）
-      cyRef.batch(() => {
-        for (let i = 0; i < n; i++) nodeArr[i].position({ x: pos[i].x, y: pos[i].y });
+      for (const nd of hideNodes) nd.style('display', 'none');
+      for (const ed of hideEdges) ed.style('display', 'none');
+      for (const nd of showNodes) nd.style('display', 'element');
+      cyRef.edges().forEach((ed: any) => {
+        const want = target.has(ed.source().id()) && target.has(ed.target().id());
+        if (want) ed.removeStyle('display');
       });
-      forceRun = requestAnimationFrame(tick);
+      // 半径随可见度重算（裁剪后度变小 → 圆点收敛，不再被"看不见的连接"撑着）
+      nodeSizeOverride = sizeMap;
+      hiddenNodes = nextHidden;
+      cyRef.style().update();   // 一次性重算样式（含 width/height 的 nodeSize 映射）
+    });
+
+    const visibleEles = cyRef.elements().filter((el: any) => !hiddenNodes.has(el.id())
+      && !(el.isEdge() && (hiddenNodes.has(el.source().id()) || hiddenNodes.has(el.target().id()))));
+    if (visibleEles.length === 0) return;
+
+    // 起点快照（新节点没有旧位置 → 直接落到目标，避免从 (0,0) 飞入）
+    const from = new Map<string, { x: number; y: number }>();
+    visibleEles.nodes().forEach((nd: any) => {
+      const p = nd.position();
+      from.set(nd.id(), { x: p.x, y: p.y });
+    });
+
+    const DUR = 300;
+    const t0 = performance.now();
+    const step = () => {
+      layoutRaf = null;
+      const t = Math.min(1, (performance.now() - t0) / DUR);
+      const k = easeOutCubic(t);
+      cyRef.batch(() => {
+        visibleEles.nodes().forEach((nd: any) => {
+          const id = nd.id();
+          if (locked.has(id)) return;   // 钉住的节点不归位
+          const to = target.get(id);
+          if (!to) return;
+          const f = from.get(id) ?? to;
+          nd.position({
+            x: f.x + (to.x - f.x) * k,
+            y: f.y + (to.y - f.y) * k,
+          });
+        });
+      });
+      if (t < 1) {
+        layoutRaf = requestAnimationFrame(step);
+      } else if (fit) {
+        // 落位后适配视口：聚焦态适配聚焦范围内可见节点，否则适配全部可见元素
+        const focusNow = focusSet;
+        if (focusNow) {
+          const focusEles = cyRef.nodes().filter(
+            (nd: any) => focusNow.has(nd.id()) && !hiddenNodes.has(nd.id()),
+          );
+          if (focusEles.length > 0) {
+            cyRef.animate({ fit: { eles: focusEles, padding: 90 }, duration: 260, easing: 'ease-out' });
+          }
+        } else {
+          fitVisible(cyRef, { animate: true, padding: 60 });
+        }
+      }
     };
-    forceRun = requestAnimationFrame(tick);
+    layoutRaf = requestAnimationFrame(step);
   }
 
-  // v1.7 首帧视图：全图同步 fit 后再把根节点对准屏幕中央。
-  // 以前首帧渲染在模型原点（= 视口左上角），力模拟收敛后才 fit，产生"左上角堆叠→跳中央"的闪烁。
-  function initialView(cyRef: Core, rootId: string | null) {
-    if (cyRef.nodes().length === 0) return;
-    cyRef.fit(undefined, 70);   // 同步适配全图（无动画，首帧即最终视口）
-    if (rootId) {
-      const rootEl = cyRef.getElementById(rootId);
-      if (rootEl.nonempty()) cyRef.center(rootEl);   // 根节点对准屏幕中央
+  /**
+   * 适配视口（v3.0 统一出口）。
+   * - fit 的**元素集**必须排除被深度裁剪隐藏的节点，否则 fit 会把"看不见的节点"算进包围盒。
+   *   注意不要用 el.style('display') 反查：那是逐元素样式重算，1500 节点下很贵；
+   *   直接用布局层维护的 hiddenNodes 集合。
+   */
+  function fitVisible(cyRef: Core, o: { animate?: boolean; padding?: number } = {}) {
+    const vis = cyRef.elements().filter(
+      (el: any) => !hiddenNodes.has(el.id())
+        && !(el.isEdge() && (hiddenNodes.has(el.source().id()) || hiddenNodes.has(el.target().id()))),
+    );
+    if (vis.length === 0) return;
+    const pad = o.padding ?? 60;
+    if (o.animate) {
+      cyRef.animate({ fit: { eles: vis, padding: pad }, duration: 260, easing: 'ease-out' });
+    } else {
+      cyRef.fit(vis, pad);
     }
   }
 
@@ -749,6 +551,10 @@
     lastDataSig = 0;
     lastSliderSig = '';
     stopForce();
+    // v3.0 布局态清理：跨工作区残留的半径覆盖/隐藏集合会让新图错位
+    nodeSizeOverride = new Map();
+    hiddenNodes = new Set();
+    layoutInfo = null;
     clearRipple();   // v2.2 切工作区时涟漪一并清理
     cy?.elements().remove();
     cy?.elements().removeClass('focus-dim focus-lit edge-hover');
@@ -1017,8 +823,8 @@
       return;
     }
     const pan = cyRef.pan();
-    // 平移/缩放/力模拟运行中 → 位置变化，需重算；否则复用缓存（静止大图每帧零开销）
-    const key = `${pan.x.toFixed(1)}|${pan.y.toFixed(1)}|${cyRef.zoom().toFixed(3)}|${forceRun !== null ? 1 : 0}`;
+    // 平移/缩放/布局补间运行中 → 位置变化，需重算；否则复用缓存（静止大图每帧零开销）
+    const key = `${pan.x.toFixed(1)}|${pan.y.toFixed(1)}|${cyRef.zoom().toFixed(3)}|${layoutRaf !== null ? 1 : 0}`;
     if (key === posKey) return;
     posKey = key;
     if (posIdsSig === '') {
@@ -1295,7 +1101,13 @@
   // 重要性 = 大小：连接数（度）越多，圆点越大。
   // v1.4：改为平方根缓增 + 封顶，大小对比温和（Obsidian 风格）：
   //   度0→14px, 度4→22px, 度9→26px, 度16→30px, 度36+→38px（封顶）
-  const nodeSize = (ele: any): number => 14 + Math.min(Math.sqrt(ele.degree()), 6) * 4;
+  const nodeSize = (ele: any): number => {
+    // v3.0 优先用布局层算出的"可见度半径"（渐进披露裁剪后度会变小）；
+    // 未参与布局的节点（归档节点、模拟期新增）回退到 cytoscape 实时度
+    const o = nodeSizeOverride.get(ele.id());
+    if (o !== undefined) return o;
+    return 14 + Math.min(Math.sqrt(ele.degree()), 6) * 4;
+  };
 
   // v2.0 边宽度函数：与两端节点大小挂钩（小节点 0.8px → 大节点 2.0px）
   const edgeBaseWidth = (ele: any): number => {
@@ -1661,6 +1473,11 @@
       focusNodeId = null;   // v2.6 节点集合重建时退出双击聚焦
       focusSet = null;
       posIdsSig = '';       // v2.15 位置缓存索引失效（节点集变了）
+      // v3.0 布局态重置：新图不继承旧图的半径覆盖/隐藏集合
+      nodeSizeOverride = new Map();
+      hiddenNodes = new Set();
+      // 自动深度：按新图规模取一个"能读"的展开层数（用户手动调过则尊重用户）
+      if (autoDepth) visibleDepth = autoDepthFor(snap.nodes.length);
       // v2.4 两模式统一：连线渲染为"若有若无"的淡线（.ghost），点击后整组淡出改由涟漪表达
       cyRef.add(chainToElements(snap, { withEdges: true, includeArchived: showArchived }));
       cyRef.edges().addClass('ghost');
@@ -1672,9 +1489,10 @@
         .update();
       applyCodeFilter();   // v2.14 全量重建会清空类，筛选开着重放
       startWaterLoop();
-      // v1.7 首帧视图：同步 fit 全图 + 根节点对准屏幕中央（消除"左上角堆叠→跳中央"的闪烁）
-      initialView(cyRef, snap.manifest.root);
-      runForceLayout(cyRef);   // v1.5 全局力导向：预散点起步，收敛后平滑适配视野
+      // v1.7 首帧视图：以前在这里同步 fit 全图 + 根节点居中（消除"左上角堆叠→跳中央"的闪烁）。
+      // v3.0：布局末尾本来就有一次"落位后 fit"，这里再 fit 一次是重复劳动
+      // （主线程同步布局计算 + 两段相机动画）。首帧视口交给 relayout 的补间收尾统一负责。
+      relayout(cyRef);   // v3.0 树感知确定性布局：算完即静止，无物理迭代
       return;
     }
 
@@ -1693,17 +1511,14 @@
     // watcher 重推但内容无变化：直接忽略，避免大图反复重建卡顿
   });
 
-  // v2.15 滑条独立 effect：只触发重排，不碰快照签名（大图拖动滑条不再算 O(n) 签名）
+  // v3.0 布局参数独立 effect：参数或布局模式变化 → 重排（不碰快照签名，大图不重算 O(n) 哈希）
   $effect(() => {
-    const _m = minDist;
-    const _g = gravity;
-    const _x = maxDist;
-    const sliderSig = `${_m}-${_g}-${_x}`;
+    const sig = `${layoutMode}|${levelGap}|${siblingGap}|${visibleDepth}`;
     const cyRef = cy;
     if (!cyRef || !snapshot) return;
-    if (sliderSig !== lastSliderSig) {
-      lastSliderSig = sliderSig;
-      runForceLayout(cyRef);   // 从当前位置续排（保留 v1.6 手感）
+    if (sig !== lastSliderSig) {
+      lastSliderSig = sig;
+      relayout(cyRef);   // 纯函数重算 + 300ms 补间（旧坐标起排，起点即当前画面）
     }
   });
 
@@ -1730,6 +1545,77 @@
         get mode() {
           return scanMode;
         },
+        // v3.0 布局自检接缝（回归脚本用：验证交叉数/静止性/可复现性，避免读私有变量）
+        get hiddenCount() {
+          return hiddenNodes.size;
+        },
+        get overrideCount() {
+          return nodeSizeOverride.size;
+        },
+        get relayoutTrace() {
+          return lastRelayoutTrace;
+        },
+        // 直接核对三个口径：集合大小 / 集合过滤后的可见数 / 渲染器实际隐藏数
+        get visibleCount() {
+          if (!cy) return -1;
+          return cy.nodes().filter((n: any) => !hiddenNodes.has(n.id())).length;
+        },
+        get styleHiddenCount() {
+          if (!cy) return -1;
+          return cy.nodes().filter((n: any) => n.style('display') === 'none').length;
+        },
+        // 直接暴露可见集推导链，用于定位"谁被裁掉了"
+        get visProbe() {
+          const snap = snapshot;
+          if (!snap) return null;
+          const vis = visibleSet();
+          const depthMap = shallowDepth(snap);
+          const rid = rootNodeId(snap);
+          const hidden = cy ? cy.nodes().filter((n: any) => n.style('display') === 'none') : [];
+          const hiddenSet = new Set(hidden.map((n: any) => n.id()));
+          const keptIds = snap.nodes.map((n) => n.id).filter((id) => (vis ? vis.has(id) : true));
+          return {
+            visibleDepth,
+            manifestRoot: snap.manifest?.root ?? null,
+            resolvedRoot: rid,
+            resolvedRootDepth: rid ? (depthMap.get(rid) ?? -99) : null,
+            visSize: vis ? vis.size : -1,
+            visIsNull: vis === null,
+            keptCount: keptIds.length,
+            shownKeptCount: keptIds.filter((id) => !hiddenSet.has(id)).length,
+            droppedByRenderSample: keptIds.filter((id) => hiddenSet.has(id)).slice(0, 6),
+          };
+        },
+        get layout() {
+          return {
+            info: layoutInfo,
+            mode: layoutMode,
+            levelGap,
+            siblingGap,
+            visibleDepth,
+            autoDepth,
+            visible: cy ? cy.nodes().filter((n: any) => !hiddenNodes.has(n.id())).length : 0,
+            hidden: hiddenNodes.size,
+            positions: cy
+              ? cy.nodes().map((n: any) => ({
+                  id: n.id(),
+                  x: Math.round(n.position('x') * 100) / 100,
+                  y: Math.round(n.position('y') * 100) / 100,
+                }))
+              : [],
+          };
+        },
+        relayout: () => { if (cy) relayout(cy); },
+        // v3.0 回归接缝：等待布局补间结束（最长 2s），供脚本判定"完全静止"
+        settle: () =>
+          new Promise<boolean>((resolve) => {
+            const t0 = performance.now();
+            const poll = () => {
+              if (layoutRaf === null || performance.now() - t0 > 2000) resolve(layoutRaf === null);
+              else setTimeout(poll, 50);
+            };
+            poll();
+          }),
       };
       cy.on('tap', 'node', (evt) => {
         const n = evt.target;
@@ -1790,13 +1676,16 @@
         if (start && el) {
           moved = Math.hypot(el.position('x') - start.x, el.position('y') - start.y);
         }
-        if (moved >= 8 && forceRun === null && cy) runForceLayout(cy);
+        // v3.0：确定布局下"重排"意味着把节点弹回原位，会抹掉用户的摆放意图。
+        // 因此拖拽松手不重排，而是把这个节点**钉住**（locked）：后续重排会跳过它，
+        // 其余节点仍按树布局归位。想归位用工具栏「重排」按钮。
+        if (moved >= 8 && el && !el.locked()) el.lock();
       });
     } catch (e) {
       error = `[cytoscape init failed] ${(e as Error).message}`;
     }
 
-    const onResize = () => { cy?.resize(); cy?.fit(undefined, 60); };
+    const onResize = () => { cy?.resize(); if (cy) fitVisible(cy, { padding: 60 }); };
     window.addEventListener('resize', onResize);
     // v2.6 Esc：优先退出双击聚焦视图；否则收起右侧信息栏（常驻侧栏无"关闭"语义）
     const onKeydown = (e: KeyboardEvent) => {
@@ -1986,30 +1875,48 @@
         <span class="snap-msg" title={reindexMsg}>{reindexMsg}</span>
       {/if}
       <span class="slider-group">
-        <label class="slider-label" title="最小间距（v2.5）：任意两节点边缘间的最小间隙，碰撞力每帧硬保证（与节点数无关）；同时派生边弹簧理想长 = 2×间距、斥力 ∝ 间距²，调这一个就同时影响引力和斥力">最小间距<span class="slider-val">{minDist}px</span>
+        <label class="slider-label" title="可见深度（v3.0 渐进披露）：图上只铺开到第几层，其余折叠。屏幕像素有物理下限——实测约 150–300 个节点是「能看清标签」的上限，所以大图默认只展开浅层，而不是把上千个点压成一团雾">可见深度<span class="slider-val">{visibleDepth >= 99 ? '全部' : visibleDepth + ' 层'}</span>
           <span class="slider-track">
-            <input type="range" min="20" max="120" step="5" value={minDist}
-              onchange={(e) => applyMinDist(+(e.target as HTMLInputElement).value)} />
-            <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.2)" title="默认值 40px，点击恢复"
-                    onclick={(e) => { e.preventDefault(); applyMinDist(40); }}></button>
+            <input type="range" min="1" max="8" step="1" value={Math.min(visibleDepth, 8)}
+              onchange={(e) => {
+                let v = +(e.target as HTMLInputElement).value;
+                if (v >= 8) v = 99;   // 滑到最右 = 全部展开
+                visibleDepth = v;
+                autoDepth = false;
+                localStorage.setItem('engram-visible-depth', String(v));
+              }} />
+            <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.2857)" title="自动（按节点规模）"
+                    onclick={(e) => { e.preventDefault(); autoDepth = true; visibleDepth = autoDepthFor(snapshot?.nodes.length ?? 0); localStorage.removeItem('engram-visible-depth'); }}></button>
           </span>
         </label>
-        <label class="slider-label" title="链接弹簧刚度：相连节点相互吸引，越大越紧（微调用，主参数是最小间距）">引力<span class="slider-val">{gravity.toFixed(2)}</span>
+        <label class="slider-label" title="层间距（v3.0）：相邻层级之间的中心距，越大结构越舒展">层间距<span class="slider-val">{levelGap}px</span>
           <span class="slider-track">
-            <input type="range" min="0.05" max="0.6" step="0.01" value={gravity}
-              onchange={(e) => gravity = +(e.target as HTMLInputElement).value} />
-            <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.1818)" title="默认值 0.15，点击恢复"
-                    onclick={(e) => { e.preventDefault(); gravity = 0.15; }}></button>
+            <input type="range" min="60" max="200" step="4" value={levelGap}
+              onchange={(e) => levelGap = +(e.target as HTMLInputElement).value} />
+            <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.2571)" title="默认值 96px，点击恢复"
+                    onclick={(e) => { e.preventDefault(); levelGap = 96; }}></button>
           </span>
         </label>
-        <label class="slider-label" title="无关节点最大间距：没有链接的节点/节点链（不同连通分量）之间距离上限，防止铺得太开不好全局观察；实际生效值不低于 2.5×最小间距">最大间距<span class="slider-val">{maxDist}px</span>
+        <label class="slider-label" title="同层间距（v3.0）：同一层内相邻节点的最小中心距，越大越不挤；实际生效值不小于节点直径">同层间距<span class="slider-val">{siblingGap}px</span>
           <span class="slider-track">
-            <input type="range" min="120" max="600" step="20" value={maxDist}
-              onchange={(e) => maxDist = +(e.target as HTMLInputElement).value} />
-            <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.25)" title="默认值 240px，点击恢复"
-                    onclick={(e) => { e.preventDefault(); maxDist = 240; }}></button>
+            <input type="range" min="20" max="100" step="2" value={siblingGap}
+              onchange={(e) => siblingGap = +(e.target as HTMLInputElement).value} />
+            <button class="slider-def-dot" style:left="calc(6px + (100% - 12px) * 0.325)" title="默认值 46px，点击恢复"
+                    onclick={(e) => { e.preventDefault(); siblingGap = 46; }}></button>
           </span>
         </label>
+        <label class="slider-label" title="布局形态（v3.0）：分层=父在上子在下（贴合链式阅读，适合中小图）；径向=根居中向外辐射（大图唯一能压住规模的形态）；自动=按可见节点数选（≤300 分层，否则径向）">形态<span class="slider-val">{layoutMode === 'auto' ? `自动·${layoutInfo?.mode === 'radial' ? '径向' : '分层'}` : layoutMode === 'radial' ? '径向' : '分层'}</span>
+          <span class="slider-track">
+            <select class="layout-select" value={layoutMode}
+              onchange={(e) => applyLayoutMode((e.target as HTMLSelectElement).value as 'auto' | LayoutMode)}>
+              <option value="auto">自动</option>
+              <option value="layered">分层</option>
+              <option value="radial">径向</option>
+            </select>
+          </span>
+        </label>
+        <button class="pick" title="全部归位：清除手动钉住的节点，按树布局重排到规范位置"
+                onclick={() => { cy?.nodes().unlock(); relayout(cy!); }}>重排</button>
       </span>
     {/if}
     <button class="pick" onclick={copyAiGuide} title="复制 AI 使用指南全文，贴给 AI 即完成协议交底">
@@ -2199,8 +2106,9 @@
         {#if scanMode === 'analysis'}
           <div class="legend-row"><span class="legend-label small">连线渐变 = 源类型色 → 目标类型色</span></div>
         {/if}
-        <div class="legend-row"><span class="legend-label small">拖动节点松手 = 自动重新布局</span></div>
-        <div class="legend-row"><span class="legend-label small">布局自动减少连线交叉（子节点贴父节点排布 + 质心归约）</span></div>
+        <div class="legend-row"><span class="legend-label small">拖动节点松手 = 钉住该节点（工具栏「重排」可归位）</span></div>
+        <div class="legend-row"><span class="legend-label small">布局 = 树结构确定性排版（层内父居中 / 径向扇区），连线交叉恒为 0</span></div>
+        <div class="legend-row"><span class="legend-label small">可见深度 = 只铺开到第几层；屏幕像素有限，浅层才看得清标签</span></div>
         {#if scanMode === 'dev'}
           <div class="legend-sep"></div>
           <div class="legend-row"><span class="rel-sample rel-solid"></span><span class="legend-label small">实线 = 包含（从属）</span></div>
@@ -2434,6 +2342,22 @@
     transition: transform 0.12s ease;
   }
   .slider-def-dot:hover { transform: translate(-50%, -50%) scale(1.45); }
+  /* v3.0 布局形态选择器：与滑条同高同宽，视觉上仍是一排参数控件 */
+  .layout-select {
+    height: 20px;
+    width: 74px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #e6edf3;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 4px;
+    font-size: 11px;
+    padding: 0 4px;
+    cursor: pointer;
+    vertical-align: middle;
+  }
+  .layout-select:hover { border-color: rgba(255, 255, 255, 0.32); }
+  .layout-select:focus { outline: none; border-color: rgba(125, 211, 252, 0.6); }
+  .layout-select option { background: #16181d; color: #e6edf3; }
   .spacer { flex: 1; }
   .create-btn {
     background: rgba(52, 211, 153, 0.12);

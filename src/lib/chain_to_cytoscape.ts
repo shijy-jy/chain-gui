@@ -41,118 +41,11 @@ export function chainToElements(
   const n = nodes.length;
   const rootId = snap.manifest.root;
 
-  // v1.7 初始散点预写入：根节点锚定原点，其余节点绕根均匀圆环。
-  // v2.4 改为 BFS 分层同心圆环：同层按遍历顺序均布、层间半径递增——
-  // 树/链结构的首帧即为无交叉布局，力模拟从低交叉起点收敛，
-  // 配合 runForceLayout 的交叉惩罚与质心后处理，"重排后连线乱交"大幅减少。
-  // App.svelte 在 add 后立即同步 fit + center(root)，首帧即"根节点居屏幕中央 + 全图可见"，
-  // 消除"所有节点先堆在左上角 (0,0) 再跳到中央"的闪烁（v1.6 只修了 (0,0) 堆叠瞬间，未修首帧视口）。
-  const R = 180 + n * 5;
-  const ringGap = Math.max(120, R * 0.42);
-
-  // 邻接表（无向；分析模式树与开发模式多父/多分量图通吃）
-  const adj = new Map<string, string[]>();
-  for (const nd of nodes) adj.set(nd.id, []);
-  for (const e of snap.edges) {
-    adj.get(e.parent)?.push(e.child);
-    adj.get(e.child)?.push(e.parent);
-  }
-
-  // 连通分量拆分：从各根（优先 manifest.root）做 BFS，得到分量成员及其层深
-  const components: { root: string; members: string[]; depth: Map<string, number> }[] = [];
-  const visited = new Set<string>();
-  const startIds: string[] = [];
-  const startSeen = new Set<string>();
-  if (rootId && adj.has(rootId)) {
-    startIds.push(rootId);
-    startSeen.add(rootId);
-  }
-  // v2.15 大图：Set 去重代替 O(n²) includes
-  for (const nd of nodes) {
-    if (!startSeen.has(nd.id)) {
-      startSeen.add(nd.id);
-      startIds.push(nd.id);
-    }
-  }
-  for (const start of startIds) {
-    if (visited.has(start)) continue;
-    const depth = new Map<string, number>();
-    const members: string[] = [];
-    const queue: string[] = [start];
-    visited.add(start);
-    depth.set(start, 0);
-    // v2.15 大图：头指针代替 shift()（shift 每步 O(n) 移位，长链 O(n²)）
-    let h = 0;
-    while (h < queue.length) {
-      const cur = queue[h++];
-      members.push(cur);
-      for (const nb of adj.get(cur) ?? []) {
-        if (!visited.has(nb)) {
-          visited.add(nb);
-          depth.set(nb, (depth.get(cur) ?? 0) + 1);
-          queue.push(nb);
-        }
-      }
-    }
-    components.push({ root: start, members, depth });
-  }
-
-  // 分量锚点：单分量 = 原点；多分量 = 大圆均布（各分量互不重叠）
-  const positions = new Map<string, { x: number; y: number }>();
-  components.forEach((comp, ci) => {
-    let anchor = { x: 0, y: 0 };
-    if (components.length > 1) {
-      const rr = 200 + components.length * 60;
-      const ang = (ci / components.length) * Math.PI * 2;
-      anchor = { x: Math.cos(ang) * rr, y: Math.sin(ang) * rr };
-    }
-    // 每层一个同心圆环，同层按 BFS 遍历顺序均布（顺序稳定 → 布局可复现）
-    const byDepth = new Map<number, string[]>();
-    for (const id of comp.members) {
-      const d = comp.depth.get(id) ?? 0;
-      const arr = byDepth.get(d) ?? [];
-      arr.push(id);
-      byDepth.set(d, arr);
-    }
-    for (const [d, ids] of byDepth) {
-      const radius = d === 0 ? 0 : R + (d - 1) * ringGap;
-      // v2.17 交叉最小化：d≥1 的层按「已就位邻居的角度质心」排序——
-      // 子节点贴父节点排布（Sugiyama 式两层归约），树/链结构首帧即近零交叉；
-      // 向量和（atan2）处理角度环绕，稳定排序保确定性
-      if (d > 0 && ids.length > 1) {
-        const ordered = ids.map((id) => {
-          let sx = 0;
-          let sy = 0;
-          let cnt = 0;
-          for (const nb of adj.get(id) ?? []) {
-            const p = positions.get(nb);
-            if (p) {
-              sx += p.x - anchor.x;
-              sy += p.y - anchor.y;
-              cnt++;
-            }
-          }
-          return { id, a: cnt > 0 ? Math.atan2(sy, sx) : Math.random() * Math.PI * 2 };
-        });
-        ordered.sort((m, n) => m.a - n.a);
-        ordered.forEach((s, k) => {
-          const ang = (k / ids.length) * Math.PI * 2 - Math.PI / 2;
-          positions.set(s.id, {
-            x: anchor.x + Math.cos(ang) * radius,
-            y: anchor.y + Math.sin(ang) * radius,
-          });
-        });
-        continue;
-      }
-      ids.forEach((id, k) => {
-        const ang = (k / Math.max(ids.length, 1)) * Math.PI * 2 - Math.PI / 2;
-        positions.set(id, {
-          x: anchor.x + Math.cos(ang) * radius,
-          y: anchor.y + Math.sin(ang) * radius,
-        });
-      });
-    }
-  });
+  // v3.0：初始位置不再由本模块生成——位置统一由 lib/tree_layout.ts 的树布局算出并写入
+  // （App.svelte 的 relayout 在 add 之后立即调用，并带 300ms 补间）。
+  // 历史包袱说明：v1.7–v2.17 这里预写"根锚原点 + BFS 同心圆环"散点作为力导向起点，
+  // 环半径随 n 线性膨胀（1500 节点时最深层半径 27034px、直径 5.4 万像素），
+  // 是首帧"一团雾 + 爆炸"的直接原因之一；力导向整体已被确定性树布局取代，故整段删除。
 
   // v2.16 支链闭环：task 节点无验证子节点（且正文无「自验收」注明）→ 开环标记（琥珀虚线框）
   // 注意：要的是「有没有子节点」——即本节点是否出现在任何边的 parent 端（装 child 集合会误判所有非根节点为有子）
@@ -160,7 +53,6 @@ export function chainToElements(
   for (const e of snap.edges) parentSet.add(e.parent);
 
   nodes.forEach((node) => {
-    const p = positions.get(node.id) ?? { x: 0, y: 0 };
     // v2.14 代码骨架角标：挂载 code_map 的节点标签尾缀 </>，数据带 codeMap 字段
     // （App.svelte 据此画青绿描边 + 「代码」筛选高亮）
     const codeBadge = node.code_map ? ' </>' : '';
@@ -176,14 +68,15 @@ export function chainToElements(
         ...(node.code_map ? { codeMap: true } : {}),
         ...(openLoop ? { openLoop: true } : {}),
       },
-      position: p,
     });
   });
 
   // v2.12 M-Code/归档视图开关：归档节点淡色虚线纳入画布（外围环，无边——归档不进活跃图）
+  // v3.0：位置只给一个固定外围环作占位——归档节点不参与树布局的可见性裁剪（它们本来就不挂边），
+  // 半径取常数而非随 n 膨胀的 R，避免大图上归档环被推到几万像素外
   if (includeArchived) {
     const archived = snap.archived ?? [];
-    const archR = R + ringGap * 2 + 80;
+    const archR = 900;
     archived.forEach((node, i) => {
       const ang =
         (i / Math.max(archived.length, 1)) * Math.PI * 2 - Math.PI / 2;
