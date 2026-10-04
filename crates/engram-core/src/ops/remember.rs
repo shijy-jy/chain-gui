@@ -87,6 +87,8 @@ pub struct ForeshadowSpec {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum CommitIntent {
+    /// 3.2.1 起：分析模式下 type/status/parent 参与链协议校验（词表 + 根唯一 + 挂载存在），
+    /// id 按类型前缀自动分配（g-/d-/t-/v-）；开发模式下这些字段被忽略（维持 note/none/自由挂载）。
     Create {
         title: String,
         #[serde(default)]
@@ -95,6 +97,15 @@ pub enum CommitIntent {
         tags: Option<Vec<String>>,
         #[serde(default)]
         force: Option<bool>,
+        /// 分析模式必填：goal / design / task / verification
+        #[serde(default)]
+        node_type: Option<String>,
+        /// 分析模式必填：pending / in_progress / success / failed / blocked
+        #[serde(default)]
+        status: Option<String>,
+        /// 分析模式：挂载父节点（goal 根须为空且全链唯一根）
+        #[serde(default)]
+        parent: Option<String>,
     },
     Update {
         id: String,
@@ -102,6 +113,9 @@ pub enum CommitIntent {
         content: String,
         #[serde(default)]
         expected_updated: Option<String>,
+        /// 3.2.1：可选状态流转（分析模式五态词表 / 开发模式六态），带 expected_updated 时同受乐观锁
+        #[serde(default)]
+        status: Option<String>,
     },
     Link {
         from: String,
@@ -345,6 +359,9 @@ pub fn remember(
                     body,
                     tags,
                     force,
+                    node_type,
+                    status,
+                    parent,
                 } => {
                     // 方向溯源（S3/S4）：sample 模式用抽中序号；commit 多峰按候选顺序编号
                     let node_origin = if let Some(idx) = draw_idx {
@@ -360,17 +377,34 @@ pub fn remember(
                     } else {
                         None
                     };
-                    let v = crate::ops::create_node_impl(
-                        ctx,
-                        &title,
-                        body.as_deref(),
-                        tags,
-                        force,
-                        None,
-                        Some(&node_origin),
-                        conventions.clone(),
-                    )
-                    .map_err(|e| commit_failed(&e, done))?;
+                    // 3.2.1：分析模式走链协议建链路径（词表 + 根唯一 + 挂载校验 + 类型前缀 id）
+                    let v = if ctx.mode.is_dev() {
+                        crate::ops::create_node_impl(
+                            ctx,
+                            &title,
+                            body.as_deref(),
+                            tags,
+                            force,
+                            None,
+                            Some(&node_origin),
+                            conventions.clone(),
+                        )
+                        .map_err(|e| commit_failed(&e, done))?
+                    } else {
+                        crate::ops::create_chain_node_impl(
+                            ctx,
+                            &title,
+                            body.as_deref(),
+                            tags,
+                            force,
+                            node_type.as_deref(),
+                            status.as_deref(),
+                            parent.as_deref(),
+                            Some(&node_origin),
+                            conventions.clone(),
+                        )
+                        .map_err(|e| commit_failed(&e, done))?
+                    };
                     let mut item = json!({
                         "id": v["id"],
                         "title": v["title"],
@@ -394,6 +428,7 @@ pub fn remember(
                     mode,
                     content,
                     expected_updated,
+                    status,
                 } => {
                     let v = crate::ops::update_node_impl(
                         ctx,
@@ -403,10 +438,20 @@ pub fn remember(
                         expected_updated.as_deref(),
                     )
                     .map_err(|e| commit_failed(&e, done))?;
-                    out["updated"]
-                        .as_array_mut()
-                        .unwrap()
-                        .push(json!({ "id": id, "revision": v["revision"] }));
+                    let mut item = json!({ "id": id, "revision": v["revision"] });
+                    // 3.2.1：可选状态流转（分析五态 / 开发六态词表校验；同受乐观锁）
+                    if let Some(st) = status {
+                        let sv = crate::ops::set_node_status_impl(
+                            ctx,
+                            &id,
+                            &st,
+                            expected_updated.as_deref(),
+                        )
+                        .map_err(|e| commit_failed(&e, done))?;
+                        item["status"] = json!(st);
+                        item["status_revision"] = sv["revision"].clone();
+                    }
+                    out["updated"].as_array_mut().unwrap().push(item);
                 }
                 CommitIntent::Link {
                     from,
@@ -414,15 +459,35 @@ pub fn remember(
                     rel,
                     desc,
                 } => {
-                    let v = crate::ops::link_nodes_impl(ctx, &from, &to, &rel, desc.as_deref())
+                    // 3.2.1：分析模式走链协议建链路径（根不可改挂 + 防环 + 词表）
+                    if ctx.mode.is_dev() {
+                        let v = crate::ops::link_nodes_impl(ctx, &from, &to, &rel, desc.as_deref())
+                            .map_err(|e| commit_failed(&e, done))?;
+                        let _ = v;
+                    } else {
+                        let v = crate::ops::link_chain_nodes_impl(
+                            ctx,
+                            &from,
+                            &to,
+                            &rel,
+                            desc.as_deref(),
+                        )
                         .map_err(|e| commit_failed(&e, done))?;
+                        let _ = v;
+                    }
                     out["linked"]
                         .as_array_mut()
                         .unwrap()
                         .push(json!({ "from": from, "to": to, "rel": rel }));
-                    let _ = v;
                 }
                 CommitIntent::Unlink { from, to } => {
+                    // 3.2.1：分析模式禁止断根（断边 = 使子节点失去挂载，破坏单根树）
+                    if !ctx.mode.is_dev() {
+                        return Err(commit_failed(
+                            "REMEMBER_ANALYSIS_UNLINK_FORBIDDEN: 分析模式不允许断边（会使节点失去挂载、破坏单根树；重挂载请用 op=link 改挂）",
+                            done,
+                        ));
+                    }
                     crate::ops::unlink_nodes_impl(ctx, &from, &to)
                         .map_err(|e| commit_failed(&e, done))?;
                     out["unlinked"]
@@ -476,6 +541,25 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::create_dir_all(tmp.path().join(".chain").join("nodes")).unwrap();
         fs::write(tmp.path().join(".chain").join(".mode"), "dev").unwrap();
+        tmp
+    }
+
+    /// 分析模式夹具：单根 goal + 模式标签 + schema
+    fn ws_analysis() -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        let nodes = tmp.path().join(".chain").join("nodes");
+        fs::create_dir_all(&nodes).unwrap();
+        fs::write(tmp.path().join(".chain").join(".mode"), "analysis").unwrap();
+        fs::write(
+            tmp.path().join(".chain").join(".schema"),
+            r#"{"schema_version":"1.1"}"#,
+        )
+        .unwrap();
+        fs::write(
+            nodes.join("g-001.md"),
+            "---\nid: g-001\ntype: goal\nstatus: in_progress\ntitle: 目标 · 根\ncreated: 2026-10-04T10:00:00+08:00\nupdated: 2026-10-04T10:00:00+08:00\nrevision: 1\ntags: []\nparent: null\n---\n\n> 触发：根\n\n# 根目标\n",
+        )
+        .unwrap();
         tmp
     }
 
@@ -537,6 +621,9 @@ mod tests {
                 body: Some("> 触发：Gerstner；海浪；顶点位移\n\n正文".into()),
                 tags: None,
                 force: None,
+            node_type: None,
+                status: None,
+                parent: None,
             }]),
         )
         .unwrap();
@@ -572,6 +659,9 @@ mod tests {
                 body: Some("正文没有触发句".into()),
                 tags: None,
                 force: None,
+            node_type: None,
+                status: None,
+                parent: None,
             }]),
         )
         .unwrap();
@@ -636,6 +726,9 @@ mod tests {
                 body: None,
                 tags: None,
                 force: None,
+            node_type: None,
+                status: None,
+                parent: None,
             }]),
         )
         .unwrap_err();
@@ -724,7 +817,10 @@ mod tests {
                     body: None,
                     tags: None,
                     force: None,
-                },
+                node_type: None,
+                status: None,
+                parent: None,
+            },
                 CommitIntent::Link {
                     from: "node-1".into(),
                     to: "node-1".into(),
@@ -767,7 +863,8 @@ mod tests {
                     mode: "append".into(),
                     content: "补充的新结论".into(),
                     expected_updated: None,
-                },
+                status: None,
+            },
                 CommitIntent::Archive {
                     id: "node-1".into(),
                     reason: Some("被新方案取代".into()),
@@ -830,13 +927,19 @@ mod tests {
                     body: Some("> 触发：A\n\n方向一".into()),
                     tags: None,
                     force: None,
-                },
+                node_type: None,
+                status: None,
+                parent: None,
+            },
                 CommitIntent::Create {
                     title: "方案 · B".into(),
                     body: Some("> 触发：B\n\n方向二".into()),
                     tags: None,
                     force: None,
-                },
+                node_type: None,
+                status: None,
+                parent: None,
+            },
             ]),
         )
         .unwrap();
@@ -881,7 +984,10 @@ mod tests {
                     body: Some("> 触发：A\n\nA".into()),
                     tags: None,
                     force: None,
-                }],
+                node_type: None,
+                status: None,
+                parent: None,
+            }],
             },
             CandidateSpec {
                 dir: "方向B".into(),
@@ -891,7 +997,10 @@ mod tests {
                     body: Some("> 触发：B\n\nB".into()),
                     tags: None,
                     force: None,
-                }],
+                node_type: None,
+                status: None,
+                parent: None,
+            }],
             },
         ];
         let r = remember(
@@ -1069,9 +1178,292 @@ mod tests {
                 body: None,
                 tags: None,
                 force: None,
+                node_type: None,
+                status: None,
+                parent: None,
             }]),
         )
         .unwrap_err();
         assert!(e.contains("REMEMBER_FORESHADOW_NO_COMMITS"), "{e}");
+    }
+
+    // ── 3.2.1：分析模式建链通道（t-004 修复）──
+
+    #[test]
+    fn analysis_mode_create_builds_chain_with_vocab_and_prefix_id() {
+        let tmp = ws_analysis();
+        let ctx = Workspace::open(tmp.path().to_path_buf()).unwrap();
+        assert!(!ctx.mode.is_dev());
+        remember(
+            &ctx,
+            "s-a",
+            Some(RememberEvent::Message {
+                role: "user".into(),
+                text: "补一个设计节点".into(),
+            }),
+            None,
+        )
+        .unwrap();
+        let r = remember(
+            &ctx,
+            "s-a",
+            Some(RememberEvent::Decision {
+                decided: "keep".into(),
+                covers: Some((1, 1)),
+                nodes: vec![],
+                reason: "分析模式建链验证".into(),
+                mode: None,
+                seed: None,
+                candidates: None,
+                selected: None,
+                foreshadowing: None,
+            }),
+            Some(vec![CommitIntent::Create {
+                title: "设计 · 验证用设计".into(),
+                body: Some("> 触发：验证设计\n\n# 设计正文".into()),
+                tags: None,
+                force: None,
+                node_type: Some("design".into()),
+                status: Some("in_progress".into()),
+                parent: Some("g-001".into()),
+            }]),
+        )
+        .unwrap();
+        let created = r["created"].as_array().unwrap();
+        assert_eq!(created.len(), 1);
+        assert_eq!(created[0]["id"], "d-001", "类型前缀自动分配 id");
+        assert_eq!(created[0]["origin"], "dialogue/log.jsonl#2");
+        let node = read_node(&ctx, "d-001", None).unwrap();
+        assert_eq!(node["type"], "design");
+        assert_eq!(node["status"], "in_progress");
+        assert_eq!(node["parent"], "g-001");
+        assert_eq!(node["rel"], "contains", "链边默认 contains");
+        assert_eq!(node["origin"], "dialogue/log.jsonl#2");
+        // 校验器复核：结构合法
+        let snap = ctx.scan().unwrap();
+        assert!(
+            snap.validation.errors.is_empty(),
+            "链结构应合法：{:?}",
+            snap.validation.errors
+        );
+    }
+
+    #[test]
+    fn analysis_mode_prefix_id_increments_within_same_type() {
+        // 回归：v-001 已存在时，下一个 verification 必须是 v-002（"-001" 解析失败曾导致重复 id）
+        let tmp = ws_analysis();
+        let ctx = Workspace::open(tmp.path().to_path_buf()).unwrap();
+        let mut n = 0usize;
+        let mut mk_v = move || {
+            n += 1;
+            remember(
+                &ctx,
+                "s-a",
+                Some(RememberEvent::Message {
+                    role: "user".into(),
+                    text: format!("建验证节点 {n}"),
+                }),
+                Some(vec![CommitIntent::Create {
+                    title: format!("验证 · 编号递增 {n}"),
+                    body: Some("> 触发：编号\n\nv".into()),
+                    tags: None,
+                    force: None,
+                    node_type: Some("verification".into()),
+                    status: Some("success".into()),
+                    parent: Some("g-001".into()),
+                }]),
+            )
+            .unwrap()
+        };
+        let v1 = mk_v();
+        assert_eq!(v1["created"][0]["id"], "v-001");
+        let v2 = mk_v();
+        assert_eq!(v2["created"][0]["id"], "v-002", "同前缀必须递增，不能撞已存在的 v-001");
+    }
+
+    #[test]
+    fn analysis_mode_create_guards_reject_violations() {        let tmp = ws_analysis();
+        let ctx = Workspace::open(tmp.path().to_path_buf()).unwrap();
+        let mk = |node_type: Option<&str>, status: Option<&str>, parent: Option<&str>| {
+            remember(
+                &ctx,
+                "s-a",
+                Some(RememberEvent::Message {
+                    role: "user".into(),
+                    text: "x".into(),
+                }),
+                Some(vec![CommitIntent::Create {
+                    title: "节点 · 违规".into(),
+                    body: None,
+                    tags: None,
+                    force: None,
+                    node_type: node_type.map(|s| s.to_string()),
+                    status: status.map(|s| s.to_string()),
+                    parent: parent.map(|s| s.to_string()),
+                }]),
+            )
+        };
+        assert!(mk(None, Some("pending"), Some("g-001")).unwrap_err().contains("REMEMBER_ANALYSIS_TYPE"));
+        assert!(mk(Some("design"), Some("none"), Some("g-001")).unwrap_err().contains("REMEMBER_ANALYSIS_STATUS"));
+        assert!(mk(Some("design"), Some("pending"), None).unwrap_err().contains("REMEMBER_ANALYSIS_PARENT"));
+        assert!(mk(Some("goal"), Some("pending"), None).unwrap_err().contains("REMEMBER_ANALYSIS_ROOT_UNIQUE"));
+        assert!(mk(Some("design"), Some("pending"), Some("no-such")).unwrap_err().contains("REMEMBER_ANALYSIS_PARENT"));
+    }
+
+    #[test]
+    fn analysis_mode_link_reparent_and_cycle_guards() {
+        let tmp = ws_analysis();
+        let ctx = Workspace::open(tmp.path().to_path_buf()).unwrap();
+        let create = |title: &str, node_type: &str, parent: &str| {
+            remember(
+                &ctx,
+                "s-a",
+                Some(RememberEvent::Message {
+                    role: "user".into(),
+                    text: title.to_string(),
+                }),
+                Some(vec![CommitIntent::Create {
+                    title: title.to_string(),
+                    body: Some(format!("> 触发：{title}\n\n正文")),
+                    tags: None,
+                    force: None,
+                    node_type: Some(node_type.to_string()),
+                    status: Some("in_progress".into()),
+                    parent: Some(parent.to_string()),
+                }]),
+            )
+            .unwrap()
+        };
+        let d = create("设计 · D", "design", "g-001");
+        let d_id = d["created"][0]["id"].as_str().unwrap().to_string();
+        let t = create("任务 · T", "task", &d_id);
+        let t_id = t["created"][0]["id"].as_str().unwrap().to_string();
+        // 防环：把 d 挂到自己的后代 t 下 → 拒绝
+        let e = remember(
+            &ctx,
+            "s-a",
+            Some(RememberEvent::Message {
+                role: "user".into(),
+                text: "试图成环".into(),
+            }),
+            Some(vec![CommitIntent::Link {
+                from: t_id.clone(),
+                to: d_id.clone(),
+                rel: "contains".into(),
+                desc: None,
+            }]),
+        )
+        .unwrap_err();
+        assert!(e.contains("REMEMBER_ANALYSIS_CYCLE"), "{e}");
+        // 根不可改挂
+        let e = remember(
+            &ctx,
+            "s-a",
+            Some(RememberEvent::Message {
+                role: "user".into(),
+                text: "试图改挂根".into(),
+            }),
+            Some(vec![CommitIntent::Link {
+                from: d_id.clone(),
+                to: "g-001".into(),
+                rel: "contains".into(),
+                desc: None,
+            }]),
+        )
+        .unwrap_err();
+        assert!(e.contains("REMEMBER_ANALYSIS_ROOT_REPARENT"), "{e}");
+        // 合法改挂：t 改挂到 g-001 下 → 成功
+        let r = remember(
+            &ctx,
+            "s-a",
+            Some(RememberEvent::Message {
+                role: "user".into(),
+                text: "合法改挂".into(),
+            }),
+            Some(vec![CommitIntent::Link {
+                from: "g-001".into(),
+                to: t_id.clone(),
+                rel: "contains".into(),
+                desc: Some("改挂".into()),
+            }]),
+        )
+        .unwrap();
+        assert_eq!(r["linked"][0]["from"], "g-001");
+        // 断边（unlink）在分析模式被禁
+        let e = remember(
+            &ctx,
+            "s-a",
+            Some(RememberEvent::Message {
+                role: "user".into(),
+                text: "试图断边".into(),
+            }),
+            Some(vec![CommitIntent::Unlink {
+                from: "g-001".into(),
+                to: t_id,
+            }]),
+        )
+        .unwrap_err();
+        assert!(e.contains("REMEMBER_ANALYSIS_UNLINK_FORBIDDEN"), "{e}");
+    }
+
+    #[test]
+    fn analysis_mode_status_transition_via_update_intent() {
+        let tmp = ws_analysis();
+        let ctx = Workspace::open(tmp.path().to_path_buf()).unwrap();
+        remember(
+            &ctx,
+            "s-a",
+            Some(RememberEvent::Message {
+                role: "user".into(),
+                text: "建任务".into(),
+            }),
+            Some(vec![CommitIntent::Create {
+                title: "任务 · 流转".into(),
+                body: Some("> 触发：流转\n\n正文".into()),
+                tags: None,
+                force: None,
+                node_type: Some("task".into()),
+                status: Some("in_progress".into()),
+                parent: Some("g-001".into()),
+            }]),
+        )
+        .unwrap();
+        let r = remember(
+            &ctx,
+            "s-a",
+            Some(RememberEvent::Message {
+                role: "user".into(),
+                text: "标记完成".into(),
+            }),
+            Some(vec![CommitIntent::Update {
+                id: "t-001".into(),
+                mode: "append".into(),
+                content: "补充说明".into(),
+                expected_updated: None,
+                status: Some("success".into()),
+            }]),
+        )
+        .unwrap();
+        assert_eq!(r["updated"][0]["status"], "success");
+        let node = read_node(&ctx, "t-001", None).unwrap();
+        assert_eq!(node["status"], "success");
+        // 非法状态词表 → 拒绝
+        let e = remember(
+            &ctx,
+            "s-a",
+            Some(RememberEvent::Message {
+                role: "user".into(),
+                text: "非法状态".into(),
+            }),
+            Some(vec![CommitIntent::Update {
+                id: "t-001".into(),
+                mode: "append".into(),
+                content: "x".into(),
+                expected_updated: None,
+                status: Some("none".into()),
+            }]),
+        )
+        .unwrap_err();
+        assert!(e.contains("REMEMBER_STATUS_VOCAB"), "{e}");
     }
 }

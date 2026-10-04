@@ -15,12 +15,15 @@ pub const AI_GUIDE_DEV: &str = include_str!("../../../resources/AI_GUIDE_DEV.md"
 /// v21：……
 /// v22：记忆层第一阶段 S1–S4——三遍关注（要点/残余/结构）、伏笔登记（decided=foreshadow）、
 ///      多峰多节点（candidates + origin 方向序号）、保留式抽取（mode=sample + seed 可重放）
-pub const AI_GUIDE_VERSION: u32 = 22;
+/// v23：分析模式建链通道（3.2.1）——create 必填 type/status/parent（词表+根唯一+防环）、
+///      id 类型前缀自动分配、link 改挂（根不可改挂/防环）、update 状态流转、unlink 禁止
+pub const AI_GUIDE_VERSION: u32 = 23;
 
 /// 开发模式指南版本号（与 resources/AI_GUIDE_DEV.md 首行 CHAIN_GUIDE_DEV_VERSION 标记一致）
 /// v13：AI 导航上下文（同上）
 /// v16：记忆层第一阶段 S1–S4（同上）
-pub const AI_GUIDE_DEV_VERSION: u32 = 16;
+/// v17：3.2.1 可选字段说明（开发模式忽略 node_type/status/parent；update.status 状态流转）
+pub const AI_GUIDE_DEV_VERSION: u32 = 17;
 
 /// 从指南文本解析版本标记（首行 `<!-- CHAIN_GUIDE_VERSION: N -->` 或 `<!-- CHAIN_GUIDE_DEV_VERSION: N -->`）。
 /// 返回 None = 无标记（旧版指南或人工编辑过）。

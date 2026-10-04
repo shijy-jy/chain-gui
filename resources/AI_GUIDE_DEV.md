@@ -1,4 +1,4 @@
-<!-- CHAIN_GUIDE_DEV_VERSION: 16 -->
+<!-- CHAIN_GUIDE_DEV_VERSION: 17 -->
 # 开发模式 AI 使用指南（知识库搭建）
 
 > 本指南适用于 `.chain/.mode = dev` 的开发模式工作区：自由知识图谱、个人知识库搭建。
@@ -212,3 +212,9 @@ resolve_conflict { id, title, status, body?, expected_updated? }
 **保留式抽取**：只想落一个方向时 `mode:"sample"` + `seed` + `candidates:[{dir, score, commits:[...]}]`（每个候选自带"若抽中要执行的完整意图"）。工具按种子**确定性加权抽取**（同种子同结果），只执行抽中方向；声明 `selected` 必须与抽取一致（不一致报 REMEMBER_SELECTED_MISMATCH），可先不带 selected 从响应 `sampled` 读结果。**事实底线**：抽中的方向对不上源文本就改伏笔登记或 skip，不允许把抽歪的内容写进事实源。
 
 **自适应成本**：默认单遍要点关注 + argmax（mode:"commit"，等价旧行为）；自检矛盾 / 重复检测逼近阈值 / 源段多义时才开多假设。权重在校准前只作序数分。
+
+### 8.8 3.2.1：可选字段与状态流转（v17）
+
+- `op:create` 新增可选字段 `node_type` / `status` / `parent`——**开发模式忽略**（仍按 note/none/自由挂载处理）；这三个字段只在分析模式链协议下生效。
+- `op:update` 新增可选 `status` 字段：状态流转（开发模式六态词表含 none；分析模式五态），与 `expected_updated` 同受乐观锁（CONFLICT 不落盘）。
+- 开发模式不受影响：所有旧调用（不带新字段）行为与 3.2.0 完全一致。

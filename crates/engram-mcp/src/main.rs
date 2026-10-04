@@ -118,6 +118,12 @@ struct CommitParams {
     tags: Option<Vec<String>>,
     /// create：跳过同名/重复检测强制另建
     force: Option<bool>,
+    /// create（3.2.1 分析模式必填）：goal / design / task / verification
+    node_type: Option<String>,
+    /// create（分析模式必填）/ update（可选状态流转）：pending / in_progress / success / failed / blocked（dev 模式另含 none）
+    status: Option<String>,
+    /// create（分析模式）：挂载父节点（goal 根须为空且全链唯一根）
+    parent: Option<String>,
     /// update / archive：节点 id
     id: Option<String>,
     /// update：append / replace_body
@@ -224,12 +230,16 @@ fn parse_commits(cs: &[CommitParams]) -> Result<Vec<mcp::CommitIntent>, ErrorDat
                 body: c.body.clone(),
                 tags: c.tags.clone(),
                 force: c.force,
+                node_type: c.node_type.clone(),
+                status: c.status.clone(),
+                parent: c.parent.clone(),
             },
             "update" => mcp::CommitIntent::Update {
                 id: c.id.clone().unwrap_or_default(),
                 mode: c.mode.clone().unwrap_or_default(),
                 content: c.content.clone().unwrap_or_default(),
                 expected_updated: c.expected_updated.clone(),
+                status: c.status.clone(),
             },
             "link" => mcp::CommitIntent::Link {
                 from: c.from.clone().unwrap_or_default(),

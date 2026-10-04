@@ -2,6 +2,20 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
+## [3.2.1] - 2026-10-04
+
+### 分析模式建链通道（t-004 缺口修复）：AI 仅靠 MCP 即可完整维护链
+
+背景：3.1.0 移除 GUI 人治写通道（ADR 0015）后，分析模式的 create/link 仍被模式门禁（WORKSPACE_MODE_MISMATCH）——AI 无法在分析模式建节点、建边，只能修订已有节点。本次把 2.18.0 人用通道的校验逻辑 MCP 化，写回 remember。
+
+- **create 意图新增 `node_type` / `status` / `parent`**（分析模式必填）：type 词表 goal/design/task/verification（REMEMBER_ANALYSIS_TYPE）、status 词表五态（REMEMBER_ANALYSIS_STATUS）、根唯一（REMEMBER_ANALYSIS_ROOT_UNIQUE）、非 goal 必挂父（REMEMBER_ANALYSIS_PARENT）；**id 按类型前缀自动分配**（g-/d-/t-/v- 下一个空闲号）；挂载边自动写 rel: contains。
+- **link 意图分析模式放行 + 护栏**：改挂 = 再次 link；根不可改挂（REMEMBER_ANALYSIS_ROOT_REPARENT）；防环（祖先挂后代拒绝，REMEMBER_ANALYSIS_CYCLE）；词表外 rel 拒绝（INVALID_REL 不变）。
+- **unlink 意图分析模式禁止**（REMEMBER_ANALYSIS_UNLINK_FORBIDDEN：断边=断根，重挂载走 link）。
+- **update 意图新增 `status` 字段**：状态流转（分析五态 / 开发六态词表，REMEMBER_STATUS_VOCAB），与 expected_updated 同受乐观锁（CONFLICT 不落盘）。
+- **开发模式零变化**：新字段在开发模式被忽略，旧调用行为与 3.2.0 完全一致（golden 全量复跑通过）。
+- 指南 v23 / v17（分析模式建链协议 / 开发模式可选字段说明）；契约 v10 → v11；core 测试 104 → 108（+分析建链/护栏/改挂/状态流转 4 条）。
+- 新增 3 个稳定错误码前缀：REMEMBER_ANALYSIS_* / REMEMBER_STATUS_VOCAB（golden 契约同步固化）。
+
 ## [3.2.0] - 2026-10-04
 
 ### 记忆层第一阶段：源输入建立节点 S1–S4（设计稿 docs/Engram_记忆层第一阶段_源输入建立节点_设计_v1.md）

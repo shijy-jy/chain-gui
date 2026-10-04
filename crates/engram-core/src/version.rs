@@ -19,7 +19,10 @@ use crate::guide::{AI_GUIDE_DEV_VERSION, AI_GUIDE_VERSION};
 ///   mode commit|sample / seed 确定性保留式抽取 / selected / foreshadowing 伏笔登记）；
 ///   decided 增 foreshadow；dialogue_status 增 foreshadowing 聚合视图与 sample_decisions；
 ///   多峰/抽样节点 origin 带方向序号（dialogue/log.jsonl#<seq>.<idx>）。
-pub const TOOL_CONTRACT_VERSION: u32 = 10;
+/// v11（3.2.1 分析模式建链通道）：remember 的 commit 意图新增 create(node_type/status/parent)
+///   与 update(status)——分析模式词表校验 + 根唯一 + 防环 + 根不可改挂 + unlink 禁止；
+///   链节点 id 按类型前缀自动分配（g-/d-/t-/v-）。
+pub const TOOL_CONTRACT_VERSION: u32 = 11;
 
 /// 索引/schema 格式版本（宪法第 9 条；§10⑤ 起已实现，见 crate::schema）
 pub const SCHEMA_SPEC_VERSION: Option<&str> = Some("1.1");

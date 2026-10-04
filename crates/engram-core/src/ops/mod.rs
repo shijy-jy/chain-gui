@@ -1359,6 +1359,365 @@ pub(crate) fn link_nodes_impl(
     }))
 }
 
+// ── 3.2.1：分析模式链协议建链（t-004 缺口修复；2.18.0 人治通道校验的 MCP 化）────────
+
+/// 分析模式建节点：词表校验（type 四类 / status 五态）+ 根唯一 + 挂载存在 + 类型前缀 id。
+/// 开发模式请走 create_node_impl（本函数仅分析模式调用）。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn create_chain_node_impl(
+    ctx: &Workspace,
+    title: &str,
+    body: Option<&str>,
+    tags: Option<Vec<String>>,
+    force: Option<bool>,
+    node_type: Option<&str>,
+    status: Option<&str>,
+    parent: Option<&str>,
+    origin: Option<&str>,
+    conventions: Option<Vec<String>>,
+) -> Result<Value, String> {
+    // 词表（分析模式链协议；词表外拒绝——结构违规阻断）
+    let t = node_type
+        .ok_or_else(|| {
+            "REMEMBER_ANALYSIS_TYPE: 分析模式建节点必须给出 type（goal / design / task / verification）".to_string()
+        })?
+        .trim();
+    if !crate::profile::ANALYSIS_TYPES.contains(&t) {
+        return Err(format!(
+            "REMEMBER_ANALYSIS_TYPE: type 非法「{t}」，分析模式仅支持：{}",
+            crate::profile::ANALYSIS_TYPES.join(" / ")
+        ));
+    }
+    let s = status
+        .ok_or_else(|| {
+            "REMEMBER_ANALYSIS_STATUS: 分析模式建节点必须给出 status（pending / in_progress / success / failed / blocked）"
+                .to_string()
+        })?
+        .trim();
+    if !crate::profile::ANALYSIS_STATUSES.contains(&s) {
+        return Err(format!(
+            "REMEMBER_ANALYSIS_STATUS: status 非法「{s}」，分析模式仅支持：{}",
+            crate::profile::ANALYSIS_STATUSES.join(" / ")
+        ));
+    }
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("title 不能为空".into());
+    }
+    if title.contains('\n') || title.contains('\r') {
+        return Err("title 必须为单行文本".into());
+    }
+
+    let snap = ctx.scan()?;
+    // 重复标题检测（同开发模式；force 显式放行）
+    let lower = title.to_lowercase();
+    if let Some(dup) = snap
+        .nodes
+        .iter()
+        .find(|n| n.title.trim().to_lowercase() == lower)
+    {
+        if !force.unwrap_or(false) {
+            return Err(format!(
+                "DUPLICATE_TITLE: 已存在同名节点 {}「{}」。若确为同一记忆请 op=update 补充；确认要另建请传 force=true",
+                dup.id, dup.title
+            ));
+        }
+    }
+    // 结构护栏：根唯一 / 非 goal 必须挂父 / 父存在
+    let root_exists = snap.nodes.iter().any(|n| n.parent.is_none());
+    match parent {
+        Some(p) => {
+            let p = p.trim();
+            if p.is_empty() {
+                return Err("REMEMBER_ANALYSIS_PARENT: parent 不能为空串".into());
+            }
+            if !snap.nodes.iter().any(|n| n.id == p) {
+                return Err(format!("REMEMBER_ANALYSIS_PARENT: 父节点「{p}」不存在"));
+            }
+        }
+        None => {
+            if t != "goal" {
+                return Err(
+                    "REMEMBER_ANALYSIS_PARENT: 非 goal 类型节点必须挂父节点（链协议单根树）".into(),
+                );
+            }
+            if root_exists {
+                return Err(
+                    "REMEMBER_ANALYSIS_ROOT_UNIQUE: 链已存在根 goal（每个链仅一个 parent=null 的根）；子 goal 请挂到失败节点下".into(),
+                );
+            }
+        }
+    }
+
+    // 类型前缀自动 id（g-/d-/t-/v- 下一个空闲号）
+    let prefix = match t {
+        "goal" => "g",
+        "design" => "d",
+        "task" => "t",
+        _ => "v",
+    };
+    let id = chain_auto_id(&ctx.nodes_dir(), prefix);
+    let path = ctx.node_path(&id);
+    if path.exists() {
+        return Err(format!("节点 {id} 已存在"));
+    }
+
+    use serde_yaml::Value as YV;
+    let now = crate::scanner::frontmatter::now_iso8601();
+    let mut fm = serde_yaml::Mapping::new();
+    fm.insert(YV::String("id".into()), YV::String(id.clone()));
+    fm.insert(YV::String("type".into()), YV::String(t.to_string()));
+    fm.insert(YV::String("status".into()), YV::String(s.to_string()));
+    fm.insert(YV::String("title".into()), YV::String(title.to_string()));
+    let (parent_val, attach) = match parent {
+        Some(p) => (YV::String(p.trim().to_string()), true),
+        None => (YV::Null, false),
+    };
+    fm.insert(YV::String("parent".into()), parent_val);
+    if attach {
+        fm.insert(YV::String("rel".into()), YV::String("contains".into()));
+    }
+    fm.insert(YV::String("created".into()), YV::String(now.clone()));
+    fm.insert(YV::String("updated".into()), YV::String(now));
+    fm.insert(YV::String("revision".into()), YV::Number(1u64.into()));
+    fm.insert(
+        YV::String("tags".into()),
+        YV::Sequence(
+            tags.unwrap_or_default()
+                .into_iter()
+                .map(YV::String)
+                .collect(),
+        ),
+    );
+    if let Some(o) = origin {
+        if !o.trim().is_empty() {
+            fm.insert(YV::String("origin".into()), YV::String(o.to_string()));
+        }
+    }
+    if let Some(cs) = conventions {
+        if !cs.is_empty() {
+            fm.insert(
+                YV::String("conventions".into()),
+                YV::Sequence(cs.into_iter().map(YV::String).collect()),
+            );
+        }
+    }
+    let body_text = match body {
+        Some(b) if !b.trim().is_empty() => b.trim().to_string(),
+        _ => format!("# {title}"),
+    };
+    let content = crate::scanner::frontmatter::serialize(&fm, &body_text)
+        .map_err(|e| format!("序列化失败：{e}"))?;
+    atomic_write(&path, &content)?;
+    ctx.touch_write(&id)?;
+    ctx.mark_index_stale(&id)?;
+    ctx.audit("create_chain", &id, &format!("type={t} status={s} title={title}"));
+
+    Ok(json!({
+        "created": true,
+        "id": id,
+        "title": title,
+        "type": t,
+        "status": s,
+        "file": format!(".chain/nodes/{id}.md"),
+        "hint": format!("链节点已建（分析模式，AI 指南 v{}）。id 按类型前缀自动分配；结构护栏：根唯一 / 非 goal 必挂父 / 防环 / 根不可改挂。", ctx.guide_version()),
+    }))
+}
+
+/// 分析模式建边/改挂：词表 + 防自环 + 根不可改挂 + 防环。重挂载 = 对已有 parent 的节点再次 link。
+pub(crate) fn link_chain_nodes_impl(
+    ctx: &Workspace,
+    from: &str,
+    to: &str,
+    rel_type: &str,
+    desc: Option<&str>,
+) -> Result<Value, String> {
+    if !REL_TYPES.contains(&rel_type) {
+        return Err(format!(
+            "INVALID_REL: rel_type 非法「{rel_type}」，仅支持：{}（语义见 get_guide）",
+            REL_TYPES.join(" / ")
+        ));
+    }
+    if from == to {
+        return Err("REMEMBER_ANALYSIS_CYCLE: 不允许自环（from 与 to 相同）".into());
+    }
+    if !is_safe_id(from) || !is_safe_id(to) {
+        return Err("节点 id 非法".into());
+    }
+    let snap = ctx.scan()?;
+    let from_node = snap
+        .nodes
+        .iter()
+        .find(|n| n.id == from)
+        .ok_or_else(|| format!("父节点 {from} 不存在"))?;
+    let to_node = snap
+        .nodes
+        .iter()
+        .find(|n| n.id == to)
+        .ok_or_else(|| format!("子节点 {to} 不存在"))?;
+    if to_node.parent.is_none() {
+        return Err(
+            "REMEMBER_ANALYSIS_ROOT_REPARENT: 根 goal 不能改挂（链必须保留唯一根）".into(),
+        );
+    }
+    // 防环：to 出现在 from 的祖先链上 → 拒绝
+    let mut cur: Option<&str> = Some(&from_node.id);
+    while let Some(c) = cur {
+        if c == to {
+            return Err(format!(
+                "REMEMBER_ANALYSIS_CYCLE: 把「{to}」挂到自己的后代「{from}」下会成环"
+            ));
+        }
+        cur = snap.nodes.iter().find(|n| n.id == c).and_then(|n| n.parent.as_deref());
+    }
+
+    let to_path = ctx.node_path(to);
+    let raw = std::fs::read_to_string(&to_path).map_err(|e| format!("读取失败：{e}"))?;
+    let (mut fm, body) = crate::scanner::frontmatter::parse(&raw)
+        .map_err(|e| format!("解析 frontmatter 失败：{e}"))?;
+    ensure_not_frozen(&fm, to)?;
+    let fields = UpdateFields {
+        title: None,
+        status: None,
+        body: None,
+        tags: None,
+        evidence: None,
+        parent: Some(Some(from.to_string())),
+        rel: Some(rel_type.to_string()),
+    };
+    crate::model::node::apply_update(&mut fm, &fields)
+        .map_err(|e| format!("应用更新失败：{e}"))?;
+    use serde_yaml::Value as YV;
+    let rel_desc_out = match desc {
+        Some(d) if d.trim().is_empty() => {
+            fm.remove(YV::String("rel_desc".into()));
+            Value::Null
+        }
+        Some(d) => {
+            fm.insert(
+                YV::String("rel_desc".into()),
+                YV::String(d.trim().to_string()),
+            );
+            json!(d.trim())
+        }
+        None => fm_get_str(&fm, "rel_desc")
+            .map(|s| json!(s))
+            .unwrap_or(Value::Null),
+    };
+    let new_content =
+        crate::scanner::frontmatter::serialize(&fm, &body).map_err(|e| format!("序列化失败：{e}"))?;
+    atomic_write(&to_path, &new_content)?;
+    ctx.touch_write(to)?;
+    ctx.mark_index_stale(to)?;
+    ctx.audit("link_chain", to, &format!("from={from} rel={rel_type}"));
+
+    Ok(json!({
+        "linked": true,
+        "from": from,
+        "to": to,
+        "rel": rel_type,
+        "rel_desc": rel_desc_out,
+        "hint": format!("链边已建立（分析模式，AI 指南 v{}）。改挂即重 link；根不可改挂；防环护栏生效。", ctx.guide_version()),
+    }))
+}
+
+/// 3.2.1：状态流转（分析五态 / 开发六态词表校验；expected_updated 乐观锁——不符报 CONFLICT 不落盘）。
+pub(crate) fn set_node_status_impl(
+    ctx: &Workspace,
+    id: &str,
+    status: &str,
+    expected_updated: Option<&str>,
+) -> Result<Value, String> {
+    if !is_safe_id(id) {
+        return Err("节点 id 非法".into());
+    }
+    let st = status.trim();
+    let vocab_ok = if ctx.mode.is_dev() {
+        crate::profile::DEV.status_vocab.contains(&st)
+    } else {
+        crate::profile::ANALYSIS_STATUSES.contains(&st)
+    };
+    if !vocab_ok {
+        return Err(format!(
+            "REMEMBER_STATUS_VOCAB: status 非法「{st}」，当前模式仅支持：{}",
+            if ctx.mode.is_dev() {
+                crate::profile::DEV.status_vocab.join(" / ")
+            } else {
+                crate::profile::ANALYSIS_STATUSES.join(" / ")
+            }
+        ));
+    }
+    let path = ctx.node_path(id);
+    if !path.exists() {
+        return Err(format!("节点 {id} 不存在"));
+    }
+    let raw = std::fs::read_to_string(&path).map_err(|e| format!("读取失败：{e}"))?;
+    let (mut fm, body) = if ctx.mode.is_dev() {
+        parse_lenient(&raw, id)?
+    } else {
+        crate::scanner::frontmatter::parse(&raw).map_err(|e| format!("解析 frontmatter 失败：{e}"))?
+    };
+    ensure_not_frozen(&fm, id)?;
+    if let Some(expected) = expected_updated {
+        let current = fm_get_str(&fm, "updated").unwrap_or_default();
+        if current != expected {
+            return Err(format!(
+                "CONFLICT: 节点 {id} 的 updated 已变化（盘上 {current}，你传 {expected}）——请重新 read_node 后再试"
+            ));
+        }
+    }
+    let ns = match st {
+        "pending" => crate::model::node::NodeStatus::Pending,
+        "in_progress" => crate::model::node::NodeStatus::InProgress,
+        "success" => crate::model::node::NodeStatus::Success,
+        "failed" => crate::model::node::NodeStatus::Failed,
+        "blocked" => crate::model::node::NodeStatus::Blocked,
+        _ => crate::model::node::NodeStatus::None, // 词表校验已放行（dev 模式含 none）
+    };
+    let fields = UpdateFields {
+        title: None,
+        status: Some(ns),
+        body: None,
+        tags: None,
+        evidence: None,
+        parent: None,
+        rel: None,
+    };
+    crate::model::node::apply_update(&mut fm, &fields)
+        .map_err(|e| format!("应用更新失败：{e}"))?;
+    let new_content =
+        crate::scanner::frontmatter::serialize(&fm, &body).map_err(|e| format!("序列化失败：{e}"))?;
+    atomic_write(&path, &new_content)?;
+    ctx.touch_write(id)?;
+    ctx.mark_index_stale(id)?;
+    ctx.audit("status", id, &format!("status={st}"));
+    let revision = fm_get_str(&fm, "revision").unwrap_or_default();
+    Ok(json!({
+        "status_updated": true,
+        "id": id,
+        "status": st,
+        "revision": revision,
+        "hint": format!("状态已流转（AI 指南 v{}）。状态词表随模式校验；并发场景先 read_node 传 expected_updated。", ctx.guide_version()),
+    }))
+}
+
+/// 类型前缀自动 id：g-1、g-2…（按该前缀现有最大序号 +1）
+fn chain_auto_id(nodes_dir: &std::path::Path, prefix: &str) -> String {
+    let mut max = 0u64;
+    if let Ok(entries) = std::fs::read_dir(nodes_dir) {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if let Some(rest) = name.strip_prefix(prefix).and_then(|r| r.strip_suffix(".md")) {
+                // 容忍 "d-001" 形态：剥前缀后去掉前导连字符再解析数字
+                if let Ok(n) = rest.trim_start_matches('-').parse::<u64>() {
+                    max = max.max(n);
+                }
+            }
+        }
+    }
+    format!("{prefix}-{:03}", max + 1)
+}
+
 /// recall：语义召回（记忆层 L2，契约 v2 新工具；框架 §5.4）
 pub fn recall(
     ctx: &Workspace,
