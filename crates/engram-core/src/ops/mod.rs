@@ -15,7 +15,7 @@ pub use engram_file::node_edit;
 // 三层重构（设计稿 v1 §10）：对话账本写入 + 节点意图执行 + 决策留痕的唯一切入点
 pub mod remember;
 
-pub use remember::{remember, CommitIntent, RememberEvent};
+pub use remember::{remember, CandidateSpec, CommitIntent, ForeshadowSpec, RememberEvent};
 
 // 文件层共用原语 re-export（原子写/宽松解析/frontmatter 取值；旧路径 crate::ops::* 兼容）
 pub use engram_file::fsio::{atomic_write, atomic_write_bytes, fm_get_str, parse_lenient};
@@ -1376,7 +1376,9 @@ pub fn recall(
 pub fn dialogue_status(ctx: &Workspace) -> Result<Value, String> {
     ctx.bump_clock()?;
     let ledger = crate::dialogue_log::read_ledger(&ctx.root)?;
-    let (keep, skip, revise) = ledger.decision_counts();
+    let (keep, skip, revise, foreshadow) = ledger.decision_counts();
+    let sample_decisions = ledger.sample_decision_count();
+    let foreshadow_entries = ledger.foreshadow_entries();
     let file = crate::dialogue::workspace_dialogue_path(&ctx.root);
     // 记忆健康度出口（契约 v9）：线索缺口（recall 未命中的查询）+ 未闭环 task
     let gaps = {
@@ -1435,7 +1437,18 @@ pub fn dialogue_status(ctx: &Workspace) -> Result<Value, String> {
         "last_covered_to": ledger.last_covered_to(),
         "unconsumed_from": ledger.unconsumed_from(),
         "unconsumed_count": ledger.unconsumed_seqs().len(),
-        "decisions": json!({ "keep": keep, "skip": skip, "revise": revise }),
+        "decisions": json!({ "keep": keep, "skip": skip, "revise": revise, "foreshadow": foreshadow }),
+        "sample_decisions": sample_decisions,
+        "foreshadowing": foreshadow_entries
+            .iter()
+            .take(50)
+            .map(|f| {
+                json!({
+                    "covers": f.covers.map(|(a, b)| vec![a, b]),
+                    "note": f.note,
+                })
+            })
+            .collect::<Vec<_>>(),
         "malformed": ledger
             .malformed
             .iter()
@@ -1444,7 +1457,7 @@ pub fn dialogue_status(ctx: &Workspace) -> Result<Value, String> {
         "gaps": gaps,
         "open_loops": open_loops,
         "coverage": coverage,
-        "hint": "对话账本 + 记忆健康度（契约 v9）。unconsumed_from 之后的记录是本次接管要读的部分；gaps = recall 未命中的查询（线索缺口，供补节点）；open_loops = 已 success 但无验证子节点且无「自验收」注明的 task；coverage = 本库读过的节点数与未读节点 id（供 AI 规划「从根向下 / 跨链随机不重复」的读取策略）。malformed 坏行需修复（对话不可再生，修复前先备份）。",
+        "hint": "对话账本 + 记忆健康度（契约 v10）。unconsumed_from 之后的记录是本次接管要读的部分；gaps = recall 未命中的查询（线索缺口，供补节点）；open_loops = 已 success 但无验证子节点且无「自验收」注明的 task；coverage = 本库读过的节点数与未读节点 id（供 AI 规划「从根向下 / 跨链随机不重复」的读取策略）。foreshadowing = 伏笔登记（3.2.0：细节方向未定的潜在痕迹，新节点揭示其作用时可升级——见 get_guide）；sample_decisions = 保留式抽取决策数。malformed 坏行需修复（对话不可再生，修复前先备份）。",
     }))
 }
 

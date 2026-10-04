@@ -100,6 +100,9 @@ pub enum Decision {
     Skip,
     /// 修订：改写已有节点的结论
     Revise,
+    /// 伏笔登记（3.2.0，设计稿《第一阶段》§4）：细节"注意到但方向未定"——
+    /// 不进图谱、不进事实源，只活在痕迹里；未来节点揭示其作用时升级（回报钩子）
+    Foreshadow,
 }
 
 impl Decision {
@@ -108,6 +111,7 @@ impl Decision {
             "keep" => Some(Self::Keep),
             "skip" => Some(Self::Skip),
             "revise" => Some(Self::Revise),
+            "foreshadow" => Some(Self::Foreshadow),
             _ => None,
         }
     }
@@ -116,8 +120,28 @@ impl Decision {
             Self::Keep => "keep",
             Self::Skip => "skip",
             Self::Revise => "revise",
+            Self::Foreshadow => "foreshadow",
         }
     }
+}
+
+/// 候选方向（3.2.0 S1：决策痕迹扩展）。多遍关注产生的每一个"可能的读法"，
+/// 连同权重一起留痕——将来发现方向选错，替代方案就在痕迹里，无需重推历史。
+#[derive(Debug, Clone, PartialEq)]
+pub struct CandidateTrace {
+    /// 方向名（语义描述，如"提炼为方案节点"）
+    pub dir: String,
+    /// 权重（LLM 序数分，规则分确定性；校准前不进概率）
+    pub score: f64,
+}
+
+/// 伏笔登记条目（3.2.0 S2：潜在痕迹）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeshadowTrace {
+    /// 覆盖的消息 seq 区间（可空 = 未声明区间，仅登记摘录）
+    pub covers: Option<(u64, u64)>,
+    /// 一句摘录 + 为什么登记（方向未定）
+    pub note: String,
 }
 
 /// 会话头。每条 head 记录含 key，用于把 `session → model/guide` 解析出来
@@ -158,6 +182,17 @@ pub struct Record {
     /// 覆盖的消息 seq 区间（含端点）；None = 未声明覆盖
     pub covers: Option<(u64, u64)>,
     pub nodes: Vec<String>,
+    // Decision 扩展（3.2.0 S1–S4；旧记录缺省为 None/空，读保守）
+    /// 提交模式："commit"（默认，argmax 承诺）| "sample"（保留式抽取）
+    pub mode: Option<String>,
+    /// 抽取种子（sample 模式必填；复盘可重放）
+    pub seed: Option<String>,
+    /// 抽中的方向名（sample 模式由工具按种子确定性计算后回填）
+    pub selected: Option<String>,
+    /// 全部候选方向 + 权重（含未选中；分布保留在痕迹里）
+    pub candidates: Vec<CandidateTrace>,
+    /// 伏笔登记（潜在痕迹；不进图）
+    pub foreshadowing: Vec<ForeshadowTrace>,
 }
 
 /// 解析结果（坏行隔离，不静默丢）
@@ -230,20 +265,54 @@ impl Ledger {
             .max()
     }
 
-    /// 决策计数：(keep, skip, revise)
-    pub fn decision_counts(&self) -> (usize, usize, usize) {
+    /// 决策计数：(keep, skip, revise, foreshadow)
+    pub fn decision_counts(&self) -> (usize, usize, usize, usize) {
         let mut k = 0;
         let mut s = 0;
         let mut v = 0;
+        let mut f = 0;
         for r in &self.records {
             match r.decided {
                 Some(Decision::Keep) => k += 1,
                 Some(Decision::Skip) => s += 1,
                 Some(Decision::Revise) => v += 1,
+                Some(Decision::Foreshadow) => f += 1,
                 None => {}
             }
         }
-        (k, s, v)
+        (k, s, v, f)
+    }
+
+    /// 全部伏笔登记：(seq, covers, note)，按追加顺序
+    pub fn foreshadow_records(&self) -> Vec<(u64, Option<(u64, u64)>, String)> {
+        self.records
+            .iter()
+            .filter(|r| r.decided == Some(Decision::Foreshadow))
+            .filter_map(|r| {
+                r.seq
+                    .map(|s| (s, r.covers, r.text.clone()))
+                    .or_else(|| Some((0, r.covers, r.text.clone())))
+            })
+            .collect()
+    }
+
+    /// 伏笔登记条目的并集（跨决策汇总，供 dialogue_status 聚合视图）
+    pub fn foreshadow_entries(&self) -> Vec<ForeshadowTrace> {
+        let mut out: Vec<ForeshadowTrace> = Vec::new();
+        for r in &self.records {
+            if r.decided == Some(Decision::Foreshadow) {
+                out.extend(r.foreshadowing.iter().cloned());
+            }
+        }
+        out
+    }
+
+    /// sample 模式决策数（审计统计：探索写入的占比）
+    pub fn sample_decision_count(&self) -> usize {
+        self.records
+            .iter()
+            .filter(|r| r.kind == Kind::Decision && r.mode.as_deref() == Some("sample"))
+            .count()
     }
 
     /// 涉及的全部会话 id（升序）
@@ -390,6 +459,11 @@ pub fn parse_ledger(path: &Path, raw: &str) -> Ledger {
             decided: None,
             covers: None,
             nodes: Vec::new(),
+            mode: None,
+            seed: None,
+            selected: None,
+            candidates: Vec::new(),
+            foreshadowing: Vec::new(),
         };
 
         match kind {
@@ -420,7 +494,7 @@ pub fn parse_ledger(path: &Path, raw: &str) -> Ledger {
                 else {
                     out.malformed.push((
                         lineno,
-                        format!("{t}   ← decision 的 decided 非法（仅 keep/skip/revise）"),
+                        format!("{t}   ← decision 的 decided 非法（仅 keep/skip/revise/foreshadow）"),
                     ));
                     continue;
                 };
@@ -440,11 +514,49 @@ pub fn parse_ledger(path: &Path, raw: &str) -> Ledger {
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
+                // 3.2.0 S1–S4 扩展字段（读保守：缺省 → None/空，未知键忽略）
+                let candidates = v
+                    .get("candidates")
+                    .and_then(|x| x.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|c| {
+                                let dir = c.get("dir")?.as_str()?.to_string();
+                                let score = c.get("score")?.as_f64()?;
+                                Some(CandidateTrace { dir, score })
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let foreshadowing = v
+                    .get("foreshadowing")
+                    .and_then(|x| x.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|f| {
+                                let note = f.get("note")?.as_str()?.to_string();
+                                let covers = f.get("covers").and_then(|c| c.as_array()).and_then(|c| {
+                                    if c.len() == 2 {
+                                        Some((c[0].as_u64()?, c[1].as_u64()?))
+                                    } else {
+                                        None
+                                    }
+                                });
+                                Some(ForeshadowTrace { covers, note })
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
                 out.records.push(Record {
                     decided: Some(decided),
                     covers,
                     nodes,
                     text: get_str(&v, "reason").unwrap_or_default(),
+                    mode: get_str(&v, "mode"),
+                    seed: get_str(&v, "seed"),
+                    selected: get_str(&v, "selected"),
+                    candidates,
+                    foreshadowing,
                     ..base
                 });
             }
@@ -515,7 +627,9 @@ pub fn tool_line(
     )
 }
 
-/// 决策行。`covers` 必须指向**消息 seq 区间**；`reason` 不可为空。
+/// 决策行（3.2.0 扩展版）。`covers` 必须指向**消息 seq 区间**；`reason` 不可为空。
+/// `extras` 全部加性：mode/seed/selected/candidates/foreshadowing 仅在非空时序列化，
+/// 旧读取方（读保守）不受影响。
 pub fn decision_line(
     seq: u64,
     session: &str,
@@ -524,20 +638,64 @@ pub fn decision_line(
     nodes: &[String],
     reason: &str,
     ts: &str,
+    extras: &DecisionExtras,
 ) -> String {
     let covers_json = match covers {
         Some((a, b)) => format!("[{a},{b}]"),
         None => "null".to_string(),
     };
     let nodes_json: Vec<String> = nodes.iter().map(|n| esc(n)).collect();
-    format!(
-        "{{\"k\":\"decision\",\"seq\":{seq},\"session\":{},\"ts\":{},\"decided\":{},\"covers\":{covers_json},\"nodes\":[{}],\"reason\":{}}}",
+    let mut line = format!(
+        "{{\"k\":\"decision\",\"seq\":{seq},\"session\":{},\"ts\":{},\"decided\":{},\"covers\":{covers_json},\"nodes\":[{}],\"reason\":{}",
         esc(session),
         esc(ts),
         esc(decided.as_str()),
         nodes_json.join(","),
         esc(reason)
-    )
+    );
+    if let Some(mode) = &extras.mode {
+        line.push_str(&format!(",\"mode\":{}", esc(mode)));
+    }
+    if let Some(seed) = &extras.seed {
+        line.push_str(&format!(",\"seed\":{}", esc(seed)));
+    }
+    if let Some(selected) = &extras.selected {
+        line.push_str(&format!(",\"selected\":{}", esc(selected)));
+    }
+    if !extras.candidates.is_empty() {
+        let items: Vec<String> = extras
+            .candidates
+            .iter()
+            .map(|c| format!("{{\"dir\":{},\"score\":{}}}", esc(&c.dir), c.score))
+            .collect();
+        line.push_str(&format!(",\"candidates\":[{}]", items.join(",")));
+    }
+    if !extras.foreshadowing.is_empty() {
+        let items: Vec<String> = extras
+            .foreshadowing
+            .iter()
+            .map(|f| {
+                let c = match f.covers {
+                    Some((a, b)) => format!("[{a},{b}]"),
+                    None => "null".to_string(),
+                };
+                format!("{{\"covers\":{c},\"note\":{}}}", esc(&f.note))
+            })
+            .collect();
+        line.push_str(&format!(",\"foreshadowing\":[{}]", items.join(",")));
+    }
+    line.push('}');
+    line
+}
+
+/// 决策痕迹扩展（3.2.0 S1–S4，全部加性可选）
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DecisionExtras {
+    pub mode: Option<String>,
+    pub seed: Option<String>,
+    pub selected: Option<String>,
+    pub candidates: Vec<CandidateTrace>,
+    pub foreshadowing: Vec<ForeshadowTrace>,
 }
 
 // ── 追加（记忆层唯一写入口；文件层只负责落字节）─────────────
@@ -598,6 +756,36 @@ pub fn append_decision(
     nodes: &[String],
     reason: &str,
 ) -> Result<(), String> {
+    append_decision_ext(
+        path,
+        seq,
+        session,
+        decided,
+        covers,
+        nodes,
+        reason,
+        &DecisionExtras::default(),
+    )
+}
+
+/// 追加决策（3.2.0 扩展版：S1 痕迹扩展 / S2 伏笔登记 / S4 抽取留痕）。
+/// 校验（宁拒绝，不污染）：
+/// - reason 非空（既有铁律）；
+/// - covers 合法（1 基、左 ≤ 右）；
+/// - mode 仅 commit/sample（缺省 = commit）；
+/// - sample 模式：seed 非空、candidates 非空、每个 score 有限且 > 0、selected 必须在 candidates 中；
+/// - commit 模式：candidates 的 score 有限且 ≥ 0；
+/// - foreshadowing 条目 note 非空、covers（若有）合法。
+pub fn append_decision_ext(
+    path: &Path,
+    seq: u64,
+    session: &str,
+    decided: Decision,
+    covers: Option<(u64, u64)>,
+    nodes: &[String],
+    reason: &str,
+    extras: &DecisionExtras,
+) -> Result<(), String> {
     if reason.trim().is_empty() {
         return Err(
             "decision 必须给出 reason——否则无法区分「有意跳过」与「忘了记」，交接保真度失效"
@@ -609,9 +797,54 @@ pub fn append_decision(
             return Err(format!("covers 区间非法：[{a},{b}]（须为 1 基、左 ≤ 右）"));
         }
     }
+    let mode = extras.mode.as_deref().unwrap_or("commit");
+    if mode != "commit" && mode != "sample" {
+        return Err(format!(
+            "decision.mode 非法「{mode}」：仅 commit（默认，argmax 承诺）/ sample（保留式抽取）"
+        ));
+    }
+    for c in &extras.candidates {
+        if c.dir.trim().is_empty() {
+            return Err("candidates 的方向名 dir 不能为空".into());
+        }
+        if !c.score.is_finite() || c.score < 0.0 {
+            return Err(format!("candidates「{}」的 score 非法：{}（须为有限非负）", c.dir, c.score));
+        }
+    }
+    if mode == "sample" {
+        let Some(seed) = extras.seed.as_deref() else {
+            return Err("sample 模式必须提供 seed（抽取可重放的前提）".into());
+        };
+        if seed.trim().is_empty() {
+            return Err("sample 模式的 seed 不能为空".into());
+        }
+        if extras.candidates.is_empty() {
+            return Err("sample 模式必须提供 candidates（至少一个候选方向）".into());
+        }
+        if extras.candidates.iter().any(|c| c.score <= 0.0) {
+            return Err("sample 模式下每个候选的 score 必须 > 0（权重为零的方向请移出 candidates）".into());
+        }
+        if let Some(sel) = extras.selected.as_deref() {
+            if !extras.candidates.iter().any(|c| c.dir == sel) {
+                return Err(format!(
+                    "selected「{sel}」不在 candidates 中——抽样结果必须来自候选集"
+                ));
+            }
+        }
+    }
+    for f in &extras.foreshadowing {
+        if f.note.trim().is_empty() {
+            return Err("foreshadowing 条目的 note 不能为空（登记必须可回溯）".into());
+        }
+        if let Some((a, b)) = f.covers {
+            if a == 0 || b < a {
+                return Err(format!("foreshadowing.covers 区间非法：[{a},{b}]"));
+            }
+        }
+    }
     df::append_line(
         path,
-        &decision_line(seq, session, decided, covers, nodes, reason, &now_iso8601()),
+        &decision_line(seq, session, decided, covers, nodes, reason, &now_iso8601(), extras),
     )
 }
 
@@ -648,6 +881,45 @@ pub fn parse_provenance(s: &str) -> Option<u64> {
     let rest = rest.strip_prefix('#')?;
     let head = rest.split('.').next()?;
     head.parse::<u64>().ok()
+}
+
+/// 溯源串（多峰/抽样时带方向序号）：`dialogue/log.jsonl#<seq>.<idx>`（idx 1 基）。
+/// `parse_provenance` 已容忍分片后缀 → 仍解析回 seq；方向序号对应 traces 中 candidates[idx-1]。
+pub fn provenance_indexed(seq: u64, idx: usize) -> String {
+    format!("{DIALOGUE_ORIGIN_PREFIX}#{seq}.{idx}")
+}
+
+/// 确定性加权抽取（3.2.0 S4，设计稿 §7）：同一 seed + 同一候选集 → 同一结果，复盘可重放。
+/// 实现：seed 经 FNV-1a 派生 64 位状态 → xorshift64 一步 → 归一化到 [0,1)，
+/// 按候选权重累积分布落点。**不引入任何依赖**（std-only，无随机源）。
+pub fn sample_dir(seed: &str, candidates: &[CandidateTrace]) -> String {
+    let mut state = fnv1a(seed) | 1; // 防全零态
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    let u = (state as f64) / (u64::MAX as f64);
+    let total: f64 = candidates.iter().map(|c| c.score).sum();
+    let mut acc = 0.0;
+    for c in candidates {
+        acc += c.score / total;
+        if u < acc {
+            return c.dir.clone();
+        }
+    }
+    // 浮点累积误差兜底：落最后一项（total 必 > 0，sample 模式已校验）
+    candidates
+        .last()
+        .map(|c| c.dir.clone())
+        .unwrap_or_default()
+}
+
+fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
 }
 
 #[cfg(test)]
@@ -697,7 +969,7 @@ mod tests {
         assert!(l.unconsumed_seqs().is_empty(), "全部已消费");
         assert_eq!(l.unconsumed_from(), None);
         assert_eq!(l.last_covered_to(), Some(2));
-        assert_eq!(l.decision_counts(), (1, 0, 0));
+        assert_eq!(l.decision_counts(), (1, 0, 0, 0));
         // 中文保真
         let msg = l.records.iter().find(|r| r.seq == Some(2)).unwrap();
         assert!(msg.text.contains("方案 · FFT 统计波谱法"));
@@ -713,7 +985,7 @@ mod tests {
         append_decision(&p, 3, "s1", Decision::Skip, Some((1, 2)), &[], "纯确认，无新信息")
             .unwrap();
         let l = read_ledger(tmp.path()).unwrap();
-        assert_eq!(l.decision_counts(), (0, 1, 0));
+        assert_eq!(l.decision_counts(), (0, 1, 0, 0));
         assert!(l.unconsumed_seqs().is_empty(), "skip 也算消费（有意跳过≠遗忘）");
         assert!(l.records.iter().any(|r| r.text.contains("无新信息")));
     }
@@ -860,6 +1132,164 @@ mod tests {
         assert_eq!(parse_provenance("dialogue/other.jsonl#1"), None);
         assert_eq!(parse_provenance("dialogue/log.jsonl#abc"), None);
         assert_eq!(parse_provenance("nodes/x#1"), None);
+    }
+
+    #[test]
+    fn provenance_indexed_points_back_to_seq() {
+        let s = provenance_indexed(42, 2);
+        assert_eq!(s, "dialogue/log.jsonl#42.2", "方向序号走分片后缀");
+        assert_eq!(parse_provenance(&s), Some(42), "溯源仍解析回 seq");
+    }
+
+    #[test]
+    fn decision_extras_roundtrip() {
+        // S1：candidates/mode/seed/selected + S2：foreshadowing 全量留痕并可解析回来
+        let tmp = ws();
+        let p = ledger_path(&tmp);
+        append_head(&p, "s1", "dev v8", None).unwrap();
+        append_message(&p, 1, "s1", Role::User, "这段可以提炼成方案，也可以并入已有节点").unwrap();
+        let extras = DecisionExtras {
+            mode: Some("sample".into()),
+            seed: Some("s-abc".into()),
+            selected: Some("并入已有节点".into()),
+            candidates: vec![
+                CandidateTrace { dir: "提炼为方案节点".into(), score: 0.62 },
+                CandidateTrace { dir: "并入已有节点".into(), score: 0.24 },
+                CandidateTrace { dir: "仅登记伏笔".into(), score: 0.14 },
+            ],
+            foreshadowing: vec![ForeshadowTrace {
+                covers: Some((1, 1)),
+                note: "第 1 条消息提到一个未解释的常量，方向未定".into(),
+            }],
+        };
+        append_decision_ext(
+            &p,
+            2,
+            "s1",
+            Decision::Keep,
+            Some((1, 1)),
+            &["node-1".into()],
+            "多方向加权后抽样",
+            &extras,
+        )
+        .unwrap();
+        let l = read_ledger(tmp.path()).unwrap();
+        assert!(l.malformed.is_empty(), "无坏行：{:?}", l.malformed);
+        let d = l
+            .records
+            .iter()
+            .find(|r| r.kind == Kind::Decision)
+            .unwrap();
+        assert_eq!(d.mode.as_deref(), Some("sample"));
+        assert_eq!(d.seed.as_deref(), Some("s-abc"));
+        assert_eq!(d.selected.as_deref(), Some("并入已有节点"));
+        assert_eq!(d.candidates.len(), 3);
+        assert_eq!(d.candidates[1].dir, "并入已有节点");
+        assert!((d.candidates[1].score - 0.24).abs() < 1e-9);
+        assert_eq!(d.foreshadowing.len(), 1);
+        assert_eq!(d.foreshadowing[0].covers, Some((1, 1)));
+        assert!(d.foreshadowing[0].note.contains("未解释的常量"));
+    }
+
+    #[test]
+    fn foreshadow_decision_is_trace_only() {
+        let tmp = ws();
+        let p = ledger_path(&tmp);
+        append_head(&p, "s1", "dev v8", None).unwrap();
+        append_message(&p, 1, "s1", Role::User, "这里有个伏笔").unwrap();
+        let extras = DecisionExtras {
+            foreshadowing: vec![ForeshadowTrace {
+                covers: Some((1, 1)),
+                note: "细节未解释，登记待回报".into(),
+            }],
+            ..Default::default()
+        };
+        append_decision_ext(
+            &p,
+            2,
+            "s1",
+            Decision::Foreshadow,
+            Some((1, 1)),
+            &[],
+            "方向未定，仅登记",
+            &extras,
+        )
+        .unwrap();
+        let l = read_ledger(tmp.path()).unwrap();
+        assert_eq!(l.decision_counts(), (0, 0, 0, 1), "foreshadow 单独计数");
+        assert_eq!(l.foreshadow_records().len(), 1);
+        assert_eq!(l.foreshadow_entries().len(), 1);
+        assert!(l.unconsumed_seqs().is_empty(), "伏笔登记也算消费（AI 确实处理过）");
+    }
+
+    #[test]
+    fn sample_mode_validations_are_strict() {
+        let tmp = ws();
+        let p = ledger_path(&tmp);
+        append_head(&p, "s1", "dev v8", None).unwrap();
+        let good = vec![
+            CandidateTrace { dir: "A".into(), score: 0.6 },
+            CandidateTrace { dir: "B".into(), score: 0.4 },
+        ];
+        // 无 seed → 拒绝
+        let e = append_decision_ext(
+            &p, 1, "s1", Decision::Keep, None, &[], "x",
+            &DecisionExtras { mode: Some("sample".into()), candidates: good.clone(), ..Default::default() },
+        )
+        .unwrap_err();
+        assert!(e.contains("seed"), "{e}");
+        // 零分候选 → 拒绝
+        let e = append_decision_ext(
+            &p, 1, "s1", Decision::Keep, None, &[], "x",
+            &DecisionExtras {
+                mode: Some("sample".into()),
+                seed: Some("s".into()),
+                candidates: vec![CandidateTrace { dir: "A".into(), score: 0.0 }],
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert!(e.contains("> 0"), "{e}");
+        // selected 不在候选集 → 拒绝
+        let e = append_decision_ext(
+            &p, 1, "s1", Decision::Keep, None, &[], "x",
+            &DecisionExtras {
+                mode: Some("sample".into()),
+                seed: Some("s".into()),
+                selected: Some("C".into()),
+                candidates: good.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert!(e.contains("不在 candidates"), "{e}");
+        // 非法 mode → 拒绝
+        let e = append_decision_ext(
+            &p, 1, "s1", Decision::Keep, None, &[], "x",
+            &DecisionExtras { mode: Some("random".into()), ..Default::default() },
+        )
+        .unwrap_err();
+        assert!(e.contains("mode"), "{e}");
+    }
+
+    #[test]
+    fn sample_dir_is_deterministic_and_in_candidates() {
+        let candidates = vec![
+            CandidateTrace { dir: "A".into(), score: 0.6 },
+            CandidateTrace { dir: "B".into(), score: 0.3 },
+            CandidateTrace { dir: "C".into(), score: 0.1 },
+        ];
+        // 同 seed 同结果（可重放）
+        let d1 = sample_dir("seed-1", &candidates);
+        let d2 = sample_dir("seed-1", &candidates);
+        assert_eq!(d1, d2, "同 seed 必须同结果");
+        assert!(candidates.iter().any(|c| c.dir == d1), "结果必来自候选集");
+        // 不同 seed 应产生不同分布（固定种子下至少有一个不同的方向）
+        let mut seen = vec![d1.clone()];
+        for i in 2..=8 {
+            seen.push(sample_dir(&format!("seed-{i}"), &candidates));
+        }
+        assert!(seen.iter().any(|d| *d != d1), "多 seed 不应恒同一方向：{seen:?}");
     }
 
     #[test]

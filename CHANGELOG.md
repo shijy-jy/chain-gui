@@ -2,6 +2,21 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
+## [3.2.0] - 2026-10-04
+
+### 记忆层第一阶段：源输入建立节点 S1–S4（设计稿 docs/Engram_记忆层第一阶段_源输入建立节点_设计_v1.md）
+
+用户方向：写节点前多遍关注同一段源输入（要点/残余/结构），列出全部候选方向+权重，按分布形状决定建几个节点；方向未定的细节做伏笔登记；保留式抽取必须种子可重放。
+
+- **S1 决策痕迹扩展**（`dialogue_log.rs`）：decision 记录新增加性字段 `mode`（commit/sample）、`seed`、`selected`、`candidates[]`（{dir, score}）、`foreshadowing[]`（{covers, note}）。旧记录零变化（读保守：未知键忽略、缺省 None/空）。
+- **S2 伏笔登记**：`decided` 新增 `foreshadow`（"注意到但方向未定"的潜在痕迹）——**不进图谱、不进事实源，只活在痕迹里**；不得携带 commits/nodes/candidates（REMEMBER_FORESHADOW_NO_COMMITS）。`dialogue_status` 新增 `foreshadowing` 聚合视图（take 50）与 `sample_decisions` 统计；decisions 计数扩为 keep/skip/revise/foreshadow。
+- **S3 多峰建节点**：commit 模式 + candidates → 顶层 commits 每个方向各建一个节点；新建节点 `origin` 自动带方向序号（`dialogue/log.jsonl#<seq>.<idx>`，`parse_provenance` 兼容解析回 seq）；响应 created[] 附 `dir`。candidates 全量留痕——将来发现方向选错，替代方案就在痕迹里。
+- **S4 保留式抽取**：`mode:"sample"` + `seed` + `candidates[].commits`（每个候选自带"若抽中要执行的完整意图"）。工具按种子做**确定性加权抽取**（FNV-1a → xorshift64，std-only 无随机源）——同种子同结果，复盘可重放；只执行抽中方向的 commits，未抽中方向留在痕迹。AI 声明 `selected` 与工具抽取不一致 → REMEMBER_SELECTED_MISMATCH 拒绝（防不可重放）。
+- **校验**（宁拒绝，不污染）：sample 模式要求 seed 非空、candidates 非空、score 有限且 >0、selected ∈ candidates；commit 模式下 candidates 携带 commits 拒绝（REMEMBER_CANDIDATE_COMMITS_ONLY_SAMPLE）。
+- **指南 v22 / v16**：新增「记忆层第一阶段：三遍关注、伏笔登记与保留式抽取」章节（分析模式附录 + 开发模式 §8.7）；自适应成本原则（默认单遍 argmax，自检矛盾/重复逼近阈值/源段多义才开多假设）。
+- **契约 v9 → v10**：remember 参数新增 mode/seed/selected/candidates/foreshadowing；golden 28 → 34 条（+伏笔登记/多峰/抽样/一致性拒绝/dialogue_status×2）；core 测试 230 → 242（对话账本 +12）。
+- 记忆层两个已知缺陷（强度 clamp 归零、墙钟恒空）仍按设计稿归入重构后专项，不在本次范围。
+
 ## [3.1.0] - 2026-10-03
 
 ### AI 导航增强（契约 v9）：让"顺着节点链梳理"少走弯路

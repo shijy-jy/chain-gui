@@ -235,6 +235,43 @@ fn replay_flow(ws: &TempDir) -> Vec<(String, String, String)> {
         r##"{"id":"node-1","title":"Golden A","status":"none","body":"# A\nnode A body（裁决后）"}"##,
     );
     tool_call("read_node", r#"{"id":"node-1"}"#);
+    // ── 3.2.0 S2：伏笔登记（decided=foreshadow，只留痕不进图）──
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"msg","role":"user","text":"这里有个未解释的细节"}"##,
+    );
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"foreshadow","covers":[12,12],"nodes":[],"reason":"方向未定，仅登记","foreshadowing":[{"covers":[12,12],"note":"未解释的常量，待后续揭示"}]}"##,
+    );
+    tool_call("dialogue_status", "{}");
+    // ── 3.2.0 S3：多峰建节点（candidates 留痕 + origin 方向序号）──
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"msg","role":"user","text":"这段同时讲了两件事"}"##,
+    );
+    std::thread::sleep(Duration::from_millis(1100));
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"keep","covers":[14,14],"nodes":["node-5","node-6"],"reason":"两个方向各有实质权重，各建一节点","mode":"commit","candidates":[{"dir":"提炼为方案节点","score":0.62},{"dir":"并入已有节点","score":0.24}],"commits":[{"op":"create","title":"Golden D","body":"> 触发：Golden D\n\ndir one"},{"op":"create","title":"Golden E","body":"> 触发：Golden E\n\ndir two"}]}"##,
+    );
+    tool_call("read_node", r#"{"id":"node-5"}"#);
+    // ── 3.2.0 S4：保留式抽取（seed 确定性；只执行抽中方向的 commits）──
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"msg","role":"user","text":"方向未定的输入"}"##,
+    );
+    std::thread::sleep(Duration::from_millis(1100));
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"keep","covers":[16,16],"nodes":[],"reason":"多方向，保留式抽取","mode":"sample","seed":"golden-seed","candidates":[{"dir":"方向A","score":0.6,"commits":[{"op":"create","title":"Golden F","body":"> 触发：Golden F\n\nfrom dir A"}]},{"dir":"方向B","score":0.4,"commits":[{"op":"create","title":"Golden G","body":"> 触发：Golden G\n\nfrom dir B"}]}]}"##,
+    );
+    // selected 与确定性抽取不一致 → REMEMBER_SELECTED_MISMATCH 拒绝
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"keep","covers":[16,16],"nodes":[],"reason":"声明与抽取不一致","mode":"sample","seed":"golden-seed-2","selected":"方向C","candidates":[{"dir":"方向A","score":0.9,"commits":[]},{"dir":"方向B","score":0.1,"commits":[]}]}"##,
+    );
+    tool_call("dialogue_status", "{}");
 
     drop(stdin);
     let _ = child.kill();

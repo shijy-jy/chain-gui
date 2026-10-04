@@ -106,7 +106,7 @@ struct ConsolidateParams {
 }
 
 /// 三层重构：remember 的落节点意图（op 区分；全部复用现有写路径，过守门/乐观锁/审计）
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 struct CommitParams {
     /// create / update / link / unlink / archive
     op: String,
@@ -138,6 +138,26 @@ struct CommitParams {
     reason: Option<String>,
 }
 
+/// 3.2.0 S1/S3/S4：候选方向（多遍关注产生的每一种"可能的读法"）
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
+struct CandidateParams {
+    /// 方向名（语义描述，如"提炼为方案节点"）
+    dir: String,
+    /// 权重（LLM 序数分；校准前不进概率）
+    score: f64,
+    /// 该方向若被抽中要执行的节点意图（仅 sample 模式有效；commit 模式下必须为空）
+    commits: Option<Vec<CommitParams>>,
+}
+
+/// 3.2.0 S2：伏笔登记条目（潜在痕迹，不进图谱）
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
+struct ForeshadowParams {
+    /// 覆盖的消息 seq 区间（可空）
+    covers: Option<Vec<u64>>,
+    /// 一句摘录 + 为什么登记（方向未定）
+    note: String,
+}
+
 /// 三层重构：remember 事件参数（kind 区分 msg / tool / decision）
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct RememberParams {
@@ -155,7 +175,7 @@ struct RememberParams {
     args: Option<String>,
     /// tool：结果摘要
     result: Option<String>,
-    /// decision：keep / skip / revise
+    /// decision：keep / skip / revise / foreshadow（foreshadow = 伏笔登记：方向未定的潜在痕迹）
     decided: Option<String>,
     /// decision：覆盖的消息 seq 区间 [from, to]（含端点，两元素数组）
     covers: Option<Vec<u64>>,
@@ -163,7 +183,17 @@ struct RememberParams {
     nodes: Option<Vec<String>>,
     /// decision：决策理由（必填；空串拒绝——否则无法区分有意跳过与遗忘）
     reason: Option<String>,
-    /// 落节点意图列表（可选）
+    /// decision：提交模式 commit（默认，argmax 承诺）/ sample（保留式抽取，需 seed + candidates）
+    mode: Option<String>,
+    /// decision：sample 模式的抽取种子（复盘可重放；同种子同结果）
+    seed: Option<String>,
+    /// decision：全部候选方向 + 权重（多峰时每峰各建节点；分布全量留痕）
+    candidates: Option<Vec<CandidateParams>>,
+    /// decision：sample 模式下 AI 声明的抽中方向（与工具按种子的确定性抽取不一致时拒绝）
+    selected: Option<String>,
+    /// decision：伏笔登记条目（decided=foreshadow 时为主体内容；keep 时也可附记）
+    foreshadowing: Option<Vec<ForeshadowParams>>,
+    /// 落节点意图列表（可选；sample 模式下放 candidates[].commits）
     commits: Option<Vec<CommitParams>>,
 }
 
@@ -183,6 +213,51 @@ struct ResolveConflictParams {
 }
 
 // ── 工具实现（协议映射层，逻辑全在 engram_core::ops）────────────
+
+/// CommitParams → core CommitIntent（顶层 commits 与 sample 候选 commits 共用）
+fn parse_commits(cs: &[CommitParams]) -> Result<Vec<mcp::CommitIntent>, ErrorData> {
+    let mut out = Vec::with_capacity(cs.len());
+    for c in cs {
+        let intent = match c.op.as_str() {
+            "create" => mcp::CommitIntent::Create {
+                title: c.title.clone().unwrap_or_default(),
+                body: c.body.clone(),
+                tags: c.tags.clone(),
+                force: c.force,
+            },
+            "update" => mcp::CommitIntent::Update {
+                id: c.id.clone().unwrap_or_default(),
+                mode: c.mode.clone().unwrap_or_default(),
+                content: c.content.clone().unwrap_or_default(),
+                expected_updated: c.expected_updated.clone(),
+            },
+            "link" => mcp::CommitIntent::Link {
+                from: c.from.clone().unwrap_or_default(),
+                to: c.to.clone().unwrap_or_default(),
+                rel: c.rel.clone().unwrap_or_default(),
+                desc: c.desc.clone(),
+            },
+            "unlink" => mcp::CommitIntent::Unlink {
+                from: c.from.clone().unwrap_or_default(),
+                to: c.to.clone().unwrap_or_default(),
+            },
+            "archive" => mcp::CommitIntent::Archive {
+                id: c.id.clone().unwrap_or_default(),
+                reason: c.reason.clone(),
+            },
+            other => {
+                return Err(ErrorData::internal_error(
+                    format!(
+                        "REMEMBER_BAD_OP: op 仅 create/update/link/unlink/archive，收到「{other}」"
+                    ),
+                    None,
+                ))
+            }
+        };
+        out.push(intent);
+    }
+    Ok(out)
+}
 
 #[tool_router]
 impl EngramMcp {
@@ -287,7 +362,7 @@ impl EngramMcp {
     // ── 三层重构 P0/P1 新工具（设计稿 v1 §10）──────────────────────────────
 
     #[tool(
-        description = "【记忆入口·核心】追加对话并可选地把 AI 整理出的脉络落成节点——三层重构后唯一的写入口（取代 create/update/link）。kind=msg 追加一条消息；kind=tool 追加工具轨迹；kind=decision 追加记忆决策留痕（decided=keep/skip/revise，covers 为被本决策消费的消息 seq 区间，reason 必填——skip 也必须留痕）。commits 数组可选地执行节点意图（op=create/update/link/unlink/archive），全部过守门；正文缺「> 触发：」句只标记不阻断（conventions 字段）。有 commits 时必须有事件（溯源锚点）。返回 JSON 文本。"
+        description = "【记忆入口·核心】追加对话并可选地把 AI 整理出的脉络落成节点——三层重构后唯一的写入口。kind=msg 追加一条消息；kind=tool 追加工具轨迹；kind=decision 追加记忆决策留痕（decided=keep/skip/revise/foreshadow，covers 为被本决策消费的消息 seq 区间，reason 必填——skip 也必须留痕）。3.2.0 新增：decided=foreshadow 做伏笔登记（foreshadowing 数组：细节方向未定的潜在痕迹，不进图谱）；candidates 记录全部候选方向+权重（多峰分布时每个方向各建节点，origin 带方向序号）；mode=sample 时按 seed 做确定性保留式抽取（AI 声明的 selected 必须与工具抽取一致），未抽中方向留在痕迹。commits 数组可选地执行节点意图（op=create/update/link/unlink/archive），全部过守门；正文缺「> 触发：」句只标记不阻断（conventions 字段）。有 commits 时必须有事件（溯源锚点）。返回 JSON 文本。"
     )]
     async fn remember(
         &self,
@@ -317,11 +392,60 @@ impl EngramMcp {
                         ))
                     }
                 };
+                let candidates = match p.candidates {
+                    None => None,
+                    Some(cs) => {
+                        let mut out = Vec::with_capacity(cs.len());
+                        for c in cs {
+                            let commits = match c.commits {
+                                None => Vec::new(),
+                                Some(intents) => {
+                                    parse_commits(&intents)?
+                                }
+                            };
+                            out.push(mcp::CandidateSpec {
+                                dir: c.dir,
+                                score: c.score,
+                                commits,
+                            });
+                        }
+                        Some(out)
+                    }
+                };
+                let foreshadowing = match p.foreshadowing {
+                    None => None,
+                    Some(fs) => {
+                        let mut out = Vec::with_capacity(fs.len());
+                        for f in fs {
+                            let covers = match &f.covers {
+                                Some(v) if v.len() == 2 => Some((v[0], v[1])),
+                                None => None,
+                                Some(_) => {
+                                    return Err(ErrorData::internal_error(
+                                        "REMEMBER_BAD_COVERS: foreshadowing.covers 须为两元素数组 [from, to]"
+                                            .to_string(),
+                                        None,
+                                    ))
+                                }
+                            };
+                            out.push(mcp::ForeshadowSpec {
+                                covers,
+                                note: f.note,
+                            });
+                        }
+                        Some(out)
+                    }
+                };
                 Some(mcp::RememberEvent::Decision {
                     decided: p.decided.unwrap_or_default(),
                     covers,
                     nodes: p.nodes.unwrap_or_default(),
                     reason: p.reason.unwrap_or_default(),
+                    mode: p.mode,
+                    seed: p.seed,
+                    candidates,
+                    selected: p.selected,
+                    foreshadowing,
                 })
             }
             Some(other) => {
@@ -333,49 +457,7 @@ impl EngramMcp {
         };
         let commits: Option<Vec<mcp::CommitIntent>> = match p.commits {
             None => None,
-            Some(cs) => {
-                let mut out = Vec::new();
-                for c in cs {
-                    let intent = match c.op.as_str() {
-                        "create" => mcp::CommitIntent::Create {
-                            title: c.title.unwrap_or_default(),
-                            body: c.body,
-                            tags: c.tags,
-                            force: c.force,
-                        },
-                        "update" => mcp::CommitIntent::Update {
-                            id: c.id.unwrap_or_default(),
-                            mode: c.mode.unwrap_or_default(),
-                            content: c.content.unwrap_or_default(),
-                            expected_updated: c.expected_updated,
-                        },
-                        "link" => mcp::CommitIntent::Link {
-                            from: c.from.unwrap_or_default(),
-                            to: c.to.unwrap_or_default(),
-                            rel: c.rel.unwrap_or_default(),
-                            desc: c.desc,
-                        },
-                        "unlink" => mcp::CommitIntent::Unlink {
-                            from: c.from.unwrap_or_default(),
-                            to: c.to.unwrap_or_default(),
-                        },
-                        "archive" => mcp::CommitIntent::Archive {
-                            id: c.id.unwrap_or_default(),
-                            reason: c.reason,
-                        },
-                        other => {
-                            return Err(ErrorData::internal_error(
-                                format!(
-                                    "REMEMBER_BAD_OP: op 仅 create/update/link/unlink/archive，收到「{other}」"
-                                ),
-                                None,
-                            ))
-                        }
-                    };
-                    out.push(intent);
-                }
-                Some(out)
-            }
+            Some(cs) => Some(parse_commits(&cs)?),
         };
         to_result(
             mcp::remember(&self.ctx, &p.session, event, commits),
@@ -384,7 +466,7 @@ impl EngramMcp {
     }
 
     #[tool(
-        description = "【只读】对话账本状态：规模（records）、会话与指南版本、消费进度（unconsumed_from 之后的记录是本次接管要读的部分）、决策计数（keep/skip/revise）、坏行清单（malformed，需修复）。新 AI 接管工作区时先调它。返回 JSON 文本。"
+        description = "【只读】对话账本状态：规模（records）、会话与指南版本、消费进度（unconsumed_from 之后的记录是本次接管要读的部分）、决策计数（keep/skip/revise/foreshadow）、伏笔登记聚合视图（foreshadowing）、保留式抽取统计（sample_decisions）、坏行清单（malformed，需修复）。新 AI 接管工作区时先调它。返回 JSON 文本。"
     )]
     async fn dialogue_status(&self) -> Result<CallToolResult, ErrorData> {
         to_result(mcp::dialogue_status(&self.ctx), self.ctx.guide_version())

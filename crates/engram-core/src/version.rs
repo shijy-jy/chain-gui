@@ -15,7 +15,11 @@ use crate::guide::{AI_GUIDE_DEV_VERSION, AI_GUIDE_VERSION};
 /// v9（AI 导航增强）：search/recall 结果附结构上下文（parent/depth/children_count/origin）；
 ///   get_overview 增 structure 块（roots/max_depth/leaves/depth_hist + hub 子树规模）；
 ///   dialogue_status 增 gaps（线索缺口）与 open_loops（未闭环 task）。
-pub const TOOL_CONTRACT_VERSION: u32 = 9;
+/// v10（3.2.0 记忆层第一阶段 S1–S4）：remember 决策痕迹扩展（candidates 候选方向+权重 /
+///   mode commit|sample / seed 确定性保留式抽取 / selected / foreshadowing 伏笔登记）；
+///   decided 增 foreshadow；dialogue_status 增 foreshadowing 聚合视图与 sample_decisions；
+///   多峰/抽样节点 origin 带方向序号（dialogue/log.jsonl#<seq>.<idx>）。
+pub const TOOL_CONTRACT_VERSION: u32 = 10;
 
 /// 索引/schema 格式版本（宪法第 9 条；§10⑤ 起已实现，见 crate::schema）
 pub const SCHEMA_SPEC_VERSION: Option<&str> = Some("1.1");

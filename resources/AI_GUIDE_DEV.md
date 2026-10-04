@@ -1,4 +1,4 @@
-<!-- CHAIN_GUIDE_DEV_VERSION: 15 -->
+<!-- CHAIN_GUIDE_DEV_VERSION: 16 -->
 # 开发模式 AI 使用指南（知识库搭建）
 
 > 本指南适用于 `.chain/.mode = dev` 的开发模式工作区：自由知识图谱、个人知识库搭建。
@@ -198,3 +198,17 @@ resolve_conflict { id, title, status, body?, expected_updated? }
 - `dialogue_status`：账本规模 / 会话与指南版本 / 消费进度 / 决策计数 / 坏行清单（malformed 需修复；对话不可再生，修复前先备份），另带 `gaps` / `open_loops` / `coverage`（读过与未读的节点，用于规划「层级优先」或「跨链随机不重复」的读取路线）。
 - **节点优先是默认**：`search` / `recall` 默认只搜节点；要翻对话必须显式 `scope:"dialogue"`（过程性内容不进语义召回，否则污染线索缺口信号）。
 - 每个工具响应携带 `guide_version`：版本一变你当次就能发现，自主决定是否重读本指南（不强制）。
+
+### 8.7 记忆层第一阶段：三遍关注、伏笔登记与保留式抽取（v16）
+
+**本节只约束"决定写节点之前"的思考与留痕方式。**
+
+**三遍关注**（消费一段源输入时）：① 要点关注——这段在讲什么 → keep / skip / merge 判定；② 残余关注——要点没消费的细节 = 伏笔候选（主注意没吸收的细节自动就是"易被忽略处"）；③ 结构关注——parent / type / rel（词表外即违规，守门拦截）。
+
+**伏笔登记**：细节"注意到但方向未定"→ `decided:"foreshadow"` + `foreshadowing:[{covers?, note}]`，**不带 commits/nodes/candidates**（REMEMBER_FORESHADOW_NO_COMMITS）。不进图谱、只活在痕迹；`dialogue_status.foreshadowing` 可查。未来新节点揭示其作用时，在当次 decision 里注明闭环（回报钩子）。
+
+**多峰建节点**：同一段文本承载多条独立记忆 → `candidates:[{dir, score}]` 列全部方向，顶层 commits 每个方向各建一个节点；`origin` 自动带方向序号（`dialogue/log.jsonl#5.2` = 候选 2）。分布全量留痕——选错方向时替代方案就在痕迹里。
+
+**保留式抽取**：只想落一个方向时 `mode:"sample"` + `seed` + `candidates:[{dir, score, commits:[...]}]`（每个候选自带"若抽中要执行的完整意图"）。工具按种子**确定性加权抽取**（同种子同结果），只执行抽中方向；声明 `selected` 必须与抽取一致（不一致报 REMEMBER_SELECTED_MISMATCH），可先不带 selected 从响应 `sampled` 读结果。**事实底线**：抽中的方向对不上源文本就改伏笔登记或 skip，不允许把抽歪的内容写进事实源。
+
+**自适应成本**：默认单遍要点关注 + argmax（mode:"commit"，等价旧行为）；自检矛盾 / 重复检测逼近阈值 / 源段多义时才开多假设。权重在校准前只作序数分。
