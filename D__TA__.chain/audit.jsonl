@@ -1,0 +1,17 @@
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"粒子环平面加权平均漏乘权重导致数值暴涨，以及 float 原子加在 Metal 不可用改用定点整数\",\"score_max\":0.6480000019073486,\"score_min\":0.5839999914169312,\"threshold\":0.35,\"top\":[{\"id\":\"数值精度与静默错误\",\"score\":0.6480000019073486},{\"id\":\"GPU粒子系统\",\"score\":0.6420000195503235},{\"id\":\"先量化再优化\",\"score\":0.6100000143051147},{\"id\":\"实时大气散射链路\",\"score\":0.5889999866485596},{\"id\":\"蒙特卡洛与重要性采样\",\"score\":0.5839999914169312}]}","node_id":"","ts":"2026-09-21T20:47:18+08:00"}
+{"action":"update","detail":"mode=append","node_id":"知识库索引","ts":"2026-09-21T20:47:28+08:00"}
+{"action":"create","detail":"title=基础渲染管线：阶段、坐标空间与现代变体","node_id":"node-1","ts":"2026-09-22T08:43:40+08:00"}
+{"action":"link","detail":"from=引擎与管线 rel=contains","node_id":"基础渲染管线","ts":"2026-09-22T08:44:03+08:00"}
+{"action":"link","detail":"from=引擎与管线 rel=contains","node_id":"TBDR与移动端渲染","ts":"2026-09-22T10:09:14+08:00"}
+{"action":"link","detail":"from=面试准备 rel=contains","node_id":"模拟追问记录","ts":"2026-09-22T10:09:14+08:00"}
+{"action":"update","detail":"mode=append","node_id":"基础渲染管线","ts":"2026-09-22T10:09:19+08:00"}
+{"action":"link","detail":"from=知识库索引 rel=contains","node_id":"阶段性知识整理报告","ts":"2026-09-22T10:39:13+08:00"}
+{"action":"update","detail":"mode=append","node_id":"知识库索引","ts":"2026-09-22T10:39:18+08:00"}
+{"action":"link","detail":"from=引擎与管线 rel=contains","node_id":"渲染管线问答正式作答稿","ts":"2026-09-22T10:41:19+08:00"}
+{"action":"update","detail":"mode=append","node_id":"基础渲染管线","ts":"2026-09-22T10:41:23+08:00"}
+{"action":"create","detail":"title=面试八股文题库（六册 · 高频问答速答版）","node_id":"node-1","ts":"2026-09-22T11:46:24+08:00"}
+{"action":"link","detail":"from=面试准备 rel=contains","node_id":"面试八股文题库","ts":"2026-09-22T11:46:53+08:00"}
+{"action":"update","detail":"mode=append","node_id":"知识库索引","ts":"2026-09-22T11:47:08+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"TA 面试八股文 速答题库 高频问答\",\"score_max\":0.8259999752044678,\"score_min\":0.593999981880188,\"threshold\":0.35,\"top\":[{\"id\":\"面试八股文题库\",\"score\":0.8259999752044678},{\"id\":\"知识库索引\",\"score\":0.6970000267028809},{\"id\":\"面试准备\",\"score\":0.6140000224113464},{\"id\":\"阶段性知识整理报告\",\"score\":0.6079999804496765},{\"id\":\"面试当天清单与复盘闭环\",\"score\":0.593999981880188}]}","node_id":"","ts":"2026-09-22T11:47:11+08:00"}
+{"action":"update","detail":"mode=append","node_id":"知识库索引","ts":"2026-09-22T12:17:27+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"抗锯齿的采样层级","ts":"2026-09-22T20:48:41+08:00"}

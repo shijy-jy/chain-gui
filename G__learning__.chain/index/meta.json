@@ -1,0 +1,264 @@
+{
+  "format": 1,
+  "dim": 512,
+  "model": "bge-small-zh-v1.5",
+  "updated_at": "2026-09-08T20:32:01+08:00",
+  "entries": [
+    {
+      "id": "从渲染一张图到实时路径追踪",
+      "hash": "9441cb3624d7a98b",
+      "archived": false,
+      "derived": false,
+      "row": 0,
+      "stale": false
+    },
+    {
+      "id": "俄罗斯轮盘",
+      "hash": "639ca98b7fedc9f6",
+      "archived": false,
+      "derived": false,
+      "row": 1,
+      "stale": false
+    },
+    {
+      "id": "多重重要性采样MIS",
+      "hash": "719ffc6b891f426e",
+      "archived": false,
+      "derived": false,
+      "row": 2,
+      "stale": false
+    },
+    {
+      "id": "学习轨迹与判定卡",
+      "hash": "dc15c136beb854e2",
+      "archived": false,
+      "derived": false,
+      "row": 3,
+      "stale": false
+    },
+    {
+      "id": "局限 · M无界累积冻住画面",
+      "hash": "fa31b7f7eaea4881",
+      "archived": false,
+      "derived": false,
+      "row": 4,
+      "stale": false
+    },
+    {
+      "id": "局限 · 单一pdf顾此失彼",
+      "hash": "b0f16318e771fa2b",
+      "archived": false,
+      "derived": false,
+      "row": 5,
+      "stale": false
+    },
+    {
+      "id": "局限 · 均匀采样方差大",
+      "hash": "4f0de46f8c06663d",
+      "archived": false,
+      "derived": false,
+      "row": 6,
+      "stale": false
+    },
+    {
+      "id": "局限 · 无限弹跳不可计算",
+      "hash": "520371c770078437",
+      "archived": false,
+      "derived": false,
+      "row": 7,
+      "stale": false
+    },
+    {
+      "id": "局限 · 有偏近似与可见性复用失效",
+      "hash": "183e914c0b61a96c",
+      "archived": false,
+      "derived": false,
+      "row": 8,
+      "stale": false
+    },
+    {
+      "id": "局限 · 朴素SIR有偏且需两遍",
+      "hash": "1db6d9adff02a02e",
+      "archived": false,
+      "derived": false,
+      "row": 9,
+      "stale": false
+    },
+    {
+      "id": "局限 · 每像素样本需求大",
+      "hash": "e851d7a759489060",
+      "archived": false,
+      "derived": false,
+      "row": 10,
+      "stale": false
+    },
+    {
+      "id": "局限 · 相机移动破功且样本仍不足",
+      "hash": "d1986d696e7cb5e6",
+      "archived": false,
+      "derived": false,
+      "row": 11,
+      "stale": false
+    },
+    {
+      "id": "方案 · GRIS",
+      "hash": "1d75baeaf5c50b65",
+      "archived": false,
+      "derived": false,
+      "row": 12,
+      "stale": false
+    },
+    {
+      "id": "方案 · ReSTIR时空复用",
+      "hash": "3eab4103286f05b0",
+      "archived": false,
+      "derived": false,
+      "row": 13,
+      "stale": false
+    },
+    {
+      "id": "方案 · SIR重采样",
+      "hash": "af739f7dba832b9f",
+      "archived": false,
+      "derived": false,
+      "row": 14,
+      "stale": false
+    },
+    {
+      "id": "方案 · WRS蓄水池流式",
+      "hash": "f2a29871ce8fda2d",
+      "archived": false,
+      "derived": false,
+      "row": 15,
+      "stale": false
+    },
+    {
+      "id": "方案 · 蓄水池时空合并与M钳制",
+      "hash": "34553d8dd8c990e1",
+      "archived": false,
+      "derived": false,
+      "row": 16,
+      "stale": false
+    },
+    {
+      "id": "无偏性与收敛性",
+      "hash": "3aeb51350174162b",
+      "archived": false,
+      "derived": false,
+      "row": 17,
+      "stale": false
+    },
+    {
+      "id": "显示端曝光与色调管线",
+      "hash": "aa7bfe806c10c662",
+      "archived": false,
+      "derived": false,
+      "row": 18,
+      "stale": false
+    },
+    {
+      "id": "概念辩证卡索引",
+      "hash": "e48db8ae35fc9498",
+      "archived": false,
+      "derived": false,
+      "row": 19,
+      "stale": false
+    },
+    {
+      "id": "渲染方程LTE",
+      "hash": "18db0ba657cbe67b",
+      "archived": false,
+      "derived": false,
+      "row": 20,
+      "stale": false
+    },
+    {
+      "id": "直接光照的两个采样策略",
+      "hash": "47953c3f24fe3134",
+      "archived": false,
+      "derived": false,
+      "row": 21,
+      "stale": false
+    },
+    {
+      "id": "离线与实时的收敛",
+      "hash": "08e281741bdd39d6",
+      "archived": false,
+      "derived": false,
+      "row": 22,
+      "stale": false
+    },
+    {
+      "id": "符号表与公式速查卡",
+      "hash": "35030cd53e3bb5d4",
+      "archived": false,
+      "derived": false,
+      "row": 23,
+      "stale": false
+    },
+    {
+      "id": "蒙特卡洛渲染基础",
+      "hash": "50c3a577f0d89c3c",
+      "archived": false,
+      "derived": false,
+      "row": 24,
+      "stale": false
+    },
+    {
+      "id": "蒙特卡洛积分",
+      "hash": "153cea36e4e7a6d7",
+      "archived": false,
+      "derived": false,
+      "row": 25,
+      "stale": false
+    },
+    {
+      "id": "路径追踪组装",
+      "hash": "e0bea51086ee50a0",
+      "archived": false,
+      "derived": false,
+      "row": 26,
+      "stale": false
+    },
+    {
+      "id": "辐射度量学",
+      "hash": "5dae04b058ea4b4b",
+      "archived": false,
+      "derived": false,
+      "row": 27,
+      "stale": false
+    },
+    {
+      "id": "重要性采样",
+      "hash": "2986faa43aade80d",
+      "archived": false,
+      "derived": false,
+      "row": 28,
+      "stale": false
+    },
+    {
+      "id": "问题：如何求解完整渲染方程",
+      "hash": "bc962d2caad6d19b",
+      "archived": false,
+      "derived": false,
+      "row": 29,
+      "stale": false
+    },
+    {
+      "id": "问题：目标分布不可采样时怎么采样",
+      "hash": "a4cb7a0c0e6eb448",
+      "archived": false,
+      "derived": false,
+      "row": 30,
+      "stale": false
+    },
+    {
+      "id": "问题：直接光照积分怎么算",
+      "hash": "760bd3d506cf37d7",
+      "archived": false,
+      "derived": false,
+      "row": 31,
+      "stale": false
+    }
+  ]
+}

@@ -1,0 +1,513 @@
+{
+  "clocks": {
+    "wall": "",
+    "memory": 39
+  },
+  "per_id": {
+    "d-002": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        14,
+        38
+      ]
+    },
+    "d-003": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        14
+      ]
+    },
+    "d-005": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        29,
+        30
+      ]
+    },
+    "d-006": {
+      "reads": 4,
+      "writes": 0,
+      "touches": [
+        14,
+        22,
+        29,
+        31
+      ]
+    },
+    "d-007": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        14,
+        21
+      ]
+    },
+    "d-009": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        14
+      ]
+    },
+    "d-010": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        14,
+        20
+      ]
+    },
+    "d-011": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        23
+      ]
+    },
+    "d-013": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        39
+      ]
+    },
+    "d-014": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        39
+      ]
+    },
+    "d-015": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        32
+      ]
+    },
+    "g-001": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        14,
+        38
+      ]
+    },
+    "t-001": {
+      "reads": 4,
+      "writes": 1,
+      "touches": [
+        3,
+        4,
+        6,
+        34,
+        38
+      ]
+    },
+    "t-007": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        29
+      ]
+    },
+    "t-008": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        9
+      ]
+    },
+    "t-009": {
+      "reads": 3,
+      "writes": 0,
+      "touches": [
+        8,
+        11,
+        14
+      ]
+    },
+    "t-010": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        11
+      ]
+    },
+    "t-011": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        39
+      ]
+    },
+    "t-012": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        11,
+        14
+      ]
+    },
+    "t-013": {
+      "reads": 3,
+      "writes": 0,
+      "touches": [
+        10,
+        29,
+        39
+      ]
+    },
+    "t-014": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        14,
+        16
+      ]
+    },
+    "t-016": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        39
+      ]
+    },
+    "t-017": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        14,
+        29
+      ]
+    },
+    "t-018": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        39
+      ]
+    },
+    "t-020": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        14,
+        29
+      ]
+    },
+    "t-024": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        29
+      ]
+    },
+    "t-025": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        29
+      ]
+    },
+    "t-028": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        15
+      ]
+    },
+    "t-029": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        19
+      ]
+    },
+    "t-031": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        25
+      ]
+    },
+    "t-032": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        29
+      ]
+    },
+    "t-037": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        39
+      ]
+    },
+    "t-047": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        39
+      ]
+    },
+    "t-050": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        39
+      ]
+    },
+    "t-052": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        39
+      ]
+    },
+    "t-053": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        33
+      ]
+    },
+    "v-003": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        37
+      ]
+    },
+    "v-007": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        29
+      ]
+    },
+    "v-008": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        11,
+        14
+      ]
+    },
+    "v-009": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        11
+      ]
+    },
+    "v-011": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        14
+      ]
+    },
+    "v-016": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        14,
+        38
+      ]
+    },
+    "v-030": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        27
+      ]
+    }
+  },
+  "gaps": [],
+  "calibrate": {
+    "d": 0.5,
+    "hits": 5,
+    "misses": 0,
+    "conflicts": 0
+  },
+  "params": {
+    "recall_threshold": 0.35,
+    "recall_widen": 0.2,
+    "dup_cosine": 0.9,
+    "derived_weight": 0.85,
+    "actr_d": 0.5,
+    "archive_days": 90.0,
+    "calibrate_window": 50.0
+  },
+  "feedback": {
+    "positives": 0,
+    "negatives": 4,
+    "dup_tp": 0,
+    "dup_fp": 0,
+    "archive_recalled": 0,
+    "derived_reads": 0,
+    "samples": {
+      "score_adoption": [
+        {
+          "score": 0.7599999904632568,
+          "adopted": false
+        },
+        {
+          "score": 0.6779999732971191,
+          "adopted": false
+        },
+        {
+          "score": 0.6420000195503235,
+          "adopted": false
+        },
+        {
+          "score": 0.8100000023841858,
+          "adopted": false
+        },
+        {
+          "score": 0.7149999737739563,
+          "adopted": false
+        },
+        {
+          "score": 0.7110000252723694,
+          "adopted": false
+        },
+        {
+          "score": 0.5860000252723694,
+          "adopted": false
+        },
+        {
+          "score": 0.5839999914169312,
+          "adopted": false
+        },
+        {
+          "score": 0.5789999961853027,
+          "adopted": false
+        },
+        {
+          "score": 0.5789999961853027,
+          "adopted": false
+        },
+        {
+          "score": 0.574999988079071,
+          "adopted": false
+        },
+        {
+          "score": 0.5630000233650208,
+          "adopted": false
+        },
+        {
+          "score": 0.5619999766349792,
+          "adopted": false
+        },
+        {
+          "score": 0.5619999766349792,
+          "adopted": false
+        },
+        {
+          "score": 0.546999990940094,
+          "adopted": false
+        },
+        {
+          "score": 0.5249999761581421,
+          "adopted": false
+        },
+        {
+          "score": 0.5479999780654907,
+          "adopted": false
+        },
+        {
+          "score": 0.5429999828338623,
+          "adopted": false
+        },
+        {
+          "score": 0.5370000004768372,
+          "adopted": false
+        },
+        {
+          "score": 0.5339999794960022,
+          "adopted": false
+        },
+        {
+          "score": 0.531000018119812,
+          "adopted": false
+        },
+        {
+          "score": 0.5289999842643738,
+          "adopted": false
+        },
+        {
+          "score": 0.5210000276565552,
+          "adopted": false
+        },
+        {
+          "score": 0.5130000114440918,
+          "adopted": false
+        },
+        {
+          "score": 0.6539999842643738,
+          "adopted": false
+        },
+        {
+          "score": 0.6209999918937683,
+          "adopted": false
+        },
+        {
+          "score": 0.6179999709129333,
+          "adopted": false
+        },
+        {
+          "score": 0.6169999837875366,
+          "adopted": false
+        },
+        {
+          "score": 0.609000027179718,
+          "adopted": false
+        },
+        {
+          "score": 0.6039999723434448,
+          "adopted": false
+        },
+        {
+          "score": 0.6000000238418579,
+          "adopted": false
+        },
+        {
+          "score": 0.5849999785423279,
+          "adopted": false
+        },
+        {
+          "score": 0.5820000171661377,
+          "adopted": false
+        },
+        {
+          "score": 0.5809999704360962,
+          "adopted": false
+        }
+      ],
+      "dup_cosine": []
+    }
+  },
+  "last_recall": {
+    "wall_epoch": 1791025621,
+    "query": "抓帧 后处理 发灰 Camera.Render URP 后处理 Bloom Tonemapping 曲线调色",
+    "ids": [
+      "v-003",
+      "t-042",
+      "v-009",
+      "t-006",
+      "t-005",
+      "t-003",
+      "t-033",
+      "t-011",
+      "t-050",
+      "t-037"
+    ],
+    "adopted": false
+  }
+}

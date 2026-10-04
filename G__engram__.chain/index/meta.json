@@ -1,0 +1,112 @@
+{
+  "format": 1,
+  "dim": 512,
+  "model": "bge-small-zh-v1.5",
+  "updated_at": "2026-09-09T09:02:03+08:00",
+  "entries": [
+    {
+      "id": "engram-arch-constitution",
+      "hash": "497740b37cd431fd",
+      "archived": false,
+      "derived": false,
+      "row": 0,
+      "stale": false
+    },
+    {
+      "id": "engram-core-map",
+      "hash": "f6e267297eaca813",
+      "archived": false,
+      "derived": false,
+      "row": 1,
+      "stale": false
+    },
+    {
+      "id": "engram-engineering",
+      "hash": "915c33ec4c2d204d",
+      "archived": false,
+      "derived": false,
+      "row": 2,
+      "stale": false
+    },
+    {
+      "id": "engram-framework",
+      "hash": "7f3f299d6ad36b69",
+      "archived": false,
+      "derived": false,
+      "row": 3,
+      "stale": false
+    },
+    {
+      "id": "engram-frontend",
+      "hash": "62fa4336350425b1",
+      "archived": false,
+      "derived": false,
+      "row": 4,
+      "stale": false
+    },
+    {
+      "id": "engram-gui-cli",
+      "hash": "d95fa8f32eb3900a",
+      "archived": false,
+      "derived": false,
+      "row": 5,
+      "stale": false
+    },
+    {
+      "id": "engram-mcp-contract",
+      "hash": "d13e9cbe8978ec9b",
+      "archived": false,
+      "derived": false,
+      "row": 6,
+      "stale": false
+    },
+    {
+      "id": "engram-memory-l2",
+      "hash": "24578ab685ce6d97",
+      "archived": false,
+      "derived": false,
+      "row": 7,
+      "stale": false
+    },
+    {
+      "id": "engram-model-profile",
+      "hash": "79880b482e89935f",
+      "archived": false,
+      "derived": false,
+      "row": 8,
+      "stale": false
+    },
+    {
+      "id": "engram-scanner-ops",
+      "hash": "ff91241e190b1056",
+      "archived": false,
+      "derived": false,
+      "row": 9,
+      "stale": false
+    },
+    {
+      "id": "engram-schema-migrate",
+      "hash": "2b8e00edcaa377d0",
+      "archived": false,
+      "derived": false,
+      "row": 10,
+      "stale": false
+    },
+    {
+      "id": "node-1",
+      "hash": "d630cbb2ed03f79f",
+      "archived": false,
+      "derived": false,
+      "row": 11,
+      "stale": false
+    },
+    {
+      "id": "node-2",
+      "hash": "445281ac21656aba",
+      "archived": false,
+      "derived": false,
+      "row": 12,
+      "stale": false
+    }
+  ]
+}

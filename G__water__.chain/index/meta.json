@@ -1,0 +1,256 @@
+{
+  "format": 1,
+  "dim": 512,
+  "model": "bge-small-zh-v1.5",
+  "updated_at": "2026-09-09T11:59:44+08:00",
+  "entries": [
+    {
+      "id": "FFT海洋渲染",
+      "hash": "6fd2d74ea8477974",
+      "archived": false,
+      "derived": false,
+      "row": 0,
+      "stale": false
+    },
+    {
+      "id": "Jacobian 折叠检测与泡沫",
+      "hash": "f71fe201deea080b",
+      "archived": false,
+      "derived": false,
+      "row": 1,
+      "stale": false
+    },
+    {
+      "id": "Stockham IFFT",
+      "hash": "38876d46a65b6c87",
+      "archived": false,
+      "derived": false,
+      "row": 2,
+      "stale": false
+    },
+    {
+      "id": "共轭打包与 Hermitian 对称",
+      "hash": "cec6490385b5ceca",
+      "archived": false,
+      "derived": false,
+      "row": 3,
+      "stale": false
+    },
+    {
+      "id": "多层频谱叠加与平铺",
+      "hash": "1710a4d7e11cb5ee",
+      "archived": false,
+      "derived": false,
+      "row": 4,
+      "stale": false
+    },
+    {
+      "id": "大气散射渲染",
+      "hash": "df64a68b59cdc3f5",
+      "archived": false,
+      "derived": false,
+      "row": 5,
+      "stale": false
+    },
+    {
+      "id": "大气模块工程踩坑",
+      "hash": "8b1d3e21346b5646",
+      "archived": false,
+      "derived": false,
+      "row": 6,
+      "stale": false
+    },
+    {
+      "id": "大气雾与海洋-大气桥",
+      "hash": "5b1220457effa393",
+      "archived": false,
+      "derived": false,
+      "row": 7,
+      "stale": false
+    },
+    {
+      "id": "天空 Cubemap 按需生成",
+      "hash": "01ad9c4ee3743e86",
+      "archived": false,
+      "derived": false,
+      "row": 8,
+      "stale": false
+    },
+    {
+      "id": "天空渲染与太阳盘",
+      "hash": "aa778a45129a467b",
+      "archived": false,
+      "derived": false,
+      "row": 9,
+      "stale": false
+    },
+    {
+      "id": "局限 · FFT 统计波谱的边界",
+      "hash": "dc30cffb09a6ef49",
+      "archived": false,
+      "derived": false,
+      "row": 10,
+      "stale": false
+    },
+    {
+      "id": "局限 · Gerstner 波求和的瓶颈",
+      "hash": "61e750cc4564f160",
+      "archived": false,
+      "derived": false,
+      "row": 11,
+      "stale": false
+    },
+    {
+      "id": "局限 · 单次散射缺失多次散射能量",
+      "hash": "794253a35be6d229",
+      "archived": false,
+      "derived": false,
+      "row": 12,
+      "stale": false
+    },
+    {
+      "id": "局限 · 各向同性近似与未计地面",
+      "hash": "d4531b8d4836111d",
+      "archived": false,
+      "derived": false,
+      "row": 13,
+      "stale": false
+    },
+    {
+      "id": "局限 · 嵌套光线步进的性能瓶颈",
+      "hash": "a3457c4b9dcb588c",
+      "archived": false,
+      "derived": false,
+      "row": 14,
+      "stale": false
+    },
+    {
+      "id": "方向扩散函数",
+      "hash": "2da0699abe9dfbb6",
+      "archived": false,
+      "derived": false,
+      "row": 15,
+      "stale": false
+    },
+    {
+      "id": "方案 · FFT 统计波谱法",
+      "hash": "754daff34f09d733",
+      "archived": false,
+      "derived": false,
+      "row": 16,
+      "stale": false
+    },
+    {
+      "id": "方案 · Gerstner 波求和",
+      "hash": "1c5c3045a27b6bd8",
+      "archived": false,
+      "derived": false,
+      "row": 17,
+      "stale": false
+    },
+    {
+      "id": "方案 · 单次散射体积积分",
+      "hash": "89503a1a8ff022cc",
+      "archived": false,
+      "derived": false,
+      "row": 18,
+      "stale": false
+    },
+    {
+      "id": "方案 · 多次散射 LUT 不动点迭代",
+      "hash": "cc93bc6d7459086e",
+      "archived": false,
+      "derived": false,
+      "row": 19,
+      "stale": false
+    },
+    {
+      "id": "方案 · 透射率 LUT 预计算",
+      "hash": "97e6ec7de44bcaeb",
+      "archived": false,
+      "derived": false,
+      "row": 20,
+      "stale": false
+    },
+    {
+      "id": "方案 · 频谱数值验证工具链",
+      "hash": "616e38fc8c391ae8",
+      "archived": false,
+      "derived": false,
+      "row": 21,
+      "stale": false
+    },
+    {
+      "id": "水面材质渲染",
+      "hash": "42a281b6f91f70b3",
+      "archived": false,
+      "derived": false,
+      "row": 22,
+      "stale": false
+    },
+    {
+      "id": "海面能量谱：JONSWAP",
+      "hash": "0ab2ef51305299d7",
+      "archived": false,
+      "derived": false,
+      "row": 23,
+      "stale": false
+    },
+    {
+      "id": "瑞利散射与米氏散射",
+      "hash": "b28723c843568b7f",
+      "archived": false,
+      "derived": false,
+      "row": 24,
+      "stale": false
+    },
+    {
+      "id": "知识库索引",
+      "hash": "b62daec0533d65e7",
+      "archived": false,
+      "derived": false,
+      "row": 25,
+      "stale": false
+    },
+    {
+      "id": "色散关系与时间演化",
+      "hash": "996137ceaa1ef31c",
+      "archived": false,
+      "derived": false,
+      "row": 26,
+      "stale": false
+    },
+    {
+      "id": "透射率 LUT 的参数化映射",
+      "hash": "0bf0e89403b91ef9",
+      "archived": false,
+      "derived": false,
+      "row": 27,
+      "stale": false
+    },
+    {
+      "id": "问题：实时渲染物理大气散射",
+      "hash": "a61ac18c01f6f5ed",
+      "archived": false,
+      "derived": false,
+      "row": 28,
+      "stale": false
+    },
+    {
+      "id": "问题：实时渲染逼真大尺度海面",
+      "hash": "efc1c07530f95473",
+      "archived": false,
+      "derived": false,
+      "row": 29,
+      "stale": false
+    },
+    {
+      "id": "频域解析求导：位移与斜率",
+      "hash": "b89246bfe117f289",
+      "archived": false,
+      "derived": false,
+      "row": 30,
+      "stale": false
+    }
+  ]
+}

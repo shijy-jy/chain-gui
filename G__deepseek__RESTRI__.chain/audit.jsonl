@@ -1,0 +1,10 @@
+{"action":"update","detail":"mode=replace_body","node_id":"g-001","ts":"2026-09-08T20:06:47+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"d-001","ts":"2026-09-08T20:06:47+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"t-001","ts":"2026-09-08T20:06:47+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"t-002","ts":"2026-09-08T20:06:47+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"t-003","ts":"2026-09-08T20:06:47+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"t-004","ts":"2026-09-08T20:06:47+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"t-005","ts":"2026-09-08T20:06:47+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"t-006","ts":"2026-09-08T20:06:47+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"v-001","ts":"2026-09-08T20:06:47+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"render_unified_oss 项目实现 代码结构 渲染器架构\",\"score_max\":0.6959999799728394,\"score_min\":0.4000000059604645,\"threshold\":0.2,\"top\":[{\"id\":\"t-002\",\"score\":0.6959999799728394},{\"id\":\"t-003\",\"score\":0.6499999761581421},{\"id\":\"d-001\",\"score\":0.5720000267028809},{\"id\":\"v-001\",\"score\":0.5720000267028809},{\"id\":\"t-006\",\"score\":0.5509999990463257},{\"id\":\"t-004\",\"score\":0.47699999809265137},{\"id\":\"t-005\",\"score\":0.4659999907016754},{\"id\":\"g-001\",\"score\":0.460999995470047},{\"id\":\"t-001\",\"score\":0.4000000059604645}]}","node_id":"","ts":"2026-09-09T17:21:33+08:00"}

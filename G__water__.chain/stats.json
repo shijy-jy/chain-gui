@@ -1,0 +1,494 @@
+{
+  "clocks": {
+    "wall": "",
+    "memory": 97
+  },
+  "per_id": {
+    "": {
+      "reads": 0,
+      "writes": 0,
+      "touches": []
+    },
+    "FFT海洋渲染": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        17,
+        18,
+        89,
+        94
+      ]
+    },
+    "Jacobian 折叠检测与泡沫": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        19,
+        20
+      ]
+    },
+    "Stockham IFFT": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        25,
+        26
+      ]
+    },
+    "engram-core-map": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        83,
+        84
+      ]
+    },
+    "engram-framework": {
+      "reads": 3,
+      "writes": 0,
+      "touches": [
+        83,
+        84,
+        85
+      ]
+    },
+    "engram-memory-l2": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        83
+      ]
+    },
+    "engram-model-profile": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        83
+      ]
+    },
+    "engram-scanner-ops": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        83
+      ]
+    },
+    "engram-schema-migrate": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        84
+      ]
+    },
+    "node-1": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        21,
+        22
+      ]
+    },
+    "node-2": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        23,
+        24
+      ]
+    },
+    "共轭打包与 Hermitian 对称": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        49,
+        50
+      ]
+    },
+    "多层频谱叠加与平铺": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        33,
+        34
+      ]
+    },
+    "大气散射渲染": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        29,
+        30
+      ]
+    },
+    "大气模块工程踩坑": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        27,
+        28,
+        90
+      ]
+    },
+    "大气雾与海洋-大气桥": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        31,
+        32
+      ]
+    },
+    "天空 Cubemap 按需生成": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        71,
+        72
+      ]
+    },
+    "天空渲染与太阳盘": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        73,
+        74
+      ]
+    },
+    "局限 · FFT 统计波谱的边界": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        53,
+        54
+      ]
+    },
+    "局限 · Gerstner 波求和的瓶颈": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        55,
+        56
+      ]
+    },
+    "局限 · 单次散射缺失多次散射能量": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        57,
+        58
+      ]
+    },
+    "局限 · 各向同性近似与未计地面": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        59,
+        60
+      ]
+    },
+    "局限 · 嵌套光线步进的性能瓶颈": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        61,
+        62
+      ]
+    },
+    "方向扩散函数": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        47,
+        48
+      ]
+    },
+    "方案 · FFT 统计波谱法": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        1788865668,
+        35,
+        36
+      ]
+    },
+    "方案 · Gerstner 波求和": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        37,
+        38
+      ]
+    },
+    "方案 · 单次散射体积积分": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        39,
+        40
+      ]
+    },
+    "方案 · 多次散射 LUT 不动点迭代": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        41,
+        42
+      ]
+    },
+    "方案 · 透射率 LUT 预计算": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        45,
+        46
+      ]
+    },
+    "方案 · 频谱数值验证工具链": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        43,
+        44,
+        97
+      ]
+    },
+    "水面材质渲染": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        69,
+        70
+      ]
+    },
+    "海面能量谱：JONSWAP": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        51,
+        52
+      ]
+    },
+    "瑞利散射与米氏散射": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        65,
+        66
+      ]
+    },
+    "知识库索引": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        81,
+        82,
+        92
+      ]
+    },
+    "色散关系与时间演化": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        67,
+        68
+      ]
+    },
+    "透射率 LUT 的参数化映射": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        75,
+        76
+      ]
+    },
+    "问题：实时渲染物理大气散射": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        79,
+        80
+      ]
+    },
+    "问题：实时渲染逼真大尺度海面": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        77,
+        78
+      ]
+    },
+    "频域解析求导：位移与斜率": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        63,
+        64
+      ]
+    }
+  },
+  "gaps": [
+    {
+      "query": "Engram 记忆系统 工程框架 MCP 工具链",
+      "ts": "2026-09-08T19:01:59+08:00"
+    }
+  ],
+  "calibrate": {
+    "d": 0.5,
+    "hits": 4,
+    "misses": 1,
+    "conflicts": 0
+  },
+  "params": {
+    "recall_threshold": 0.35,
+    "recall_widen": 0.2,
+    "dup_cosine": 0.9,
+    "derived_weight": 0.85,
+    "actr_d": 0.5,
+    "archive_days": 90.0,
+    "calibrate_window": 50.0
+  },
+  "feedback": {
+    "positives": 1,
+    "negatives": 1,
+    "dup_tp": 0,
+    "dup_fp": 0,
+    "archive_recalled": 0,
+    "derived_reads": 0,
+    "samples": {
+      "score_adoption": [
+        {
+          "score": 0.6510000228881836,
+          "adopted": false
+        },
+        {
+          "score": 0.5899999737739563,
+          "adopted": false
+        },
+        {
+          "score": 0.5820000171661377,
+          "adopted": false
+        },
+        {
+          "score": 0.574999988079071,
+          "adopted": false
+        },
+        {
+          "score": 0.5680000185966492,
+          "adopted": false
+        },
+        {
+          "score": 0.5630000233650208,
+          "adopted": false
+        },
+        {
+          "score": 0.5569999814033508,
+          "adopted": false
+        },
+        {
+          "score": 0.550000011920929,
+          "adopted": false
+        },
+        {
+          "score": 0.5320000052452087,
+          "adopted": false
+        },
+        {
+          "score": 0.527999997138977,
+          "adopted": false
+        },
+        {
+          "score": 0.5799999833106995,
+          "adopted": false
+        },
+        {
+          "score": 0.5320000052452087,
+          "adopted": false
+        },
+        {
+          "score": 0.5320000052452087,
+          "adopted": false
+        },
+        {
+          "score": 0.5299999713897705,
+          "adopted": false
+        },
+        {
+          "score": 0.5260000228881836,
+          "adopted": false
+        },
+        {
+          "score": 0.5239999890327454,
+          "adopted": false
+        },
+        {
+          "score": 0.5180000066757202,
+          "adopted": false
+        },
+        {
+          "score": 0.5149999856948853,
+          "adopted": false
+        },
+        {
+          "score": 0.5130000114440918,
+          "adopted": false
+        },
+        {
+          "score": 0.5009999871253967,
+          "adopted": false
+        },
+        {
+          "score": 0.4909999966621399,
+          "adopted": false
+        },
+        {
+          "score": 0.4900000095367432,
+          "adopted": false
+        },
+        {
+          "score": 0.4889999926090241,
+          "adopted": false
+        },
+        {
+          "score": 0.4860000014305115,
+          "adopted": false
+        },
+        {
+          "score": 0.4830000102519989,
+          "adopted": false
+        },
+        {
+          "score": 0.4790000021457672,
+          "adopted": false
+        },
+        {
+          "score": 0.47600001096725464,
+          "adopted": false
+        },
+        {
+          "score": 0.4650000035762787,
+          "adopted": false
+        },
+        {
+          "score": 0.453000009059906,
+          "adopted": false
+        },
+        {
+          "score": 0.4490000009536743,
+          "adopted": false
+        }
+      ],
+      "dup_cosine": []
+    }
+  },
+  "last_recall": {
+    "wall_epoch": 1791026773,
+    "query": "记忆层 强度 衰减 检索阶梯",
+    "ids": [
+      "方案 · 频谱数值验证工具链",
+      "多层频谱叠加与平铺",
+      "大气模块工程踩坑",
+      "局限 · FFT 统计波谱的边界",
+      "Jacobian 折叠检测与泡沫"
+    ],
+    "adopted": false
+  }
+}

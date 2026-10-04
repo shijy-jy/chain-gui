@@ -1,0 +1,272 @@
+{
+  "format": 1,
+  "dim": 512,
+  "model": "bge-small-zh-v1.5",
+  "updated_at": "2026-09-08T20:32:06+08:00",
+  "entries": [
+    {
+      "id": "世界观-三界",
+      "hash": "53b3d70161e06216",
+      "archived": false,
+      "derived": false,
+      "row": 0,
+      "stale": false
+    },
+    {
+      "id": "世界观-不平等之根",
+      "hash": "e6adf00c0e852ea3",
+      "archived": false,
+      "derived": false,
+      "row": 1,
+      "stale": false
+    },
+    {
+      "id": "世界观-九神",
+      "hash": "1d44a539831e4315",
+      "archived": false,
+      "derived": false,
+      "row": 2,
+      "stale": false
+    },
+    {
+      "id": "世界观-力量体系",
+      "hash": "4d208967e44ed285",
+      "archived": false,
+      "derived": false,
+      "row": 3,
+      "stale": false
+    },
+    {
+      "id": "世界观-地理疆域-东境",
+      "hash": "15a8a1848bded0f7",
+      "archived": false,
+      "derived": false,
+      "row": 4,
+      "stale": false
+    },
+    {
+      "id": "世界观-地理疆域-中原",
+      "hash": "89eb3392ee17e4bc",
+      "archived": false,
+      "derived": false,
+      "row": 5,
+      "stale": false
+    },
+    {
+      "id": "世界观-地理疆域-云梦",
+      "hash": "3b3d54724245a375",
+      "archived": false,
+      "derived": false,
+      "row": 6,
+      "stale": false
+    },
+    {
+      "id": "世界观-地理疆域-关系总述",
+      "hash": "4f71eac01563bb4a",
+      "archived": false,
+      "derived": false,
+      "row": 7,
+      "stale": false
+    },
+    {
+      "id": "世界观-地理疆域-关隘津渡",
+      "hash": "e19df971e8bb82af",
+      "archived": false,
+      "derived": false,
+      "row": 8,
+      "stale": false
+    },
+    {
+      "id": "世界观-地理疆域-北疆",
+      "hash": "311f4713fe2a4cb9",
+      "archived": false,
+      "derived": false,
+      "row": 9,
+      "stale": false
+    },
+    {
+      "id": "世界观-地理疆域-巴蜀",
+      "hash": "041856f6eee864bd",
+      "archived": false,
+      "derived": false,
+      "row": 10,
+      "stale": false
+    },
+    {
+      "id": "世界观-地理疆域-江东",
+      "hash": "5c3cf161826fcfea",
+      "archived": false,
+      "derived": false,
+      "row": 11,
+      "stale": false
+    },
+    {
+      "id": "世界观-地理疆域-西土",
+      "hash": "f7528d25323dab64",
+      "archived": false,
+      "derived": false,
+      "row": 12,
+      "stale": false
+    },
+    {
+      "id": "世界观-地理疆域",
+      "hash": "c6803167342cbd3b",
+      "archived": false,
+      "derived": false,
+      "row": 13,
+      "stale": false
+    },
+    {
+      "id": "世界观-天地之灵",
+      "hash": "5fcbb287e2d071f9",
+      "archived": false,
+      "derived": false,
+      "row": 14,
+      "stale": false
+    },
+    {
+      "id": "世界观-弃壤",
+      "hash": "a98d74c8c6552c15",
+      "archived": false,
+      "derived": false,
+      "row": 15,
+      "stale": false
+    },
+    {
+      "id": "世界观-气候环境-灾害",
+      "hash": "50cf66afc3f29c24",
+      "archived": false,
+      "derived": false,
+      "row": 16,
+      "stale": false
+    },
+    {
+      "id": "世界观-气候环境-物种",
+      "hash": "208ee9f77208d473",
+      "archived": false,
+      "derived": false,
+      "row": 17,
+      "stale": false
+    },
+    {
+      "id": "世界观-气候环境",
+      "hash": "c0d1ea2a80d83a94",
+      "archived": false,
+      "derived": false,
+      "row": 18,
+      "stale": false
+    },
+    {
+      "id": "世界观-社会结构",
+      "hash": "b387d3a77b1ed35c",
+      "archived": false,
+      "derived": false,
+      "row": 19,
+      "stale": false
+    },
+    {
+      "id": "世界观-神堕编年",
+      "hash": "ad88015dfbbe477a",
+      "archived": false,
+      "derived": false,
+      "row": 20,
+      "stale": false
+    },
+    {
+      "id": "世界观-种族",
+      "hash": "becb83442f6a662e",
+      "archived": false,
+      "derived": false,
+      "row": 21,
+      "stale": false
+    },
+    {
+      "id": "世界观-科技与梦境映射",
+      "hash": "f88709e2d6819dd7",
+      "archived": false,
+      "derived": false,
+      "row": 22,
+      "stale": false
+    },
+    {
+      "id": "世界观-跨界与投影",
+      "hash": "f92966982b0a95f9",
+      "archived": false,
+      "derived": false,
+      "row": 23,
+      "stale": false
+    },
+    {
+      "id": "世界观",
+      "hash": "2d660f5bd155f171",
+      "archived": false,
+      "derived": false,
+      "row": 24,
+      "stale": false
+    },
+    {
+      "id": "人物-主角",
+      "hash": "657dcc2514f2f2b7",
+      "archived": false,
+      "derived": false,
+      "row": 25,
+      "stale": false
+    },
+    {
+      "id": "人物-反派",
+      "hash": "8632703b62afaccb",
+      "archived": false,
+      "derived": false,
+      "row": 26,
+      "stale": false
+    },
+    {
+      "id": "人物-次要角色池",
+      "hash": "c81dca33dceca17e",
+      "archived": false,
+      "derived": false,
+      "row": 27,
+      "stale": false
+    },
+    {
+      "id": "人物-殷辞",
+      "hash": "a3b038a94d9836ef",
+      "archived": false,
+      "derived": false,
+      "row": 28,
+      "stale": false
+    },
+    {
+      "id": "人物",
+      "hash": "5e8f33e3c7e2b808",
+      "archived": false,
+      "derived": false,
+      "row": 29,
+      "stale": false
+    },
+    {
+      "id": "设定-历史大事年表",
+      "hash": "16a5abb946818349",
+      "archived": false,
+      "derived": false,
+      "row": 30,
+      "stale": false
+    },
+    {
+      "id": "设定-神史",
+      "hash": "8eb02f157b24f910",
+      "archived": false,
+      "derived": false,
+      "row": 31,
+      "stale": false
+    },
+    {
+      "id": "遗忘异录",
+      "hash": "00f83d85e0f7202c",
+      "archived": false,
+      "derived": false,
+      "row": 32,
+      "stale": false
+    }
+  ]
+}

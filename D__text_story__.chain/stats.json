@@ -1,0 +1,93 @@
+{
+  "clocks": {
+    "wall": "",
+    "memory": 3
+  },
+  "per_id": {
+    "v1": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        3
+      ]
+    },
+    "v1-004": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        3
+      ]
+    },
+    "v1-005": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        3
+      ]
+    },
+    "v1-006": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        3
+      ]
+    },
+    "v1-007": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        3
+      ]
+    },
+    "v1-foreshadow": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        3
+      ]
+    },
+    "v1-s001": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        3
+      ]
+    },
+    "v1-s002": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        3
+      ]
+    }
+  },
+  "gaps": [],
+  "calibrate": {
+    "d": 0.5,
+    "hits": 0,
+    "misses": 0,
+    "conflicts": 0
+  },
+  "params": {
+    "recall_threshold": 0.35,
+    "recall_widen": 0.2,
+    "dup_cosine": 0.9,
+    "derived_weight": 0.85,
+    "actr_d": 0.5,
+    "archive_days": 90.0,
+    "calibrate_window": 50.0
+  },
+  "feedback": {
+    "positives": 0,
+    "negatives": 0,
+    "dup_tp": 0,
+    "dup_fp": 0,
+    "archive_recalled": 0,
+    "derived_reads": 0,
+    "samples": {
+      "score_adoption": [],
+      "dup_cosine": []
+    }
+  },
+  "last_recall": null
+}

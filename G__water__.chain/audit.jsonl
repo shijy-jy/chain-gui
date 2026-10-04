@@ -1,0 +1,36 @@
+{"action":"update","detail":"mode=replace_body","node_id":"FFT海洋渲染","ts":"2026-09-08T20:22:48+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"Jacobian 折叠检测与泡沫","ts":"2026-09-08T20:22:48+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"node-1","ts":"2026-09-08T20:22:48+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"node-2","ts":"2026-09-08T20:22:48+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"Stockham IFFT","ts":"2026-09-08T20:22:48+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"大气模块工程踩坑","ts":"2026-09-08T20:22:48+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"大气散射渲染","ts":"2026-09-08T20:22:48+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"大气雾与海洋-大气桥","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"多层频谱叠加与平铺","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方案 · FFT 统计波谱法","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方案 · Gerstner 波求和","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方案 · 单次散射体积积分","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方案 · 多次散射 LUT 不动点迭代","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方案 · 频谱数值验证工具链","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方案 · 透射率 LUT 预计算","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方向扩散函数","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"共轭打包与 Hermitian 对称","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"海面能量谱：JONSWAP","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · FFT 统计波谱的边界","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · Gerstner 波求和的瓶颈","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · 单次散射缺失多次散射能量","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · 各向同性近似与未计地面","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · 嵌套光线步进的性能瓶颈","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"频域解析求导：位移与斜率","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"瑞利散射与米氏散射","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"色散关系与时间演化","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"水面材质渲染","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"天空 Cubemap 按需生成","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"天空渲染与太阳盘","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"透射率 LUT 的参数化映射","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"问题：实时渲染逼真大尺度海面","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"问题：实时渲染物理大气散射","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"知识库索引","ts":"2026-09-08T20:22:49+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"代码骨架提取 公开接口签名\",\"score_max\":0.6510000228881836,\"score_min\":0.527999997138977,\"threshold\":0.35,\"top\":[{\"id\":\"engram-framework\",\"score\":0.6510000228881836},{\"id\":\"engram-core-map\",\"score\":0.5899999737739563},{\"id\":\"engram-scanner-ops\",\"score\":0.5820000171661377},{\"id\":\"engram-engineering\",\"score\":0.574999988079071},{\"id\":\"engram-mcp-contract\",\"score\":0.5680000185966492},{\"id\":\"engram-schema-migrate\",\"score\":0.5630000233650208},{\"id\":\"engram-gui-cli\",\"score\":0.5569999814033508},{\"id\":\"engram-model-profile\",\"score\":0.550000011920929},{\"id\":\"方案 · 频谱数值验证工具链\",\"score\":0.5320000052452087},{\"id\":\"engram-frontend\",\"score\":0.527999997138977}]}","node_id":"","ts":"2026-09-09T08:33:38+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"render_unified_oss 项目实现 代码结构 渲染器架构\",\"score_max\":0.5799999833106995,\"score_min\":0.4830000102519989,\"threshold\":0.35,\"top\":[{\"id\":\"FFT海洋渲染\",\"score\":0.5799999833106995},{\"id\":\"知识库索引\",\"score\":0.5320000052452087},{\"id\":\"方案 · 频谱数值验证工具链\",\"score\":0.5320000052452087},{\"id\":\"大气模块工程踩坑\",\"score\":0.5299999713897705},{\"id\":\"大气散射渲染\",\"score\":0.5260000228881836},{\"id\":\"方案 · FFT 统计波谱法\",\"score\":0.5239999890327454},{\"id\":\"局限 · 嵌套光线步进的性能瓶颈\",\"score\":0.5180000066757202},{\"id\":\"方案 · 透射率 LUT 预计算\",\"score\":0.5149999856948853},{\"id\":\"天空渲染与太阳盘\",\"score\":0.5130000114440918},{\"id\":\"透射率 LUT 的参数化映射\",\"score\":0.5009999871253967},{\"id\":\"共轭打包与 Hermitian 对称\",\"score\":0.4909999966621399},{\"id\":\"方案 · 多次散射 LUT 不动点迭代\",\"score\":0.49000000953674316},{\"id\":\"问题：实时渲染物理大气散射\",\"score\":0.48899999260902405},{\"id\":\"水面材质渲染\",\"score\":0.4860000014305115},{\"id\":\"多层频谱叠加与平铺\",\"score\":0.4830000102519989}]}","node_id":"","ts":"2026-09-09T17:21:34+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"记忆层 强度 衰减 检索阶梯\",\"score_max\":0.4790000021457672,\"score_min\":0.4490000009536743,\"threshold\":0.35,\"top\":[{\"id\":\"方案 · 频谱数值验证工具链\",\"score\":0.4790000021457672},{\"id\":\"多层频谱叠加与平铺\",\"score\":0.47600001096725464},{\"id\":\"大气模块工程踩坑\",\"score\":0.4650000035762787},{\"id\":\"局限 · FFT 统计波谱的边界\",\"score\":0.453000009059906},{\"id\":\"Jacobian 折叠检测与泡沫\",\"score\":0.4490000009536743}]}","node_id":"","ts":"2026-10-03T19:26:13+08:00"}

@@ -1,0 +1,115 @@
+{
+  "clocks": {
+    "wall": "",
+    "memory": 3
+  },
+  "per_id": {
+    "engram-core-map": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        2
+      ]
+    },
+    "engram-framework": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        2
+      ]
+    },
+    "engram-schema-migrate": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        3
+      ]
+    }
+  },
+  "gaps": [],
+  "calibrate": {
+    "d": 0.5,
+    "hits": 1,
+    "misses": 0,
+    "conflicts": 0
+  },
+  "params": {
+    "recall_threshold": 0.35,
+    "recall_widen": 0.2,
+    "dup_cosine": 0.9,
+    "derived_weight": 0.85,
+    "actr_d": 0.5,
+    "archive_days": 90.0,
+    "calibrate_window": 50.0
+  },
+  "feedback": {
+    "positives": 0,
+    "negatives": 0,
+    "dup_tp": 0,
+    "dup_fp": 0,
+    "archive_recalled": 0,
+    "derived_reads": 0,
+    "samples": {
+      "score_adoption": [
+        {
+          "score": 0.5740000009536743,
+          "adopted": false
+        },
+        {
+          "score": 0.5740000009536743,
+          "adopted": false
+        },
+        {
+          "score": 0.5730000138282776,
+          "adopted": false
+        },
+        {
+          "score": 0.5529999732971191,
+          "adopted": false
+        },
+        {
+          "score": 0.5509999990463257,
+          "adopted": false
+        },
+        {
+          "score": 0.546999990940094,
+          "adopted": false
+        },
+        {
+          "score": 0.5289999842643738,
+          "adopted": false
+        },
+        {
+          "score": 0.5189999938011169,
+          "adopted": false
+        },
+        {
+          "score": 0.5099999904632568,
+          "adopted": false
+        },
+        {
+          "score": 0.5049999952316284,
+          "adopted": false
+        }
+      ],
+      "dup_cosine": []
+    }
+  },
+  "last_recall": {
+    "wall_epoch": 1788915740,
+    "query": "代码骨架提取",
+    "ids": [
+      "engram-schema-migrate",
+      "engram-engineering",
+      "engram-memory-l2",
+      "engram-scanner-ops",
+      "engram-framework",
+      "engram-gui-cli",
+      "engram-model-profile",
+      "engram-mcp-contract",
+      "engram-frontend",
+      "engram-arch-constitution"
+    ],
+    "adopted": false
+  }
+}

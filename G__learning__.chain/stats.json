@@ -1,0 +1,501 @@
+{
+  "clocks": {
+    "wall": "",
+    "memory": 91
+  },
+  "per_id": {
+    "": {
+      "reads": 0,
+      "writes": 0,
+      "touches": []
+    },
+    "从渲染一张图到实时路径追踪": {
+      "reads": 3,
+      "writes": 2,
+      "touches": [
+        5,
+        6,
+        7,
+        8,
+        77
+      ]
+    },
+    "俄罗斯轮盘": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        9,
+        10,
+        71
+      ]
+    },
+    "多重重要性采样MIS": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        11,
+        12
+      ]
+    },
+    "学习轨迹与判定卡": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        13,
+        14,
+        77
+      ]
+    },
+    "局限 · M无界累积冻住画面": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        15,
+        16,
+        77
+      ]
+    },
+    "局限 · 单一pdf顾此失彼": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        17,
+        18,
+        77
+      ]
+    },
+    "局限 · 均匀采样方差大": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        19,
+        20
+      ]
+    },
+    "局限 · 无限弹跳不可计算": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        21,
+        22
+      ]
+    },
+    "局限 · 有偏近似与可见性复用失效": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        23,
+        24
+      ]
+    },
+    "局限 · 朴素SIR有偏且需两遍": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        25,
+        26
+      ]
+    },
+    "局限 · 每像素样本需求大": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        27,
+        28,
+        77
+      ]
+    },
+    "局限 · 相机移动破功且样本仍不足": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        29,
+        30,
+        77
+      ]
+    },
+    "方案 · GRIS": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        31,
+        32
+      ]
+    },
+    "方案 · ReSTIR时空复用": {
+      "reads": 6,
+      "writes": 1,
+      "touches": [
+        33,
+        34,
+        78,
+        79,
+        80,
+        81,
+        91
+      ]
+    },
+    "方案 · SIR重采样": {
+      "reads": 4,
+      "writes": 1,
+      "touches": [
+        35,
+        36,
+        77,
+        80,
+        83
+      ]
+    },
+    "方案 · WRS蓄水池流式": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        37,
+        38
+      ]
+    },
+    "方案 · 蓄水池时空合并与M钳制": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        39,
+        40
+      ]
+    },
+    "无偏性与收敛性": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        41,
+        42,
+        90
+      ]
+    },
+    "显示端曝光与色调管线": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        43,
+        44,
+        77
+      ]
+    },
+    "概念辩证卡索引": {
+      "reads": 4,
+      "writes": 1,
+      "touches": [
+        45,
+        46,
+        72,
+        77,
+        89
+      ]
+    },
+    "渲染方程LTE": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        47,
+        48,
+        77,
+        88
+      ]
+    },
+    "直接光照的两个采样策略": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        49,
+        50
+      ]
+    },
+    "离线与实时的收敛": {
+      "reads": 6,
+      "writes": 1,
+      "touches": [
+        51,
+        52,
+        77,
+        80,
+        82,
+        84,
+        86
+      ]
+    },
+    "符号表与公式速查卡": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        53,
+        54
+      ]
+    },
+    "蒙特卡洛渲染基础": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        55,
+        56,
+        77
+      ]
+    },
+    "蒙特卡洛积分": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        57,
+        58
+      ]
+    },
+    "路径追踪组装": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        59,
+        60,
+        77
+      ]
+    },
+    "辐射度量学": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        61,
+        62,
+        77
+      ]
+    },
+    "重要性采样": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        63,
+        64,
+        77
+      ]
+    },
+    "问题：如何求解完整渲染方程": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        65,
+        66,
+        76,
+        77
+      ]
+    },
+    "问题：目标分布不可采样时怎么采样": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        67,
+        68
+      ]
+    },
+    "问题：直接光照积分怎么算": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        69,
+        70,
+        77
+      ]
+    }
+  },
+  "gaps": [
+    {
+      "query": "render_unified_oss 项目 工程框架 架构 OpenGL 渲染",
+      "ts": "2026-09-08T18:59:52+08:00"
+    }
+  ],
+  "calibrate": {
+    "d": 0.5,
+    "hits": 4,
+    "misses": 1,
+    "conflicts": 1
+  },
+  "params": {
+    "recall_threshold": 0.35,
+    "recall_widen": 0.2,
+    "dup_cosine": 0.9,
+    "derived_weight": 0.85,
+    "actr_d": 0.5,
+    "archive_days": 90.0,
+    "calibrate_window": 50.0
+  },
+  "feedback": {
+    "positives": 0,
+    "negatives": 3,
+    "dup_tp": 0,
+    "dup_fp": 0,
+    "archive_recalled": 0,
+    "derived_reads": 0,
+    "samples": {
+      "score_adoption": [
+        {
+          "score": 0.7329999804496765,
+          "adopted": false
+        },
+        {
+          "score": 0.5350000262260437,
+          "adopted": false
+        },
+        {
+          "score": 0.4620000123977661,
+          "adopted": false
+        },
+        {
+          "score": 0.4410000145435333,
+          "adopted": false
+        },
+        {
+          "score": 0.4259999990463257,
+          "adopted": false
+        },
+        {
+          "score": 0.42500001192092896,
+          "adopted": false
+        },
+        {
+          "score": 0.42500001192092896,
+          "adopted": false
+        },
+        {
+          "score": 0.40400001406669617,
+          "adopted": false
+        },
+        {
+          "score": 0.3840000033378601,
+          "adopted": false
+        },
+        {
+          "score": 0.3790000081062317,
+          "adopted": false
+        },
+        {
+          "score": 0.5149999856948853,
+          "adopted": false
+        },
+        {
+          "score": 0.4819999933242798,
+          "adopted": false
+        },
+        {
+          "score": 0.48100000619888306,
+          "adopted": false
+        },
+        {
+          "score": 0.4790000021457672,
+          "adopted": false
+        },
+        {
+          "score": 0.4670000076293946,
+          "adopted": false
+        },
+        {
+          "score": 0.4629999995231629,
+          "adopted": false
+        },
+        {
+          "score": 0.4620000123977661,
+          "adopted": false
+        },
+        {
+          "score": 0.460999995470047,
+          "adopted": false
+        },
+        {
+          "score": 0.4600000083446502,
+          "adopted": false
+        },
+        {
+          "score": 0.4569999873638153,
+          "adopted": false
+        },
+        {
+          "score": 0.5799999833106995,
+          "adopted": false
+        },
+        {
+          "score": 0.5630000233650208,
+          "adopted": false
+        },
+        {
+          "score": 0.5609999895095825,
+          "adopted": false
+        },
+        {
+          "score": 0.5450000166893005,
+          "adopted": false
+        },
+        {
+          "score": 0.5419999957084656,
+          "adopted": false
+        },
+        {
+          "score": 0.5149999856948853,
+          "adopted": false
+        },
+        {
+          "score": 0.5120000243186951,
+          "adopted": false
+        },
+        {
+          "score": 0.5059999823570251,
+          "adopted": false
+        },
+        {
+          "score": 0.4970000088214874,
+          "adopted": false
+        },
+        {
+          "score": 0.48500001430511475,
+          "adopted": false
+        },
+        {
+          "score": 0.47999998927116394,
+          "adopted": false
+        },
+        {
+          "score": 0.4749999940395355,
+          "adopted": false
+        },
+        {
+          "score": 0.4729999899864197,
+          "adopted": false
+        },
+        {
+          "score": 0.4729999899864197,
+          "adopted": false
+        },
+        {
+          "score": 0.4670000076293946,
+          "adopted": false
+        },
+        {
+          "score": 0.5830000042915344,
+          "adopted": false
+        },
+        {
+          "score": 0.5759999752044678,
+          "adopted": false
+        },
+        {
+          "score": 0.5260000228881836,
+          "adopted": false
+        }
+      ],
+      "dup_cosine": []
+    }
+  },
+  "last_recall": {
+    "wall_epoch": 1789309547,
+    "query": "噪声贴图生成器 六种噪声 2D 3D 体积贴图",
+    "ids": [
+      "离线与实时的收敛",
+      "方案 · ReSTIR时空复用",
+      "局限 · 均匀采样方差大"
+    ],
+    "adopted": false
+  }
+}

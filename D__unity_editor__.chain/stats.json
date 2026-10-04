@@ -1,0 +1,83 @@
+{
+  "clocks": {
+    "wall": "",
+    "memory": 30
+  },
+  "per_id": {
+    "": {
+      "reads": 0,
+      "writes": 0,
+      "touches": []
+    },
+    "g-001": {
+      "reads": 8,
+      "writes": 2,
+      "touches": [
+        4,
+        8,
+        10,
+        16,
+        18,
+        25,
+        26,
+        28,
+        29,
+        30
+      ]
+    },
+    "t-001": {
+      "reads": 6,
+      "writes": 3,
+      "touches": [
+        6,
+        7,
+        14,
+        19,
+        20,
+        22,
+        23,
+        24,
+        29
+      ]
+    }
+  },
+  "gaps": [
+    {
+      "query": "曲线调色的性能优化与 Engram 接入",
+      "ts": "2026-10-03T18:04:53+08:00"
+    }
+  ],
+  "calibrate": {
+    "d": 0.5,
+    "hits": 0,
+    "misses": 1,
+    "conflicts": 0
+  },
+  "params": {
+    "recall_threshold": 0.35,
+    "recall_widen": 0.2,
+    "dup_cosine": 0.9,
+    "derived_weight": 0.85,
+    "actr_d": 0.5,
+    "archive_days": 90.0,
+    "calibrate_window": 50.0
+  },
+  "feedback": {
+    "positives": 0,
+    "negatives": 0,
+    "dup_tp": 0,
+    "dup_fp": 0,
+    "archive_recalled": 0,
+    "derived_reads": 0,
+    "samples": {
+      "score_adoption": [],
+      "dup_cosine": []
+    }
+  },
+  "last_recall": {
+    "wall_epoch": 1791021893,
+    "query": "曲线调色的性能优化与 Engram 接入",
+    "ids": [],
+    "adopted": false
+  }
+}

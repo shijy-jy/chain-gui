@@ -1,0 +1,103 @@
+{"action":"update","detail":"mode=replace_body","node_id":"g-001","ts":"2026-09-19T19:35:34+08:00"}
+{"action":"recall","detail":"{\"degraded\":true,\"mode\":\"keyword\",\"query\":\"视觉模型能不能用来核对建模结果\",\"score_max\":null,\"score_min\":null,\"threshold\":null,\"top\":[]}","node_id":"","ts":"2026-09-19T19:37:29+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"我想知道能不能让视觉模型来判断建模结果对不对\",\"score_max\":0.7609999775886536,\"score_min\":0.5830000042915344,\"threshold\":0.35,\"top\":[{\"id\":\"d-002\",\"score\":0.7609999775886536},{\"id\":\"v-003\",\"score\":0.6809999942779541},{\"id\":\"t-003\",\"score\":0.6489999890327454},{\"id\":\"g-001\",\"score\":0.5830000042915344}]}","node_id":"","ts":"2026-09-19T19:37:43+08:00"}
+{"action":"create","detail":"title=目标 · 自由建模并持续优化 Blender 外接工具链","node_id":"node-1","ts":"2026-09-19T19:40:36+08:00"}
+{"action":"create","detail":"title=设计 · Blender 外接工具链三件套（插件 / MCP 服务端 / 一键启动器）","node_id":"node-2","ts":"2026-09-19T19:40:46+08:00"}
+{"action":"create","detail":"title=设计 · 建模结果的可验证性（确定性测量优先于视觉模型）","node_id":"node-3","ts":"2026-09-19T19:40:46+08:00"}
+{"action":"create","detail":"title=设计 · 天空之柱建模实战（工具链的真实压力测试）","node_id":"node-4","ts":"2026-09-19T19:40:46+08:00"}
+{"action":"create","detail":"title=设计 · 实战暴露的工具链缺陷必须收敛（修根因，不打补丁）","node_id":"node-5","ts":"2026-09-19T19:40:46+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-2","ts":"2026-09-19T19:40:50+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-3","ts":"2026-09-19T19:40:50+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-4","ts":"2026-09-19T19:40:50+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-5","ts":"2026-09-19T19:40:50+08:00"}
+{"action":"create","detail":"title=任务 · 实现桥接插件与 MCP 服务端（18 命令 / 17 工具）","node_id":"node-6","ts":"2026-09-19T19:41:01+08:00"}
+{"action":"create","detail":"title=任务 · 封装一键启停与状态体检（mcp-stack.ps1 + 4 个 bat）","node_id":"node-7","ts":"2026-09-19T19:41:01+08:00"}
+{"action":"create","detail":"title=任务 · 确定性测量工具 + 视觉引擎能力边界量化","node_id":"node-8","ts":"2026-09-19T19:41:01+08:00"}
+{"action":"create","detail":"title=任务 · 用工具链完成天空之柱建模（外部 + 剖面 + 材质 + 成品导出）","node_id":"node-9","ts":"2026-09-19T19:41:12+08:00"}
+{"action":"create","detail":"title=任务 · 修复实战暴露的 5 个插件缺陷并逐个复验","node_id":"node-10","ts":"2026-09-19T19:41:12+08:00"}
+{"action":"link","detail":"from=node-2 rel=contains","node_id":"node-6","ts":"2026-09-19T19:41:16+08:00"}
+{"action":"link","detail":"from=node-2 rel=contains","node_id":"node-7","ts":"2026-09-19T19:41:16+08:00"}
+{"action":"link","detail":"from=node-3 rel=contains","node_id":"node-8","ts":"2026-09-19T19:41:16+08:00"}
+{"action":"link","detail":"from=node-4 rel=contains","node_id":"node-9","ts":"2026-09-19T19:41:16+08:00"}
+{"action":"link","detail":"from=node-5 rel=contains","node_id":"node-10","ts":"2026-09-19T19:41:16+08:00"}
+{"action":"create","detail":"title=验收 · 端到端回归（29/29 工具调用）+ 一键冷启动 24.4s","node_id":"node-11","ts":"2026-09-19T19:41:26+08:00"}
+{"action":"create","detail":"title=验收 · 一键启停的生命周期、幂等与失败诊断","node_id":"node-12","ts":"2026-09-19T19:41:26+08:00"}
+{"action":"create","detail":"title=验收 · 确定性测量与视觉引擎边界的对照实验","node_id":"node-13","ts":"2026-09-19T19:41:26+08:00"}
+{"action":"create","detail":"title=验收 · 天空之柱几何（射线穿透 + 面数分布 + 取景度量）","node_id":"node-14","ts":"2026-09-19T19:41:33+08:00"}
+{"action":"create","detail":"title=验收 · 5 个缺陷的逐项复验（用当初失败的操作重跑）","node_id":"node-15","ts":"2026-09-19T19:41:33+08:00"}
+{"action":"link","detail":"from=node-6 rel=contains","node_id":"node-11","ts":"2026-09-19T19:41:40+08:00"}
+{"action":"link","detail":"from=node-7 rel=contains","node_id":"node-12","ts":"2026-09-19T19:41:40+08:00"}
+{"action":"link","detail":"from=node-8 rel=contains","node_id":"node-13","ts":"2026-09-19T19:41:40+08:00"}
+{"action":"link","detail":"from=node-9 rel=contains","node_id":"node-14","ts":"2026-09-19T19:41:40+08:00"}
+{"action":"link","detail":"from=node-10 rel=contains","node_id":"node-15","ts":"2026-09-19T19:41:40+08:00"}
+{"action":"create","detail":"title=待办 · 天空之柱造型校对与后续增强","node_id":"node-16","ts":"2026-09-19T19:41:40+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-16","ts":"2026-09-19T19:41:44+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"顶部柱廊的开口当时为什么没切出来\",\"score_max\":0.5759999752044678,\"score_min\":0.4959999918937683,\"threshold\":0.35,\"top\":[{\"id\":\"node-14\",\"score\":0.5759999752044678},{\"id\":\"node-16\",\"score\":0.5220000147819519},{\"id\":\"node-4\",\"score\":0.4959999918937683}]}","node_id":"","ts":"2026-09-19T19:41:55+08:00"}
+{"action":"create","detail":"title=参考 · 平台与版本陷阱清单（PowerShell 5.1 / Blender 5.2 / MCP / Engram）","node_id":"node-17","ts":"2026-09-19T19:42:06+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-17","ts":"2026-09-19T19:42:12+08:00"}
+{"action":"create","detail":"title=参考 · Blender 材质节点编辑：能力、两个陷阱与验证方法","node_id":"node-18","ts":"2026-09-19T19:47:18+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-18","ts":"2026-09-19T19:47:23+08:00"}
+{"action":"create","detail":"title=任务 · 补齐材质工具：scene_info 报材质槽 + material_nodes 类型化工具（附 4 处 RNA 身份比较 bug）","node_id":"node-19","ts":"2026-09-19T19:52:24+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-19","ts":"2026-09-19T19:52:28+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-18","ts":"2026-09-19T19:52:34+08:00"}
+{"action":"create","detail":"title=任务 · 基础人物建模与骨骼配置（顺带补齐骨架/绑定/姿势三个工具）","node_id":"node-20","ts":"2026-09-19T20:37:05+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-20","ts":"2026-09-19T20:37:11+08:00"}
+{"action":"create","detail":"title=参考 · MMD Tools 在 Blender 5.2 启用失败的根因与修复（含模块缓存陷阱）","node_id":"node-21","ts":"2026-09-19T20:46:12+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-21","ts":"2026-09-19T20:46:19+08:00"}
+{"action":"create","detail":"title=参考 · 诗歌剧（マチカネタンホイザ）模型全面拆解","node_id":"node-22","ts":"2026-09-19T20:52:30+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-22","ts":"2026-09-19T20:53:16+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-22","ts":"2026-09-19T20:53:16+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-22","ts":"2026-09-19T21:02:17+08:00"}
+{"action":"create","detail":"title=工具 · PMX 二进制探测器 + UmaViewer 模型无表情无物理的实证","node_id":"node-23","ts":"2026-09-19T21:02:17+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-23","ts":"2026-09-19T21:02:19+08:00"}
+{"action":"create","detail":"title=方法 · 游戏提取模型的动画化改造全流程（IK/脚掌锁定/头发动力学/编码）","node_id":"node-24","ts":"2026-09-19T21:25:58+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-24","ts":"2026-09-19T21:26:06+08:00"}
+{"action":"create","detail":"title=方法 · 把别人的 VMD 动作套到这个模型上（骨骼名映射 + 朝向对齐 + 验证）","node_id":"node-25","ts":"2026-09-19T21:38:17+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-25","ts":"2026-09-19T21:38:20+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-25","ts":"2026-09-19T21:44:47+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-25","ts":"2026-09-19T21:54:09+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-25","ts":"2026-09-19T22:02:25+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-25","ts":"2026-09-19T22:09:25+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-25","ts":"2026-09-19T22:17:21+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-25","ts":"2026-09-19T22:18:40+08:00"}
+{"action":"create","detail":"title=工具 · 视觉引擎选型 + 模型自动体检 + 渲染验证规范","node_id":"node-26","ts":"2026-09-21T15:47:20+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-26","ts":"2026-09-21T15:47:24+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-26","ts":"2026-09-21T15:59:23+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"参考图 建模方案 天空之柱 还原\",\"score_max\":0.7580000162124634,\"score_min\":0.6190000176429749,\"threshold\":0.35,\"top\":[{\"id\":\"node-16\",\"score\":0.7580000162124634},{\"id\":\"node-4\",\"score\":0.7369999885559082},{\"id\":\"node-9\",\"score\":0.7120000123977661},{\"id\":\"node-25\",\"score\":0.6389999985694885},{\"id\":\"node-26\",\"score\":0.6320000290870667},{\"id\":\"node-14\",\"score\":0.6190000176429749}]}","node_id":"","ts":"2026-09-21T16:05:08+08:00"}
+{"action":"create","detail":"title=任务 · 卡纳兹市重建（先做得文公司，室内外分开做）","node_id":"node-27","ts":"2026-09-21T16:23:06+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-27","ts":"2026-09-21T16:23:20+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T16:27:02+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T16:38:24+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T16:43:47+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T16:46:04+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T16:47:59+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T16:49:36+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T16:54:33+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T16:58:37+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T17:04:46+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T17:07:16+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T17:10:38+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T17:15:57+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T17:22:03+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T17:29:44+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T17:35:40+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T17:39:56+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T17:52:53+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T17:55:28+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T17:58:31+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T18:04:45+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T18:08:39+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T18:12:59+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T18:17:26+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-27","ts":"2026-09-21T18:19:31+08:00"}
+{"action":"create","detail":"title=实战 · 为 Unity 工程制作诗歌剧移动动画（Blender 出片，Unity 使用）","node_id":"node-28","ts":"2026-09-22T18:45:10+08:00"}
+{"action":"link","detail":"from=node-1 rel=contains","node_id":"node-28","ts":"2026-09-22T18:45:13+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-28","ts":"2026-09-22T19:36:02+08:00"}
+{"action":"create","detail":"title=参考 · 从赛马娘游戏资源里逆向提取角色动画（UnityFS/UnityPy，已打通 80%）","node_id":"node-29","ts":"2026-09-22T19:59:53+08:00"}
+{"action":"link","detail":"from=node-28 rel=alternative","node_id":"node-29","ts":"2026-09-22T19:59:57+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"node-29","ts":"2026-09-22T20:26:24+08:00"}
+{"action":"create","detail":"title=参考 · 动画重定向到自有骨架（世界空间姿势增量法）","node_id":"node-30","ts":"2026-09-22T20:26:37+08:00"}
+{"action":"link","detail":"from=node-28 rel=contains","node_id":"node-30","ts":"2026-09-22T20:26:42+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-28","ts":"2026-09-22T20:26:46+08:00"}
+{"action":"update","detail":"mode=append","node_id":"node-30","ts":"2026-09-22T20:50:10+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"AI 辅助优化改造骨骼重映射插件\",\"score_max\":0.7739999890327454,\"score_min\":0.5070000290870667,\"threshold\":0.35,\"top\":[{\"id\":\"node-25\",\"score\":0.7739999890327454},{\"id\":\"node-27\",\"score\":0.6380000114440918},{\"id\":\"node-30\",\"score\":0.621999979019165},{\"id\":\"node-20\",\"score\":0.6000000238418579},{\"id\":\"node-24\",\"score\":0.5699999928474426},{\"id\":\"node-28\",\"score\":0.5440000295639038},{\"id\":\"node-29\",\"score\":0.5230000019073486},{\"id\":\"node-26\",\"score\":0.5189999938011169},{\"id\":\"node-18\",\"score\":0.5149999856948853},{\"id\":\"node-8\",\"score\":0.5109999775886536},{\"id\":\"node-1\",\"score\":0.5080000162124634},{\"id\":\"node-19\",\"score\":0.5070000290870667}]}","node_id":"","ts":"2026-09-28T19:32:50+08:00"}

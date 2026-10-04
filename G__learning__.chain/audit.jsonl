@@ -1,0 +1,37 @@
+{"action":"freeze","detail":"并发写冲突 → [待裁决]（status=blocked）","node_id":"从渲染一张图到实时路径追踪","ts":"2026-09-08T20:13:52+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"从渲染一张图到实时路径追踪","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"俄罗斯轮盘","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"多重重要性采样MIS","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"学习轨迹与判定卡","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · M无界累积冻住画面","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · 单一pdf顾此失彼","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · 均匀采样方差大","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · 无限弹跳不可计算","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · 有偏近似与可见性复用失效","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · 朴素SIR有偏且需两遍","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · 每像素样本需求大","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"局限 · 相机移动破功且样本仍不足","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方案 · GRIS","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方案 · ReSTIR时空复用","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方案 · SIR重采样","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方案 · WRS蓄水池流式","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"方案 · 蓄水池时空合并与M钳制","ts":"2026-09-08T20:17:33+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"无偏性与收敛性","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"显示端曝光与色调管线","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"概念辩证卡索引","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"渲染方程LTE","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"直接光照的两个采样策略","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"离线与实时的收敛","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"符号表与公式速查卡","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"蒙特卡洛渲染基础","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"蒙特卡洛积分","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"路径追踪组装","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"辐射度量学","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"重要性采样","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"问题：如何求解完整渲染方程","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"问题：目标分布不可采样时怎么采样","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"问题：直接光照积分怎么算","ts":"2026-09-08T20:17:34+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"俄罗斯轮盘终止路径\",\"score_max\":0.7329999804496765,\"score_min\":0.3790000081062317,\"threshold\":0.35,\"top\":[{\"id\":\"俄罗斯轮盘\",\"score\":0.7329999804496765},{\"id\":\"局限 · 无限弹跳不可计算\",\"score\":0.5350000262260437},{\"id\":\"符号表与公式速查卡\",\"score\":0.4620000123977661},{\"id\":\"路径追踪组装\",\"score\":0.4410000145435333},{\"id\":\"局限 · M无界累积冻住画面\",\"score\":0.4259999990463257},{\"id\":\"直接光照的两个采样策略\",\"score\":0.42500001192092896},{\"id\":\"方案 · 蓄水池时空合并与M钳制\",\"score\":0.42500001192092896},{\"id\":\"方案 · WRS蓄水池流式\",\"score\":0.40400001406669617},{\"id\":\"蒙特卡洛渲染基础\",\"score\":0.3840000033378601},{\"id\":\"问题：直接光照积分怎么算\",\"score\":0.3790000081062317}]}","node_id":"","ts":"2026-09-09T08:02:33+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"费曼技巧 以教促学\",\"score_max\":0.5149999856948853,\"score_min\":0.4569999873638153,\"threshold\":0.35,\"top\":[{\"id\":\"概念辩证卡索引\",\"score\":0.5149999856948853},{\"id\":\"蒙特卡洛渲染基础\",\"score\":0.4819999933242798},{\"id\":\"俄罗斯轮盘\",\"score\":0.48100000619888306},{\"id\":\"方案 · GRIS\",\"score\":0.4790000021457672},{\"id\":\"路径追踪组装\",\"score\":0.46700000762939453},{\"id\":\"符号表与公式速查卡\",\"score\":0.46299999952316284},{\"id\":\"多重重要性采样MIS\",\"score\":0.4620000123977661},{\"id\":\"渲染方程LTE\",\"score\":0.460999995470047},{\"id\":\"直接光照的两个采样策略\",\"score\":0.46000000834465027},{\"id\":\"蒙特卡洛积分\",\"score\":0.4569999873638153}]}","node_id":"","ts":"2026-09-09T08:02:33+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"render_unified_oss 项目实现 代码结构 渲染器架构\",\"score_max\":0.5799999833106995,\"score_min\":0.46700000762939453,\"threshold\":0.35,\"top\":[{\"id\":\"问题：如何求解完整渲染方程\",\"score\":0.5799999833106995},{\"id\":\"路径追踪组装\",\"score\":0.5630000233650208},{\"id\":\"蒙特卡洛渲染基础\",\"score\":0.5609999895095825},{\"id\":\"渲染方程LTE\",\"score\":0.5450000166893005},{\"id\":\"从渲染一张图到实时路径追踪\",\"score\":0.5419999957084656},{\"id\":\"方案 · WRS蓄水池流式\",\"score\":0.5149999856948853},{\"id\":\"学习轨迹与判定卡\",\"score\":0.5120000243186951},{\"id\":\"显示端曝光与色调管线\",\"score\":0.5059999823570251},{\"id\":\"局限 · 每像素样本需求大\",\"score\":0.4970000088214874},{\"id\":\"方案 · GRIS\",\"score\":0.48500001430511475},{\"id\":\"多重重要性采样MIS\",\"score\":0.47999998927116394},{\"id\":\"方案 · 蓄水池时空合并与M钳制\",\"score\":0.4749999940395355},{\"id\":\"局限 · 单一pdf顾此失彼\",\"score\":0.4729999899864197},{\"id\":\"局限 · 朴素SIR有偏且需两遍\",\"score\":0.4729999899864197},{\"id\":\"方案 · SIR重采样\",\"score\":0.46700000762939453}]}","node_id":"","ts":"2026-09-09T17:21:33+08:00"}
+{"action":"recall","detail":"{\"degraded\":false,\"mode\":\"vector\",\"query\":\"噪声贴图生成器 六种噪声 2D 3D 体积贴图\",\"score_max\":0.5830000042915344,\"score_min\":0.5260000228881836,\"threshold\":0.35,\"top\":[{\"id\":\"离线与实时的收敛\",\"score\":0.5830000042915344},{\"id\":\"方案 · ReSTIR时空复用\",\"score\":0.5759999752044678},{\"id\":\"局限 · 均匀采样方差大\",\"score\":0.5260000228881836}]}","node_id":"","ts":"2026-09-13T22:25:47+08:00"}

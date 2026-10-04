@@ -1,0 +1,301 @@
+{
+  "clocks": {
+    "wall": "",
+    "memory": 66
+  },
+  "per_id": {
+    "世界观": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        15,
+        16
+      ]
+    },
+    "世界观-三界": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        55,
+        56
+      ]
+    },
+    "世界观-不平等之根": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        17,
+        18
+      ]
+    },
+    "世界观-九神": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        39,
+        40
+      ]
+    },
+    "世界观-力量体系": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        45,
+        46
+      ]
+    },
+    "世界观-地理疆域": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        19,
+        20
+      ]
+    },
+    "世界观-地理疆域-东境": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        25,
+        26
+      ]
+    },
+    "世界观-地理疆域-中原": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        37,
+        38
+      ]
+    },
+    "世界观-地理疆域-云梦": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        35,
+        36
+      ]
+    },
+    "世界观-地理疆域-关系总述": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        29,
+        30
+      ]
+    },
+    "世界观-地理疆域-关隘津渡": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        27,
+        28
+      ]
+    },
+    "世界观-地理疆域-北疆": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        23,
+        24
+      ]
+    },
+    "世界观-地理疆域-巴蜀": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        21,
+        22
+      ]
+    },
+    "世界观-地理疆域-江东": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        31,
+        32
+      ]
+    },
+    "世界观-地理疆域-西土": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        33,
+        34
+      ]
+    },
+    "世界观-天地之灵": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        61,
+        62
+      ]
+    },
+    "世界观-弃壤": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        53,
+        54
+      ]
+    },
+    "世界观-气候环境": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        47,
+        48
+      ]
+    },
+    "世界观-气候环境-灾害": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        51,
+        52
+      ]
+    },
+    "世界观-气候环境-物种": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        49,
+        50
+      ]
+    },
+    "世界观-社会结构": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        57,
+        58
+      ]
+    },
+    "世界观-神堕编年": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        59,
+        60
+      ]
+    },
+    "世界观-种族": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        63,
+        64
+      ]
+    },
+    "世界观-科技与梦境映射": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        41,
+        42
+      ]
+    },
+    "世界观-跨界与投影": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        43,
+        44
+      ]
+    },
+    "人物": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        1,
+        2
+      ]
+    },
+    "人物-主角": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        9,
+        10
+      ]
+    },
+    "人物-反派": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        5,
+        6
+      ]
+    },
+    "人物-次要角色池": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        3,
+        4
+      ]
+    },
+    "人物-殷辞": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        7,
+        8
+      ]
+    },
+    "设定-历史大事年表": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        11,
+        12
+      ]
+    },
+    "设定-神史": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        13,
+        14
+      ]
+    },
+    "遗忘异录": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        65,
+        66
+      ]
+    }
+  },
+  "gaps": [],
+  "calibrate": {
+    "d": 0.5,
+    "hits": 0,
+    "misses": 0,
+    "conflicts": 0
+  },
+  "params": {
+    "recall_threshold": 0.35,
+    "recall_widen": 0.2,
+    "dup_cosine": 0.9,
+    "derived_weight": 0.85,
+    "actr_d": 0.5,
+    "archive_days": 90.0,
+    "calibrate_window": 50.0
+  },
+  "feedback": {
+    "positives": 0,
+    "negatives": 0,
+    "dup_tp": 0,
+    "dup_fp": 0,
+    "archive_recalled": 0,
+    "derived_reads": 0,
+    "samples": {
+      "score_adoption": [],
+      "dup_cosine": []
+    }
+  },
+  "last_recall": null
+}

@@ -1,0 +1,7 @@
+{"action":"update","detail":"mode=append","node_id":"t-001","ts":"2026-10-03T18:04:31+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"g-001","ts":"2026-10-03T18:04:36+08:00"}
+{"action":"recall","detail":"{\"degraded\":true,\"mode\":\"keyword\",\"query\":\"曲线调色的性能优化与 Engram 接入\",\"score_max\":null,\"score_min\":null,\"threshold\":null,\"top\":[]}","node_id":"","ts":"2026-10-03T18:04:53+08:00"}
+{"action":"update","detail":"mode=append","node_id":"t-001","ts":"2026-10-03T18:05:25+08:00"}
+{"action":"update","detail":"mode=append","node_id":"t-001","ts":"2026-10-03T18:26:55+08:00"}
+{"action":"update","detail":"mode=append","node_id":"t-001","ts":"2026-10-03T19:01:58+08:00"}
+{"action":"update","detail":"mode=replace_body","node_id":"g-001","ts":"2026-10-03T19:02:12+08:00"}

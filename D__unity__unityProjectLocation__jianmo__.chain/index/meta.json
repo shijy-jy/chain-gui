@@ -1,0 +1,248 @@
+{
+  "format": 1,
+  "dim": 512,
+  "model": "bge-small-zh-v1.5",
+  "updated_at": "2026-09-28T19:32:50+08:00",
+  "entries": [
+    {
+      "id": "node-1",
+      "hash": "c1434f4c813aa091",
+      "archived": false,
+      "derived": false,
+      "row": 0,
+      "stale": false
+    },
+    {
+      "id": "node-10",
+      "hash": "a3e021694216bee3",
+      "archived": false,
+      "derived": false,
+      "row": 1,
+      "stale": false
+    },
+    {
+      "id": "node-11",
+      "hash": "7ca4bd104b8d42c9",
+      "archived": false,
+      "derived": false,
+      "row": 2,
+      "stale": false
+    },
+    {
+      "id": "node-12",
+      "hash": "a7cbb8ee743661c7",
+      "archived": false,
+      "derived": false,
+      "row": 3,
+      "stale": false
+    },
+    {
+      "id": "node-13",
+      "hash": "929294e4845d59d6",
+      "archived": false,
+      "derived": false,
+      "row": 4,
+      "stale": false
+    },
+    {
+      "id": "node-14",
+      "hash": "3463802f0f970085",
+      "archived": false,
+      "derived": false,
+      "row": 5,
+      "stale": false
+    },
+    {
+      "id": "node-15",
+      "hash": "4fb308997565cd74",
+      "archived": false,
+      "derived": false,
+      "row": 6,
+      "stale": false
+    },
+    {
+      "id": "node-16",
+      "hash": "2d09bd4e51928233",
+      "archived": false,
+      "derived": false,
+      "row": 7,
+      "stale": false
+    },
+    {
+      "id": "node-17",
+      "hash": "206f3dc360babdb1",
+      "archived": false,
+      "derived": false,
+      "row": 8,
+      "stale": false
+    },
+    {
+      "id": "node-18",
+      "hash": "a79b25bc0cff724c",
+      "archived": false,
+      "derived": false,
+      "row": 9,
+      "stale": false
+    },
+    {
+      "id": "node-19",
+      "hash": "3b4c4fa7c6934cf6",
+      "archived": false,
+      "derived": false,
+      "row": 10,
+      "stale": false
+    },
+    {
+      "id": "node-2",
+      "hash": "d5b3f43af9993097",
+      "archived": false,
+      "derived": false,
+      "row": 11,
+      "stale": false
+    },
+    {
+      "id": "node-20",
+      "hash": "0e73059253a4a603",
+      "archived": false,
+      "derived": false,
+      "row": 12,
+      "stale": false
+    },
+    {
+      "id": "node-3",
+      "hash": "51edb3f0d8809fd3",
+      "archived": false,
+      "derived": false,
+      "row": 13,
+      "stale": false
+    },
+    {
+      "id": "node-4",
+      "hash": "eb20a82d32ef067d",
+      "archived": false,
+      "derived": false,
+      "row": 14,
+      "stale": false
+    },
+    {
+      "id": "node-5",
+      "hash": "d0c48a09d0a2766d",
+      "archived": false,
+      "derived": false,
+      "row": 15,
+      "stale": false
+    },
+    {
+      "id": "node-6",
+      "hash": "bc37735b03ec862a",
+      "archived": false,
+      "derived": false,
+      "row": 16,
+      "stale": false
+    },
+    {
+      "id": "node-7",
+      "hash": "28ea2a6ec1f4b2f0",
+      "archived": false,
+      "derived": false,
+      "row": 17,
+      "stale": false
+    },
+    {
+      "id": "node-8",
+      "hash": "fde305039458feee",
+      "archived": false,
+      "derived": false,
+      "row": 18,
+      "stale": false
+    },
+    {
+      "id": "node-9",
+      "hash": "666b061498040b8a",
+      "archived": false,
+      "derived": false,
+      "row": 19,
+      "stale": false
+    },
+    {
+      "id": "node-21",
+      "hash": "aaab7b39175e840d",
+      "archived": false,
+      "derived": false,
+      "row": 20,
+      "stale": false
+    },
+    {
+      "id": "node-22",
+      "hash": "103f4b7dff0b4d6d",
+      "archived": false,
+      "derived": false,
+      "row": 21,
+      "stale": false
+    },
+    {
+      "id": "node-23",
+      "hash": "3cee967e7891a21c",
+      "archived": false,
+      "derived": false,
+      "row": 22,
+      "stale": false
+    },
+    {
+      "id": "node-24",
+      "hash": "05abefb617792331",
+      "archived": false,
+      "derived": false,
+      "row": 23,
+      "stale": false
+    },
+    {
+      "id": "node-25",
+      "hash": "13c95baf635c0a23",
+      "archived": false,
+      "derived": false,
+      "row": 24,
+      "stale": false
+    },
+    {
+      "id": "node-26",
+      "hash": "3ddfbc2dfe1f2ada",
+      "archived": false,
+      "derived": false,
+      "row": 25,
+      "stale": false
+    },
+    {
+      "id": "node-27",
+      "hash": "c571ae01698c2c7d",
+      "archived": false,
+      "derived": false,
+      "row": 26,
+      "stale": false
+    },
+    {
+      "id": "node-28",
+      "hash": "d52b6a29a56aceb7",
+      "archived": false,
+      "derived": false,
+      "row": 27,
+      "stale": false
+    },
+    {
+      "id": "node-29",
+      "hash": "0a521866931b5683",
+      "archived": false,
+      "derived": false,
+      "row": 28,
+      "stale": false
+    },
+    {
+      "id": "node-30",
+      "hash": "a46b2f2341c7bc9a",
+      "archived": false,
+      "derived": false,
+      "row": 29,
+      "stale": false
+    }
+  ]
+}

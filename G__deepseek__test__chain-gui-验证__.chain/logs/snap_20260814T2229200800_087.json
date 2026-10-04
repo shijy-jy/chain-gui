@@ -1,0 +1,52 @@
+{
+  "nodes": [
+    {
+      "id": "g-001",
+      "type": "goal",
+      "title": "示例目标（改我）",
+      "parent": null,
+      "status": "in_progress",
+      "created": "2026-08-14T20:09:40+08:00",
+      "updated": "2026-08-14T22:29:20+08:00",
+      "revision": 3,
+      "tags": [
+        "验证"
+      ],
+      "evidence": [
+        "artifacts/g-001/验证截图.png"
+      ],
+      "body": "验证：真实目录 update_node + evidence\n"
+    }
+  ],
+  "edges": [],
+  "manifest": {
+    "root": "G:\\deepseek\\test\\chain-gui-验证",
+    "node_count": 1,
+    "edge_count": 0,
+    "generated_at": "2026-08-14T22:29:20+08:00",
+    "active_chain": "🎯 示例目标（改我） [🔄]",
+    "chain_health": {
+      "blocked_count": 0,
+      "failed_count": 0,
+      "in_progress_count": 1,
+      "pending_count": 0,
+      "success_count": 0,
+      "root_goal": "示例目标（改我）"
+    },
+    "project_persona": {
+      "domain": "general",
+      "tech_stack": [],
+      "coding_style": "",
+      "key_conventions": [
+        "commit带基线号",
+        "有依据再动手",
+        "受控回溯"
+      ]
+    }
+  },
+  "validation": {
+    "valid": true,
+    "errors": [],
+    "warnings": []
+  }
+}

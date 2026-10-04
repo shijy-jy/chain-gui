@@ -1,0 +1,88 @@
+{
+  "format": 1,
+  "dim": 512,
+  "model": "bge-small-zh-v1.5",
+  "updated_at": "2026-09-09T18:47:02+08:00",
+  "entries": [
+    {
+      "id": "d-001",
+      "hash": "218ace2c5c92842a",
+      "archived": false,
+      "derived": false,
+      "row": 0,
+      "stale": false
+    },
+    {
+      "id": "g-001",
+      "hash": "f3d373e2bc593c13",
+      "archived": false,
+      "derived": false,
+      "row": 1,
+      "stale": false
+    },
+    {
+      "id": "t-001",
+      "hash": "9bbc8c88f4d58b1f",
+      "archived": false,
+      "derived": false,
+      "row": 2,
+      "stale": false
+    },
+    {
+      "id": "t-002",
+      "hash": "dec1e49c09c91cb4",
+      "archived": false,
+      "derived": false,
+      "row": 3,
+      "stale": false
+    },
+    {
+      "id": "t-003",
+      "hash": "d348c9a452952ed6",
+      "archived": false,
+      "derived": false,
+      "row": 4,
+      "stale": false
+    },
+    {
+      "id": "t-004",
+      "hash": "8129baae2d54e05b",
+      "archived": false,
+      "derived": false,
+      "row": 5,
+      "stale": false
+    },
+    {
+      "id": "t-005",
+      "hash": "0e029d23de5c1471",
+      "archived": false,
+      "derived": false,
+      "row": 6,
+      "stale": false
+    },
+    {
+      "id": "t-006",
+      "hash": "9d51fe02986ca0c1",
+      "archived": false,
+      "derived": false,
+      "row": 7,
+      "stale": false
+    },
+    {
+      "id": "v-001",
+      "hash": "e1595b198a11deef",
+      "archived": false,
+      "derived": false,
+      "row": 8,
+      "stale": false
+    },
+    {
+      "id": "v-002",
+      "hash": "804d9f9bd84bc6f3",
+      "archived": false,
+      "derived": false,
+      "row": 9,
+      "stale": false
+    }
+  ]
+}

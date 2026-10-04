@@ -1,0 +1,522 @@
+{
+  "clocks": {
+    "wall": "",
+    "memory": 140
+  },
+  "per_id": {
+    "": {
+      "reads": 0,
+      "writes": 0,
+      "touches": []
+    },
+    "d-002": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        8,
+        10
+      ]
+    },
+    "g-001": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        3,
+        8
+      ]
+    },
+    "node-1": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        12,
+        45
+      ]
+    },
+    "node-10": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        25,
+        30
+      ]
+    },
+    "node-11": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        31,
+        36
+      ]
+    },
+    "node-12": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        32,
+        37
+      ]
+    },
+    "node-13": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        33,
+        38
+      ]
+    },
+    "node-14": {
+      "reads": 1,
+      "writes": 2,
+      "touches": [
+        34,
+        39,
+        44
+      ]
+    },
+    "node-15": {
+      "reads": 1,
+      "writes": 2,
+      "touches": [
+        35,
+        40,
+        45
+      ]
+    },
+    "node-16": {
+      "reads": 2,
+      "writes": 2,
+      "touches": [
+        41,
+        42,
+        79,
+        80
+      ]
+    },
+    "node-17": {
+      "reads": 2,
+      "writes": 2,
+      "touches": [
+        46,
+        47,
+        136,
+        140
+      ]
+    },
+    "node-18": {
+      "reads": 3,
+      "writes": 3,
+      "touches": [
+        49,
+        50,
+        53,
+        54,
+        109,
+        110
+      ]
+    },
+    "node-19": {
+      "reads": 2,
+      "writes": 2,
+      "touches": [
+        51,
+        52,
+        109,
+        111
+      ]
+    },
+    "node-2": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        13,
+        17
+      ]
+    },
+    "node-20": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        55,
+        56
+      ]
+    },
+    "node-21": {
+      "reads": 1,
+      "writes": 2,
+      "touches": [
+        58,
+        59,
+        135
+      ]
+    },
+    "node-22": {
+      "reads": 1,
+      "writes": 4,
+      "touches": [
+        60,
+        61,
+        62,
+        63,
+        109
+      ]
+    },
+    "node-23": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        64,
+        65
+      ]
+    },
+    "node-24": {
+      "reads": 2,
+      "writes": 2,
+      "touches": [
+        66,
+        67,
+        109,
+        113
+      ]
+    },
+    "node-25": {
+      "reads": 5,
+      "writes": 8,
+      "touches": [
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        109,
+        114,
+        131,
+        132,
+        133
+      ]
+    },
+    "node-26": {
+      "reads": 2,
+      "writes": 3,
+      "touches": [
+        76,
+        77,
+        78,
+        109,
+        112
+      ]
+    },
+    "node-27": {
+      "reads": 1,
+      "writes": 26,
+      "touches": [
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        109
+      ]
+    },
+    "node-28": {
+      "reads": 1,
+      "writes": 4,
+      "touches": [
+        117,
+        118,
+        119,
+        120,
+        129
+      ]
+    },
+    "node-29": {
+      "reads": 1,
+      "writes": 3,
+      "touches": [
+        122,
+        123,
+        125,
+        126
+      ]
+    },
+    "node-3": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        14,
+        18
+      ]
+    },
+    "node-30": {
+      "reads": 0,
+      "writes": 3,
+      "touches": [
+        127,
+        128,
+        130
+      ]
+    },
+    "node-4": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        15,
+        19
+      ]
+    },
+    "node-5": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        16,
+        20
+      ]
+    },
+    "node-6": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        21,
+        26
+      ]
+    },
+    "node-7": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        22,
+        27
+      ]
+    },
+    "node-8": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        23,
+        28
+      ]
+    },
+    "node-9": {
+      "reads": 1,
+      "writes": 2,
+      "touches": [
+        24,
+        29,
+        109
+      ]
+    },
+    "t-003": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        8
+      ]
+    },
+    "t-004": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        9
+      ]
+    },
+    "v-002": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        9
+      ]
+    },
+    "v-003": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        8
+      ]
+    },
+    "v-004": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        5,
+        9
+      ]
+    }
+  },
+  "gaps": [
+    {
+      "query": "视觉模型能不能用来核对建模结果",
+      "ts": "2026-09-19T19:37:29+08:00"
+    }
+  ],
+  "calibrate": {
+    "d": 0.5,
+    "hits": 4,
+    "misses": 1,
+    "conflicts": 0
+  },
+  "params": {
+    "recall_threshold": 0.35,
+    "recall_widen": 0.2,
+    "dup_cosine": 0.9,
+    "derived_weight": 0.85,
+    "actr_d": 0.5,
+    "archive_days": 90.0,
+    "calibrate_window": 50.0
+  },
+  "feedback": {
+    "positives": 1,
+    "negatives": 3,
+    "dup_tp": 0,
+    "dup_fp": 0,
+    "archive_recalled": 0,
+    "derived_reads": 0,
+    "samples": {
+      "score_adoption": [
+        {
+          "score": 0.7609999775886536,
+          "adopted": false
+        },
+        {
+          "score": 0.6809999942779541,
+          "adopted": false
+        },
+        {
+          "score": 0.6489999890327454,
+          "adopted": false
+        },
+        {
+          "score": 0.5830000042915344,
+          "adopted": false
+        },
+        {
+          "score": 0.5759999752044678,
+          "adopted": false
+        },
+        {
+          "score": 0.5220000147819519,
+          "adopted": false
+        },
+        {
+          "score": 0.4959999918937683,
+          "adopted": false
+        },
+        {
+          "score": 0.7580000162124634,
+          "adopted": false
+        },
+        {
+          "score": 0.7369999885559082,
+          "adopted": false
+        },
+        {
+          "score": 0.7120000123977661,
+          "adopted": false
+        },
+        {
+          "score": 0.6389999985694885,
+          "adopted": false
+        },
+        {
+          "score": 0.6320000290870667,
+          "adopted": false
+        },
+        {
+          "score": 0.6190000176429749,
+          "adopted": false
+        },
+        {
+          "score": 0.7739999890327454,
+          "adopted": false
+        },
+        {
+          "score": 0.6380000114440918,
+          "adopted": false
+        },
+        {
+          "score": 0.621999979019165,
+          "adopted": false
+        },
+        {
+          "score": 0.6000000238418579,
+          "adopted": false
+        },
+        {
+          "score": 0.5699999928474426,
+          "adopted": false
+        },
+        {
+          "score": 0.5440000295639038,
+          "adopted": false
+        },
+        {
+          "score": 0.5230000019073486,
+          "adopted": false
+        },
+        {
+          "score": 0.5189999938011169,
+          "adopted": false
+        },
+        {
+          "score": 0.5149999856948853,
+          "adopted": false
+        },
+        {
+          "score": 0.5109999775886536,
+          "adopted": false
+        },
+        {
+          "score": 0.5080000162124634,
+          "adopted": false
+        },
+        {
+          "score": 0.5070000290870667,
+          "adopted": false
+        }
+      ],
+      "dup_cosine": []
+    }
+  },
+  "last_recall": {
+    "wall_epoch": 1790595170,
+    "query": "AI 辅助优化改造骨骼重映射插件",
+    "ids": [
+      "node-25",
+      "node-27",
+      "node-30",
+      "node-20",
+      "node-24",
+      "node-28",
+      "node-29",
+      "node-26",
+      "node-18",
+      "node-8",
+      "node-1",
+      "node-19"
+    ],
+    "adopted": false
+  }
+}

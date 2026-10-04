@@ -1,0 +1,511 @@
+{
+  "clocks": {
+    "wall": "",
+    "memory": 143
+  },
+  "per_id": {
+    "d-001": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        1,
+        2,
+        126,
+        130
+      ]
+    },
+    "d-002": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        3,
+        4
+      ]
+    },
+    "d-003": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        5,
+        6,
+        135
+      ]
+    },
+    "d-004": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        7,
+        8
+      ]
+    },
+    "d-005": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        9,
+        10
+      ]
+    },
+    "d-006": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        11,
+        12,
+        127,
+        131
+      ]
+    },
+    "d-007": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        13,
+        14,
+        128,
+        132
+      ]
+    },
+    "d-008": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        15,
+        16
+      ]
+    },
+    "d-009": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        17,
+        18
+      ]
+    },
+    "d-010": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        19,
+        20
+      ]
+    },
+    "d-011": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        21,
+        22
+      ]
+    },
+    "d-012": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        23,
+        24,
+        140
+      ]
+    },
+    "d-013": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        25,
+        26,
+        129,
+        133
+      ]
+    },
+    "d-014": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        27,
+        28
+      ]
+    },
+    "d-015": {
+      "reads": 6,
+      "writes": 1,
+      "touches": [
+        29,
+        30,
+        110,
+        118,
+        136,
+        139,
+        142
+      ]
+    },
+    "d-016": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        31,
+        32,
+        111,
+        119
+      ]
+    },
+    "d-017": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        33,
+        34,
+        112,
+        120
+      ]
+    },
+    "d-018": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        35,
+        36,
+        113,
+        121
+      ]
+    },
+    "d-019": {
+      "reads": 4,
+      "writes": 1,
+      "touches": [
+        37,
+        38,
+        114,
+        122,
+        143
+      ]
+    },
+    "d-020": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        39,
+        40,
+        115,
+        123
+      ]
+    },
+    "d-021": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        41,
+        42,
+        116,
+        124
+      ]
+    },
+    "d-022": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        43,
+        44,
+        117,
+        125
+      ]
+    },
+    "g-001": {
+      "reads": 4,
+      "writes": 1,
+      "touches": [
+        45,
+        46,
+        108,
+        109,
+        138
+      ]
+    },
+    "t-001": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        47,
+        48
+      ]
+    },
+    "t-002": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        49,
+        50
+      ]
+    },
+    "t-003": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        51,
+        52
+      ]
+    },
+    "t-004": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        53,
+        54
+      ]
+    },
+    "t-005": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        55,
+        56
+      ]
+    },
+    "t-006": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        57,
+        58
+      ]
+    },
+    "t-007": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        59,
+        60
+      ]
+    },
+    "t-008": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        61,
+        62
+      ]
+    },
+    "t-009": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        63,
+        64
+      ]
+    },
+    "t-010": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        65,
+        66
+      ]
+    },
+    "t-011": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        67,
+        68
+      ]
+    },
+    "t-012": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        69,
+        70
+      ]
+    },
+    "t-013": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        71,
+        72
+      ]
+    },
+    "t-014": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        73,
+        74
+      ]
+    },
+    "t-015": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        75,
+        76
+      ]
+    },
+    "t-016": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        77,
+        78
+      ]
+    },
+    "t-017": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        79,
+        80
+      ]
+    },
+    "t-018": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        81,
+        82
+      ]
+    },
+    "t-020": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        83,
+        84
+      ]
+    },
+    "t-021": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        85,
+        86
+      ]
+    },
+    "t-022": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        87,
+        88
+      ]
+    },
+    "t-023": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        89,
+        90
+      ]
+    },
+    "t-024": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        91,
+        92
+      ]
+    },
+    "t-025": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        93,
+        94
+      ]
+    },
+    "t-026": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        95,
+        96
+      ]
+    },
+    "t-028": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        97,
+        98
+      ]
+    },
+    "t-029": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        99,
+        100
+      ]
+    },
+    "t-030": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        101,
+        102
+      ]
+    },
+    "t-031": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        103,
+        104
+      ]
+    },
+    "t-032": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        105,
+        106
+      ]
+    },
+    "v-029": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        141
+      ]
+    }
+  },
+  "gaps": [],
+  "calibrate": {
+    "d": 0.5,
+    "hits": 1,
+    "misses": 0,
+    "conflicts": 0
+  },
+  "params": {
+    "recall_threshold": 0.35,
+    "recall_widen": 0.2,
+    "dup_cosine": 0.9,
+    "derived_weight": 0.85,
+    "actr_d": 0.5,
+    "archive_days": 90.0,
+    "calibrate_window": 50.0
+  },
+  "feedback": {
+    "positives": 0,
+    "negatives": 0,
+    "dup_tp": 0,
+    "dup_fp": 0,
+    "archive_recalled": 0,
+    "derived_reads": 0,
+    "samples": {
+      "score_adoption": [],
+      "dup_cosine": []
+    }
+  },
+  "last_recall": {
+    "wall_epoch": 1788949795,
+    "query": "材质系统",
+    "ids": [
+      "d-003",
+      "d-005",
+      "t-009",
+      "t-036"
+    ],
+    "adopted": false
+  }
+}

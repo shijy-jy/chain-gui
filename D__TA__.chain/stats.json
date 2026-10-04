@@ -1,0 +1,282 @@
+{
+  "clocks": {
+    "wall": "",
+    "memory": 44
+  },
+  "per_id": {
+    "SDF": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        40
+      ]
+    },
+    "TBDR与移动端渲染": {
+      "reads": 0,
+      "writes": 1,
+      "touches": [
+        9
+      ]
+    },
+    "node-1": {
+      "reads": 0,
+      "writes": 2,
+      "touches": [
+        6,
+        19
+      ]
+    },
+    "八股册00索引与外部资源": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        33,
+        44
+      ]
+    },
+    "八股册01渲染管线与光栅化": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        33
+      ]
+    },
+    "八股册04引擎与性能优化": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        27,
+        33
+      ]
+    },
+    "八股册05TA工程实践与DCC工具链": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        33
+      ]
+    },
+    "后处理链顺序": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        33
+      ]
+    },
+    "基础渲染管线": {
+      "reads": 1,
+      "writes": 3,
+      "touches": [
+        7,
+        8,
+        11,
+        16
+      ]
+    },
+    "工程结构与协作": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        40
+      ]
+    },
+    "引擎与工程协作": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        40
+      ]
+    },
+    "引擎与管线": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        40
+      ]
+    },
+    "抗锯齿的采样层级": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        31,
+        33,
+        34,
+        35
+      ]
+    },
+    "数值精度与静默错误": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        3
+      ]
+    },
+    "模拟追问记录": {
+      "reads": 0,
+      "writes": 1,
+      "touches": [
+        10
+      ]
+    },
+    "渲染效果": {
+      "reads": 2,
+      "writes": 0,
+      "touches": [
+        33,
+        38
+      ]
+    },
+    "渲染管线问答正式作答稿": {
+      "reads": 1,
+      "writes": 1,
+      "touches": [
+        15,
+        33
+      ]
+    },
+    "溶解与噪声遮罩": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        33
+      ]
+    },
+    "知识库索引": {
+      "reads": 6,
+      "writes": 4,
+      "touches": [
+        2,
+        4,
+        5,
+        13,
+        14,
+        22,
+        23,
+        29,
+        30,
+        40
+      ]
+    },
+    "节拍与特效节奏": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        40
+      ]
+    },
+    "蒙特卡洛与重要性采样": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        44
+      ]
+    },
+    "阶段性知识整理报告": {
+      "reads": 2,
+      "writes": 1,
+      "touches": [
+        12,
+        40,
+        44
+      ]
+    },
+    "面试八股文题库": {
+      "reads": 3,
+      "writes": 1,
+      "touches": [
+        20,
+        21,
+        25,
+        33
+      ]
+    },
+    "项目深挖": {
+      "reads": 1,
+      "writes": 0,
+      "touches": [
+        37
+      ]
+    }
+  },
+  "gaps": [],
+  "calibrate": {
+    "d": 0.5,
+    "hits": 2,
+    "misses": 0,
+    "conflicts": 0
+  },
+  "params": {
+    "recall_threshold": 0.35,
+    "recall_widen": 0.2,
+    "dup_cosine": 0.9,
+    "derived_weight": 0.85,
+    "actr_d": 0.5,
+    "archive_days": 90.0,
+    "calibrate_window": 50.0
+  },
+  "feedback": {
+    "positives": 0,
+    "negatives": 1,
+    "dup_tp": 0,
+    "dup_fp": 0,
+    "archive_recalled": 0,
+    "derived_reads": 0,
+    "samples": {
+      "score_adoption": [
+        {
+          "score": 0.6480000019073486,
+          "adopted": false
+        },
+        {
+          "score": 0.6420000195503235,
+          "adopted": false
+        },
+        {
+          "score": 0.6100000143051147,
+          "adopted": false
+        },
+        {
+          "score": 0.5889999866485596,
+          "adopted": false
+        },
+        {
+          "score": 0.5839999914169312,
+          "adopted": false
+        },
+        {
+          "score": 0.8259999752044678,
+          "adopted": false
+        },
+        {
+          "score": 0.6970000267028809,
+          "adopted": false
+        },
+        {
+          "score": 0.6140000224113464,
+          "adopted": false
+        },
+        {
+          "score": 0.6079999804496765,
+          "adopted": false
+        },
+        {
+          "score": 0.593999981880188,
+          "adopted": false
+        }
+      ],
+      "dup_cosine": []
+    }
+  },
+  "last_recall": {
+    "wall_epoch": 1790048831,
+    "query": "TA 面试八股文 速答题库 高频问答",
+    "ids": [
+      "面试八股文题库",
+      "知识库索引",
+      "面试准备",
+      "阶段性知识整理报告",
+      "面试当天清单与复盘闭环"
+    ],
+    "adopted": false
+  }
+}

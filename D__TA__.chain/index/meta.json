@@ -1,0 +1,648 @@
+{
+  "format": 1,
+  "dim": 512,
+  "model": "bge-small-zh-v1.5",
+  "updated_at": "2026-09-22T20:50:02+08:00",
+  "entries": [
+    {
+      "id": "Blender自动化与材质节点",
+      "hash": "db96891e7f3913a8",
+      "archived": false,
+      "derived": false,
+      "row": 0,
+      "stale": false
+    },
+    {
+      "id": "DCC与工具链",
+      "hash": "f29abfac4f9d7230",
+      "archived": false,
+      "derived": false,
+      "row": 1,
+      "stale": false
+    },
+    {
+      "id": "DCC脚本与自动化",
+      "hash": "3cf1f02341392878",
+      "archived": false,
+      "derived": false,
+      "row": 2,
+      "stale": false
+    },
+    {
+      "id": "engram",
+      "hash": "f780f3fcda3a2c0f",
+      "archived": false,
+      "derived": false,
+      "row": 3,
+      "stale": false
+    },
+    {
+      "id": "EngramMCP静态绑定局限",
+      "hash": "78daa3284be188ee",
+      "archived": false,
+      "derived": false,
+      "row": 4,
+      "stale": false
+    },
+    {
+      "id": "Engram多工作区MCP接入",
+      "hash": "022ead9911c4c22f",
+      "archived": false,
+      "derived": false,
+      "row": 5,
+      "stale": false
+    },
+    {
+      "id": "FFT统计波谱海面",
+      "hash": "462c351b761df933",
+      "archived": false,
+      "derived": false,
+      "row": 6,
+      "stale": false
+    },
+    {
+      "id": "GPU粒子系统",
+      "hash": "c56d7b852c71846a",
+      "archived": false,
+      "derived": false,
+      "row": 7,
+      "stale": false
+    },
+    {
+      "id": "Jacobian与微分几何",
+      "hash": "644c2eb1ecd6661d",
+      "archived": false,
+      "derived": false,
+      "row": 8,
+      "stale": false
+    },
+    {
+      "id": "LOD与剔除手段",
+      "hash": "f4b50b4b3a7abae3",
+      "archived": false,
+      "derived": false,
+      "row": 9,
+      "stale": false
+    },
+    {
+      "id": "render_unified_oss",
+      "hash": "b8c10c152c3d647e",
+      "archived": false,
+      "derived": false,
+      "row": 10,
+      "stale": false
+    },
+    {
+      "id": "ReSTIR时空复用",
+      "hash": "93b5a62da29b46d0",
+      "archived": false,
+      "derived": false,
+      "row": 11,
+      "stale": false
+    },
+    {
+      "id": "SDF",
+      "hash": "085028b7197584e6",
+      "archived": false,
+      "derived": false,
+      "row": 12,
+      "stale": false
+    },
+    {
+      "id": "TA_show",
+      "hash": "6ea692b67dbd5d63",
+      "archived": false,
+      "derived": false,
+      "row": 13,
+      "stale": false
+    },
+    {
+      "id": "TBDR与移动端渲染",
+      "hash": "a1e2c0be52c945d4",
+      "archived": false,
+      "derived": false,
+      "row": 14,
+      "stale": false
+    },
+    {
+      "id": "URP-RenderFeature插入点与依赖",
+      "hash": "9afc10794784d0ea",
+      "archived": false,
+      "derived": false,
+      "row": 15,
+      "stale": false
+    },
+    {
+      "id": "water",
+      "hash": "562d6b6f6e36462e",
+      "archived": false,
+      "derived": false,
+      "row": 16,
+      "stale": false
+    },
+    {
+      "id": "windtest",
+      "hash": "438b1b1e184a8f2d",
+      "archived": false,
+      "derived": false,
+      "row": 17,
+      "stale": false
+    },
+    {
+      "id": "体积渲染基础",
+      "hash": "372daac8fc2d04a5",
+      "archived": false,
+      "derived": false,
+      "row": 18,
+      "stale": false
+    },
+    {
+      "id": "先量化再优化",
+      "hash": "d468e5d624200ce7",
+      "archived": false,
+      "derived": false,
+      "row": 19,
+      "stale": false
+    },
+    {
+      "id": "光照与PBR",
+      "hash": "3df2bca1fcd59459",
+      "archived": false,
+      "derived": false,
+      "row": 20,
+      "stale": false
+    },
+    {
+      "id": "光照与采样",
+      "hash": "0346853db7f657b0",
+      "archived": false,
+      "derived": false,
+      "row": 21,
+      "stale": false
+    },
+    {
+      "id": "光照模型与微表面BRDF",
+      "hash": "9807f2137a5e09ca",
+      "archived": false,
+      "derived": false,
+      "row": 22,
+      "stale": false
+    },
+    {
+      "id": "八股册00索引与外部资源",
+      "hash": "3023222cf0b6284d",
+      "archived": false,
+      "derived": false,
+      "row": 23,
+      "stale": false
+    },
+    {
+      "id": "八股册01渲染管线与光栅化",
+      "hash": "2064c835e8ed1c2d",
+      "archived": false,
+      "derived": false,
+      "row": 24,
+      "stale": false
+    },
+    {
+      "id": "八股册02光照与PBR",
+      "hash": "b3ea90d9fe35ccd7",
+      "archived": false,
+      "derived": false,
+      "row": 25,
+      "stale": false
+    },
+    {
+      "id": "八股册03图形数学与采样",
+      "hash": "ce08d4c8d6d4dbb1",
+      "archived": false,
+      "derived": false,
+      "row": 26,
+      "stale": false
+    },
+    {
+      "id": "八股册04引擎与性能优化",
+      "hash": "4f801a7bb223a6e7",
+      "archived": false,
+      "derived": false,
+      "row": 27,
+      "stale": false
+    },
+    {
+      "id": "八股册05TA工程实践与DCC工具链",
+      "hash": "dd6ea98a0c90c341",
+      "archived": false,
+      "derived": false,
+      "row": 28,
+      "stale": false
+    },
+    {
+      "id": "动画与骨骼管线",
+      "hash": "42a040486d2657df",
+      "archived": false,
+      "derived": false,
+      "row": 29,
+      "stale": false
+    },
+    {
+      "id": "变换与几何",
+      "hash": "2a87a12ee1ef6f8a",
+      "archived": false,
+      "derived": false,
+      "row": 30,
+      "stale": false
+    },
+    {
+      "id": "变换与坐标系",
+      "hash": "7e798049b17186e9",
+      "archived": false,
+      "derived": false,
+      "row": 31,
+      "stale": false
+    },
+    {
+      "id": "口述讲稿模板",
+      "hash": "ce1379fc55a9608c",
+      "archived": false,
+      "derived": false,
+      "row": 32,
+      "stale": false
+    },
+    {
+      "id": "后处理链顺序",
+      "hash": "4204053fd34bfe37",
+      "archived": false,
+      "derived": false,
+      "row": 33,
+      "stale": false
+    },
+    {
+      "id": "图形数学基础",
+      "hash": "b9ac6fae38b7ed4b",
+      "archived": false,
+      "derived": false,
+      "row": 34,
+      "stale": false
+    },
+    {
+      "id": "基础渲染管线",
+      "hash": "173144fedf7bbfe7",
+      "archived": false,
+      "derived": false,
+      "row": 35,
+      "stale": false
+    },
+    {
+      "id": "实时大气散射链路",
+      "hash": "9a18440baa36d9f9",
+      "archived": false,
+      "derived": false,
+      "row": 36,
+      "stale": false
+    },
+    {
+      "id": "实现办法",
+      "hash": "c2142053b38642ed",
+      "archived": false,
+      "derived": false,
+      "row": 37,
+      "stale": false
+    },
+    {
+      "id": "工程实践",
+      "hash": "cda307dee332ec93",
+      "archived": false,
+      "derived": false,
+      "row": 38,
+      "stale": false
+    },
+    {
+      "id": "工程结构与协作",
+      "hash": "f85b2d7bb7644f34",
+      "archived": false,
+      "derived": false,
+      "row": 39,
+      "stale": false
+    },
+    {
+      "id": "平面反射的正确性",
+      "hash": "26a79d2697e44de0",
+      "archived": false,
+      "derived": false,
+      "row": 40,
+      "stale": false
+    },
+    {
+      "id": "引擎与工程协作",
+      "hash": "6cbd8af48cbec2df",
+      "archived": false,
+      "derived": false,
+      "row": 41,
+      "stale": false
+    },
+    {
+      "id": "引擎与管线",
+      "hash": "d2c1a7a9b8c9524e",
+      "archived": false,
+      "derived": false,
+      "row": 42,
+      "stale": false
+    },
+    {
+      "id": "待你执行的清单",
+      "hash": "fc2374068b001faf",
+      "archived": false,
+      "derived": false,
+      "row": 43,
+      "stale": false
+    },
+    {
+      "id": "性能优化",
+      "hash": "95e48f1f54fdaf94",
+      "archived": false,
+      "derived": false,
+      "row": 44,
+      "stale": false
+    },
+    {
+      "id": "性能测量口径",
+      "hash": "9673a1c4bddac08e",
+      "archived": false,
+      "derived": false,
+      "row": 45,
+      "stale": false
+    },
+    {
+      "id": "执行与复盘",
+      "hash": "21c123c521b1785c",
+      "archived": false,
+      "derived": false,
+      "row": 46,
+      "stale": false
+    },
+    {
+      "id": "抗锯齿的采样层级",
+      "hash": "c6c6594982f30681",
+      "archived": false,
+      "derived": false,
+      "row": 47,
+      "stale": false
+    },
+    {
+      "id": "数值与精度",
+      "hash": "e7ea09afa3a7f4ad",
+      "archived": false,
+      "derived": false,
+      "row": 48,
+      "stale": false
+    },
+    {
+      "id": "数值精度与静默错误",
+      "hash": "440c08e5b2a591ad",
+      "archived": false,
+      "derived": false,
+      "row": 49,
+      "stale": false
+    },
+    {
+      "id": "概念辩证卡学习法",
+      "hash": "bacee66bd2eabdfd",
+      "archived": false,
+      "derived": false,
+      "row": 50,
+      "stale": false
+    },
+    {
+      "id": "模拟追问记录",
+      "hash": "afe7d156bad53cdc",
+      "archived": false,
+      "derived": false,
+      "row": 51,
+      "stale": false
+    },
+    {
+      "id": "渲染与着色器",
+      "hash": "2ddd2b23f76ae5bf",
+      "archived": false,
+      "derived": false,
+      "row": 52,
+      "stale": false
+    },
+    {
+      "id": "渲染效果",
+      "hash": "ed9cd38ac79848e3",
+      "archived": false,
+      "derived": false,
+      "row": 53,
+      "stale": false
+    },
+    {
+      "id": "渲染方程与光路分解",
+      "hash": "3b0883cde0806dfd",
+      "archived": false,
+      "derived": false,
+      "row": 54,
+      "stale": false
+    },
+    {
+      "id": "渲染管线",
+      "hash": "4a8034ec1d825425",
+      "archived": false,
+      "derived": false,
+      "row": 55,
+      "stale": false
+    },
+    {
+      "id": "渲染管线问答正式作答稿",
+      "hash": "0fdefddecd26ab78",
+      "archived": false,
+      "derived": false,
+      "row": 56,
+      "stale": false
+    },
+    {
+      "id": "溶解与噪声遮罩",
+      "hash": "a1326a2616668d64",
+      "archived": false,
+      "derived": false,
+      "row": 57,
+      "stale": false
+    },
+    {
+      "id": "特效与粒子",
+      "hash": "b26a20f627655d2c",
+      "archived": false,
+      "derived": false,
+      "row": 58,
+      "stale": false
+    },
+    {
+      "id": "白板题汇总",
+      "hash": "2d01c03e8f832622",
+      "archived": false,
+      "derived": false,
+      "row": 59,
+      "stale": false
+    },
+    {
+      "id": "知识库索引",
+      "hash": "0bc6351dac9c3c85",
+      "archived": false,
+      "derived": false,
+      "row": 60,
+      "stale": false
+    },
+    {
+      "id": "确定性验证优先",
+      "hash": "8fedef8cb10c2152",
+      "archived": false,
+      "derived": false,
+      "row": 61,
+      "stale": false
+    },
+    {
+      "id": "程序化生成",
+      "hash": "f9428220d7604a50",
+      "archived": false,
+      "derived": false,
+      "row": 62,
+      "stale": false
+    },
+    {
+      "id": "脚本化重复劳动",
+      "hash": "4add69f1102ee786",
+      "archived": false,
+      "derived": false,
+      "row": 63,
+      "stale": false
+    },
+    {
+      "id": "自研边界与证据强度",
+      "hash": "847bbf5e5ce59598",
+      "archived": false,
+      "derived": false,
+      "row": 64,
+      "stale": false
+    },
+    {
+      "id": "色彩与光度学基础",
+      "hash": "c8d805e99153fa32",
+      "archived": false,
+      "derived": false,
+      "row": 65,
+      "stale": false
+    },
+    {
+      "id": "节拍与特效节奏",
+      "hash": "7e3ecec64a8a75d6",
+      "archived": false,
+      "derived": false,
+      "row": 66,
+      "stale": false
+    },
+    {
+      "id": "蒙特卡洛与重要性采样",
+      "hash": "9d288d2eb196e3c0",
+      "archived": false,
+      "derived": false,
+      "row": 67,
+      "stale": false
+    },
+    {
+      "id": "讲稿与表达",
+      "hash": "6dc6e76fbce29188",
+      "archived": false,
+      "derived": false,
+      "row": 68,
+      "stale": false
+    },
+    {
+      "id": "资产校验与模型体检",
+      "hash": "b5a33333410d4c28",
+      "archived": false,
+      "derived": false,
+      "row": 69,
+      "stale": false
+    },
+    {
+      "id": "资产校验与规范",
+      "hash": "fbf2ec048511c5d1",
+      "archived": false,
+      "derived": false,
+      "row": 70,
+      "stale": false
+    },
+    {
+      "id": "路线与边界",
+      "hash": "e0a63ae9796be540",
+      "archived": false,
+      "derived": false,
+      "row": 71,
+      "stale": false
+    },
+    {
+      "id": "阶段性知识整理报告",
+      "hash": "157575b9397022e9",
+      "archived": false,
+      "derived": false,
+      "row": 72,
+      "stale": false
+    },
+    {
+      "id": "面试八股文题库",
+      "hash": "7987635afd33808c",
+      "archived": false,
+      "derived": false,
+      "row": 73,
+      "stale": false
+    },
+    {
+      "id": "面试准备",
+      "hash": "d17f18704aa3e68e",
+      "archived": false,
+      "derived": false,
+      "row": 74,
+      "stale": false
+    },
+    {
+      "id": "面试当天清单与复盘闭环",
+      "hash": "039967c07f34ad46",
+      "archived": false,
+      "derived": false,
+      "row": 75,
+      "stale": false
+    },
+    {
+      "id": "面试目标与路线",
+      "hash": "9c334578aabc97d8",
+      "archived": false,
+      "derived": false,
+      "row": 76,
+      "stale": false
+    },
+    {
+      "id": "项目深挖",
+      "hash": "6a062fd91c2bdb67",
+      "archived": false,
+      "derived": false,
+      "row": 77,
+      "stale": false
+    },
+    {
+      "id": "项目讲述稿",
+      "hash": "d59603b48d200861",
+      "archived": false,
+      "derived": false,
+      "row": 78,
+      "stale": false
+    },
+    {
+      "id": "题库与自测",
+      "hash": "013eade9f040f772",
+      "archived": false,
+      "derived": false,
+      "row": 79,
+      "stale": false
+    }
+  ]
+}
