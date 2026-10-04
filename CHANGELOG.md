@@ -2,6 +2,73 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
+## [3.1.0] - 2026-10-03
+
+### AI 导航增强（契约 v9）：让"顺着节点链梳理"少走弯路
+
+用户视角确认了核心机制：**AI 靠结构化节点反向回忆——搜索锚定 → 沿 parent/edges 上下梳理 → 读得越多越知道下一步去哪**。该模型成立且是 Engram 的生态位；本轮的改进不是换模型，而是**让每一次读都自带"下一步去哪"的信息**，减少跳数：
+
+- **检索结果附结构上下文**：`search` / `recall`（向量、冷启动、关键词降级、归档三条路径全部）每条结果增加 `parent / depth / children_count / degree / origin / updated` —— 一次检索即可判断"该读哪条、跳过哪条"，不必逐条 `read_node` 补位置。
+- **`get_overview` 增 `structure` 块**：`roots`（根数）/ `max_depth` / `leaves` / `depth_hist`（深度直方图）+ 每个入口 hub 的 `subtree_size` —— 把"人眼从 3D 图看出的结构"翻译成 AI 可读的数据。
+- **`dialogue_status` 增记忆健康度出口 + 覆盖度**：`gaps`（recall 未命中的查询 = 用户找过但没找到 → 该补节点了）、`open_loops`（已 success 但无验证子节点且无「自验收」注明的 task），以及 `coverage {total / read / unread / unread_ids[]}`（`stats.reads_map()` 驱动）——补上记忆系统自我修复的闭环，并让 AI 能规划"跨链随机、每次不重复"的读取路线。
+- **`expand` 增 `direction`（children / parents / both，默认 both）**：children = 自根向下层级优先（还原一个项目时的读法），parents = 回溯来源；每个节点附 `hop`（相对中心的层距）与 `first_line`（正文首个内容行的 **120 字节机械截断**，不是摘要）。
+- **`get_overview` 增 `structure.root_ids`**：parent=null 的入口节点 id（按子树规模倒序，≤20）——"层级优先"策略需要的是**入口 id**，而不是根的数量（`structure.roots` 只是计数）。
+- **两条读取策略由 AI 自己规划，软件不预设导读路径**（用户 2026-10-03 决定）：① 还原分析模式项目 = 从 `structure.root_ids` 起 `expand(direction:"children")` 逐级向下，信息量逐级指数增长，先看骨架再决定读哪条原文；② 开发自己项目 = 用 `coverage.unread_ids` 抽未读节点随机不重复地读，读到即覆盖。**同时撤销两个被否的设计**：固定"导读路径（tour）"（把自适应遍历降级成一次性导览，且"读原文"被"读摘要"替换）与节点 `summary`/gist 字段（**读节点正文就是放弃读原文**，再次整理节点内容只会丢信息；只允许机械截断）。
+- **真实工作区实测**（release 二进制 + MCP stdio，只读工具）：`G:\ta`（分析模式 74 节点 / 深度 11）`get_overview` 666ms、`expand(root,2,children)` 32 节点 28ms/15.4KB、`dialogue_status` 26ms 且 `coverage` 报出 15 个未读节点；`G:\perf1500`（1500 节点）冷启动首次扫描 13.5s / 随后各调用 0.36–0.42s，`expand` 44 节点 19.3KB、`unread_ids` 按 30 条封顶——证明"层级优先 / 跨链随机不重复"两种策略在真实数据上都有可直接使用的字段。
+- 契约 **v8 → v9**；指南 **v21 / v15**（§ 导航上下文改写为两条读取策略 + `expand.direction` 语义 + `degree` 同源说明）；golden 28 条重固化；file 136 / core 95 / cli 13 / golden 全绿。
+- 分析文档：`docs/Engram_图结构AI可用性分析_v1.md`（工具现状、痛点排序、P0/P1/P2 清单）。
+
+### P2 结构性收尾：人机同源指标 + 分析模式层级布局 + 覆盖遮挡 + 冷启动并行
+
+- **结构指标入接口（P2-7 人机同源）**：`degree` 进入 `structure_index`，于是 `search` / `recall` / `read_node` / `expand` 的每条结果都带 **度数**——它同时是显示层球径的依据。新增 `ops::snapshot_view(snap)`：给 GUI 快照的每个活跃节点补上 `degree / depth / children_count / subtree_size`（`scan_chain`、`chain-changed` 事件、`attach_code_map`、`detach_code_map` 四条路径统一走它）。**显示层不再自己重算结构指标**（删掉了前端按边遍历算 degree 的实现），信息栏新增「度 / 深 / 子 / 子树」一行——人看到的球多大 = AI 读到的 `degree`，两边同一个数、同一处定义。
+- **分析模式层级球壳布局（P2-8）**：新增「布局」选择（自动 / 层级球壳 / 神经元，偏好持久化）。**自动 = 按工作区模式**：分析模式用**层级球壳**（半径 = depth × 层距，同层同壳、锥角随深度收窄、首次到达定层与后端 BFS 同算法；刻意不做力导向松弛，层壳不被揉散），开发模式保持三维神经元展开。
+- **覆盖遮挡（P2-9）**：图例默认折叠成一行标题（点标题展开，偏好持久化）；`measureInsets` 量出图例/搜索框/缩放控件的贴边尺寸（单方向封顶 32%），`centerAll` 把内容居中到**未被压住的自由区**并按自由区尺寸放大距离——浮层不再盖住节点。
+- **冷启动扫描并行化（P2-10）**：文件层新增 `scan_pool`（`std::thread::scope` + `AtomicUsize` 抢索引 + `catch_unwind`，零新依赖），扫描按文件并行、**按文件序回填**，输出与串行逐字节一致（golden 依赖的确定性不变）；条目 <8、单核、线程创建失败或任一 worker panic 一律回落顺序路径。
+  - 实测（16 核；`G:\perf1500` 1500 节点）：端到端 `get_overview` 437ms / `expand` 259ms / `search` 299ms / `dialogue_status` 249ms，较改造前（419 / 366 / 378 / 361ms）**快 25–30%**；扫描本身 356→235ms（**1.5×**）；等 I/O 型负载探针 336→23ms（**14×**）。
+  - 诚实说明：文档里那个 **13.5s 冷启动基线无法复测**——非管理员清不掉系统 page cache（需要 `SeProfileSingleProcessPrivilege`），上面全是热缓存数字。冷启动的成本恰好是"每文件约 9ms 的磁盘 I/O 等待"，而并行池对 I/O 等待的重叠正是收益最大的场景（I/O 型探针 14× 即为此形状），但没有直接测到。
+  - file 测试 135 → **141**（新增保序/等价/回落/panic 安全 6 条，另 2 条 opt-in 基准）；`--release --ignored` 用 `G:\perf1500` 真实 1500 文件跑并行 vs 串行等价：dev 与 analysis 两模式**逐字段一致且同序**。
+
+### 三维图结构（显示层 · 纯图结构，去掉水波纹）
+
+- **新组件 `Graph3D.svelte`**：three.js（0.186）WebGL 渲染——InstancedMesh 球节点（类型配色 + 状态样式：failed 红 / in_progress 加亮 / pending 半透明 / blocked 压暗；代码节点青绿线框描边；选中放大；代码筛选压暗非代码节点）+ LineSegments 边（contains 实线、solves/alternative 虚线，源→目标类型色渐变）。布局复用 `tree_layout`（layered 层板 / radial 锥形，层级沿 Z 轴抬升；可见深度裁剪一致）。
+- **Unity 式交互**：右键拖拽旋转视角 · 中键拖拽平移 · 滚轮缩放 · 左键点击选中（联动只读信息栏）· 左键双击相机聚焦；OrbitControls damping + 相机补间动画（聚焦/复位/缩放/搜索脉冲）；悬停浮层沿用现有 hoverTip。
+- **水波纹彻底退役**：水面画布隐藏、波源/涟漪循环空实现、波纹参数面板隐藏、图例改为 3D 交互说明——纯图结构。
+- **策略说明**：旧 2D cytoscape 机械以隐藏方式保留（影子替换，`__engramDebug` 契约不变、16 个 CDP 脚本不受影响），彻底删除留作后续清理项。
+- 验证：svelte-check 0 错 0 警 + vite build；CDP 实跑——WebGL 画布挂载、波纹文案零命中、Unity 交互提示在位、点击选中/双击聚焦/滚轮缩放/右键旋转四类交互零异常（选中后信息栏正确显示 v-015/t-016 面板）。
+- **截图目视复核与两轮修复**（新增 `_cdp_shot2.cjs`：`Page.captureScreenshot { fromSurface:false }` 走渲染器侧，绕开本环境虚拟桌面合成器无帧导致的空白截图）：
+  ① **实例色全黑**——`MeshBasicMaterial({ vertexColors:true })` 让 shader 去取几何体 color 属性（球体没有）→ 全黑；InstancedMesh 的实例色**不需要** vertexColors（three 自动启用 USE_INSTANCING_COLOR）；
+  ② **比例失调**——位置经 span 归一化而球径是固定场景单位，导致小图球巨大／大图球极小；改为**布局 px 直接映射（UNIT=0.1）+ 球径同系数**，相机由 `centerAll()` 按包围盒对角线 ×0.55 自适应（首次/换工作区自动 fit，滑条调整保留视角）。修复后目视确认：类型配色清晰（根紫大球 / design 蓝 / task 青 / verification 绿）、边线渐变、远端透视收缩、无水面效果。
+- **三维神经元布局（v3.1 续调）**：**放弃二维树形态**（layered 层板 / radial 环）——改为纯三维展开：根 = 胞体（单根时子树在整球面按 Fibonacci 分布），每个节点占据一个锥形区域，子节点在父锥角内按黄金角螺旋分布 → 树突状辐射；半径 = 深度 × 层距；确定性哈希微扰（`fnv1a(id#salt)`）让枝条自然不呆板且**可复现（无随机种子）**。「形态」滑条重定义为**展开度**：标准 1.05 / 紧凑 0.8 / 舒展 1.35。球径与层距比例重调（`px×0.45×UNIT`）、层距 ×0.95 拉大、边线透明度提到 0.7/0.75（树突连线是神经元观感的关键）。
+- 目视验证（`_cdp_shot2.cjs` 渲染器侧截图）：SDF 工作区 104 节点呈胞体+树突辐射，类型配色可辨（根紫 / design 蓝 / task 青 / verification 绿）、连线网络清晰、三维纵深明显。
+- **三维优化第二轮（开源参考驱动）**：调研 [d3-force-3d](https://app.unpkg.com/d3-force-3d@3.0.5/files/README.md)（3D 力导向布局，velocity Verlet）、[vasturiano/3d-force-graph](https://github.com/vasturiano/3d-force-graph)（6.4k★ 的 ThreeJS 3D 图组件）、[AntV G6 d3-force3d](http://g6.antv.antgroup.com/en/manual/layout/build-in/d3-force3-d-layout)，据此落地：
+  ① **3D 力导向松弛**（d3-force-3d，作为确定性神经元布局的种子后处理：forceLink 距离=层距×0.85/强度 0.45 + forceManyBody 3D 斥力 + forceCenter，固定 tick 数 → 枝条张开不重叠且可复现）；
+  ② **邻域高亮**：hover/选中节点时其 1 跳邻居保持原色、其余压暗至 22%，关联边原位改色（不重建几何）— 复刻原 2D"聚焦压暗"语义；
+  ③ **突触脉冲**：沿边流动的粒子（Points + AdditiveBlending，借鉴 3d-force-graph `linkDirectionalParticles`）——选中节点时只沿它的边流动，全图上限 260 条；
+  ④ **Bloom 光晕**：EffectComposer + UnrealBloomPass（strength 0.38 / radius 0.45 / threshold 0.4，仅 ≤1200 节点启用，大图自动降级）。
+  目视验证（`_shots/3d-final2.png`）：胞体高亮、树突张开、脉冲流动、发光适度且类型配色可辨。
+- **2D cytoscape 机械彻底拆除**：`App.svelte` 2767 → **1287 行**；删 `tree_layout.ts`(556) / `ripple.ts`(89) / `chain_to_cytoscape.ts`(133)；新增 `node_style.ts`（色表 + LayoutMode）；卸载 cytoscape / cytoscape-dagre / @types-cytoscape（cytoscape 仍作为 **mermaid 的传递依赖**留在 lock）；`__engramDebug` 精简为 `{snapshot, mode, layout}`；src/ 残留搜索零命中。
+
+### 三层重构 P0/P1：对话账本与记忆入口（设计稿 docs/Engram_三层重构_设计整理_v1.md）
+
+用户方向：文件层（事实源）/ 记忆层（核心逻辑）/ 显示交互层三层架构，接口隔离；对话文件是唯一原始输入，节点是"听完讲解后整理好的脉络"；AI 使用记忆系统的唯一通道是 MCP。
+
+- **文件层 `dialogue.rs`（新）**：对话原始输入的纯字节接口——原样读、append-only 追加一行、路径与命名校验（防穿越）。**不认识格式**（无 k/seq/role 概念）。
+- **记忆层 `dialogue_log.rs`（新）**：对话账本格式的唯一定义处——JSONL（head/msg/tool/decision）；`seq` 工作区级单调、全记录唯一；`decision.covers=[from,to]` 覆盖消息 seq 区间（消费锚点 + 审计证据）；长消息超 4096 字节按 UTF-8 边界拆行（同 seq + part/parts，拼回逐字一致）；坏行隔离报行号；**decision 空 reason 拒绝**（"有意跳过"与"忘了记"的唯一区分）。
+- **`remember` 工具（新，契约 v6 核心）**：记忆唯一入口——追加账本事件（msg/tool/decision）+ 可选 commits 落节点意图（create/update/link/unlink/archive，全部复用现有写路径 → 守门/乐观锁/原子写/审计一个不少）。结构违规阻断（REMEMBER_* 错误码）；规矩违规只标记不阻断（frontmatter `conventions: [missing_trigger]`）。新建节点自动写 `origin: dialogue/log.jsonl#<seq>` 溯源。有 commits 必须有事件（REMEMBER_NO_EVENT）。
+- **`dialogue_status` 工具（新，只读）**：账本规模 / 会话与指南版本 / 消费进度（`unconsumed_from` 之后的记录是接管要读的部分）/ 决策计数 / 坏行清单。
+- **所有工具响应携带 `guide_version`**：指南版本变化当次可见，AI 自主决定重读（不强制）。
+- **Node 新增 `origin` / `conventions` 可选字段**（serde 缺省省略 → 存量节点输出零变化）；walker 开发模式宽松提取。
+- **指南 v15 / v9**：新增「对话账本与记忆入口（唯一入口）」章节；remember 取代 create/update/link 的渐进语义。
+- **工具契约 v5 → v6**（新增 2 工具 + 全响应注入 guide_version）；golden 契约 18 → 23 条重固化；采集器新增 UTF-8 干净的 Node 版 `tools/_collect_golden.mjs`（PS 版偶发 stdin 超时，逻辑等价保留）。
+- **工具契约 v6 → v7（入口唯一化收尾）**：**移除** `create_node` / `update_node` / `link_nodes` / `archive_node` / `unlink_nodes` 五个节点直写工具——记忆写入只剩 `remember` 一个入口（设计稿 §I2）。golden 重写为纯 remember 流程（23 → 24 条：结构违规阻断、update/unlink/archive 意图、账本消费与溯源全走新通道）；指南 v16 / v10（旧工具标注"已移除"）。
+- **工具契约 v7 → v8（P2 冻结自愈）**：新增 `resolve_conflict(id, title, status, body?, expected_updated?)`——人治通道下线后 CONFLICT 的裁决出口：冻结节点（[待裁决]）由 AI 读双方内容后一次写回最终裁决、去除冻结标记；非冻结节点报 NOT_FROZEN；expected 不符报 CONFLICT 且不再冻结；audit 留痕（unfreeze）。golden 24 → 28 条（完整冲突→冻结→自愈循环）；指南 v17 / v11。
+- **core 测试 203 → 230**（新增对话 17 条 + remember 8 条 + resolve_conflict 2 条）；golden 28 条全绿。
+- **GUI 人治写通道移除（P2 收尾，ADR 0015）**：Tauri 命令 update_node / create_node / delete_node / set_parent / fold_chain / create_node_human / delete_node_human / set_parent_human 全部删除；core `node_edit` 三个 `*_human` 函数与人用护栏删除；信息栏编辑表单与文件树模式三态操作面（＋/✎/🗑）删除，文件树降为**只读阅读面**；GUI 保留只读 + 维护通道（reindex / code_map / 快照 / 过程日志 / 工作区管理）。core 230 → 224（移除 6 条人用通道测试）。这是对 ADR 0012（GUI 零破坏）的显式豁免（用户 2026-10-03 拍板）。
+- **CDP 实跑验证（debug app + vite dev 源码直载）**：零控制台错误；工具栏「＋ 节点」已消失；文件树模式只余阅读功能（树/检索/下一篇/原文/定位，「新建/编辑/删除」字样全 DOM 零命中）；信息栏打开节点后**无编辑表单**，检索线索 / 触发句 / 代码骨架（unity 94 导出）正常渲染；svelte-check 0 错 0 警 + vite build 通过。窗口截图受本环境虚拟桌面 15×15 限制，最终视觉复核留交互会话。
+- **P3 交接验收**：① legacy 祖父条款——无 `origin` 字段的存量节点在扫描期隐式标记 `origin: legacy`（`walker::mark_legacy`，**绝不回写文件**，有单测），指南 v18/v12 写入"只读不改、不得作为新记忆扩写基础"；② 对话阅读面——新增 Tauri 命令 `get_dialogue`（记忆层 dialogue_log 的结构化账本）+ 前端 `DialogueReader.svelte`（工具栏 💬 按钮；会话分组 / 全文检索 / Markdown 渲染 / 决策与工具轨迹徽标 / 未消费标记 / Esc 关闭；**渲染期投影，不落盘第二格式**）。CDP 实跑验证：打开/关闭正常、零写控件、空账本提示正确。
+- **P4 分层强制**：文件层拆为独立 crate **`engram-file`**（model / scanner / fsio（原子写/宽松解析/变更哈希）/ schema / migrate / watch / workspace / evidence / profile / guide / audit / dialogue / chain_ops / node_edit；94 测试）——**编译期不依赖记忆层**（"文件层不认识记忆"由 Cargo 依赖图强制）；`engram-core` 保留记忆层 + API 层（API 边界 = `ops` 模块，JSON 适配集中），旧路径经 re-export 全兼容；api 提升为独立 crate 留作机械化后续。磁盘整理：清空 `target/debug`（31.5 GB，G 盘曾满导致链接失败——构建产物可重建）。
+- 记忆层两个已知缺陷（强度 clamp 归零 / 墙钟恒空）按设计稿 §14 归入重构后专项，不在本次范围。
+
 ## [2.18.0] - 2026-09-22
 
 ### 文件树模式 = 人的编辑面（新建 / 编辑 / 删除 / 改挂载）；图谱与文件树是同一套链的两种显示与编辑方式

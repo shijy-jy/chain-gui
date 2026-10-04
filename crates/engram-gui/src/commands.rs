@@ -1,10 +1,14 @@
 //! Tauri 命令薄壳（v2.8 重构）：全部委托 engram-core。
 //! 本层仅保留窗口副作用：watcher 启动、证据文件系统打开、工作区配置目录（AppHandle）。
 //! 命令签名与旧版完全一致（前端 invoke 契约不变，宪法第 8 条：工具即契约）。
+//!
+//! 三层重构（设计稿 v1 P2）：人治写通道已下线——update_node / create_node /
+//! delete_node / set_parent / create_node_human / delete_node_human / set_parent_human /
+//! fold_chain 全部移除。GUI 是**只读观察面**（渲染+检索+维护通道），记忆写入的唯一
+//! 入口是 MCP 的 remember（AI 通道）。
 
 use engram_core::model::chain::ChainSnapshot;
-use engram_core::model::{ScanMode, UpdateFields};
-use engram_core::ops::node_edit::CreateNodeInput;
+use engram_core::model::ScanMode;
 use engram_core::scanner::walker::scan_chain_dir_mode;
 use engram_core::workspace::WorkspaceInfo;
 use std::path::{Path, PathBuf};
@@ -18,7 +22,7 @@ pub fn scan_chain(
     mode: Option<String>,
     app: AppHandle,
     state: State<'_, crate::watcher::WatchState>,
-) -> Result<ChainSnapshot, String> {
+) -> Result<serde_json::Value, String> {
     let scan_mode = mode
         .as_deref()
         .map(ScanMode::parse_lenient)
@@ -39,112 +43,12 @@ pub fn scan_chain(
     if let Err(e) = crate::watcher::start_watch(path, app, &state, mode_arc) {
         eprintln!("[engram] watcher 启动失败：{e}");
     }
-    Ok(snapshot)
+    // P2-7 人机同源：结构指标（degree / depth / children_count / subtree_size）随快照下发，
+    // 显示层不再自己重算——人看到的球径与 AI 读到的数字是同一个。
+    Ok(engram_core::ops::snapshot_view(&snapshot))
 }
 
-// ── 节点编辑 ──────────────────────────────────────────────
-
-#[command]
-pub fn update_node(
-    dir: String,
-    node_id: String,
-    fields: UpdateFields,
-    mode: Option<String>,
-) -> Result<ChainSnapshot, String> {
-    let scan_mode = mode
-        .as_deref()
-        .map(ScanMode::parse_lenient)
-        .unwrap_or(ScanMode::Analysis);
-    engram_core::ops::node_edit::update_node_fields(Path::new(&dir), &node_id, &fields, scan_mode)
-}
-
-#[command]
-pub fn create_node(
-    dir: String,
-    input: CreateNodeInput,
-    mode: Option<String>,
-) -> Result<ChainSnapshot, String> {
-    let scan_mode = mode
-        .as_deref()
-        .map(ScanMode::parse_lenient)
-        .unwrap_or(ScanMode::Analysis);
-    engram_core::ops::node_edit::create_node(Path::new(&dir), &input, scan_mode)
-}
-
-// ── v2.20 人用通道（GUI 文件树模式）：分析模式也允许人编辑结构 ──────────────
-// 护栏在 core（create_node_human/delete_node_human/set_parent_human）；MCP 工具仍走
-// 上面三个非 human 版本（分析模式一律拒绝）——AI 侧工具契约与行为零变化。
-
-#[command]
-pub fn create_node_human(
-    dir: String,
-    input: CreateNodeInput,
-    mode: Option<String>,
-) -> Result<ChainSnapshot, String> {
-    let scan_mode = mode
-        .as_deref()
-        .map(ScanMode::parse_lenient)
-        .unwrap_or(ScanMode::Analysis);
-    engram_core::ops::node_edit::create_node_human(Path::new(&dir), &input, scan_mode)
-}
-
-#[command]
-pub fn delete_node_human(
-    dir: String,
-    node_id: String,
-    mode: Option<String>,
-) -> Result<ChainSnapshot, String> {
-    let scan_mode = mode
-        .as_deref()
-        .map(ScanMode::parse_lenient)
-        .unwrap_or(ScanMode::Analysis);
-    engram_core::ops::node_edit::delete_node_human(Path::new(&dir), &node_id, scan_mode)
-}
-
-#[command]
-pub fn set_parent_human(
-    dir: String,
-    node_id: String,
-    parent: Option<String>,
-    mode: Option<String>,
-    rel: Option<String>,
-) -> Result<ChainSnapshot, String> {
-    let scan_mode = mode
-        .as_deref()
-        .map(ScanMode::parse_lenient)
-        .unwrap_or(ScanMode::Analysis);
-    engram_core::ops::node_edit::set_parent_human(Path::new(&dir), &node_id, parent, scan_mode, rel)
-}
-
-#[command]
-pub fn delete_node(
-    dir: String,
-    node_id: String,
-    mode: Option<String>,
-) -> Result<ChainSnapshot, String> {
-    let scan_mode = mode
-        .as_deref()
-        .map(ScanMode::parse_lenient)
-        .unwrap_or(ScanMode::Analysis);
-    engram_core::ops::node_edit::delete_node(Path::new(&dir), &node_id, scan_mode)
-}
-
-#[command]
-pub fn set_parent(
-    dir: String,
-    node_id: String,
-    parent: Option<String>,
-    mode: Option<String>,
-    rel: Option<String>,
-) -> Result<ChainSnapshot, String> {
-    let scan_mode = mode
-        .as_deref()
-        .map(ScanMode::parse_lenient)
-        .unwrap_or(ScanMode::Analysis);
-    engram_core::ops::node_edit::set_parent(Path::new(&dir), &node_id, parent, scan_mode, rel)
-}
-
-// ── 链级操作 ──────────────────────────────────────────────
+// ── 链级操作（只读 + 维护通道；fold 写通道已随人治下线移除）────────────
 
 #[command]
 pub fn init_chain(dir: String, mode: Option<String>) -> Result<ChainSnapshot, String> {
@@ -153,19 +57,6 @@ pub fn init_chain(dir: String, mode: Option<String>) -> Result<ChainSnapshot, St
         .map(ScanMode::parse_lenient)
         .unwrap_or(ScanMode::Analysis);
     engram_core::ops::chain::init_chain(Path::new(&dir), scan_mode)
-}
-
-#[command]
-pub fn fold_chain(
-    dir: String,
-    node_id: String,
-    mode: Option<String>,
-) -> Result<ChainSnapshot, String> {
-    let scan_mode = mode
-        .as_deref()
-        .map(ScanMode::parse_lenient)
-        .unwrap_or(ScanMode::Analysis);
-    engram_core::ops::chain::fold_chain(Path::new(&dir), &node_id, scan_mode)
 }
 
 #[command]
@@ -227,6 +118,49 @@ pub fn get_code_map(dir: String, node_id: String) -> Result<Option<String>, Stri
     ))
 }
 
+// ── 三层重构 P3：对话阅读面（只读；渲染期投影，不落盘第二格式）──────────────
+
+/// 读对话账本为结构化记录（前端渲染成 Markdown 供人阅读）。
+/// 文件层只提供字节，格式解析在记忆层（dialogue_log）——本命令是两者的只读适配。
+#[command]
+pub fn get_dialogue(dir: String) -> Result<serde_json::Value, String> {
+    let root = PathBuf::from(&dir);
+    let ledger = engram_core::dialogue_log::read_ledger(&root)?;
+    let records: Vec<serde_json::Value> = ledger
+        .records
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "line": r.line,
+                "kind": r.kind.as_str(),
+                "seq": r.seq,
+                "session": r.session,
+                "ts": r.ts,
+                "role": r.role.map(|x| x.as_str()),
+                "text": r.text,
+                "part": r.part,
+                "parts": r.parts,
+                "tool_name": r.tool_name,
+                "tool_args": r.tool_args,
+                "decided": r.decided.map(|d| d.as_str()),
+                "covers": r.covers,
+                "nodes": r.nodes,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "file": ".chain/dialogue/log.jsonl",
+        "exists": engram_core::dialogue::exists(&engram_core::dialogue::workspace_dialogue_path(&root)),
+        "heads": ledger.heads.iter().map(|h| serde_json::json!({
+            "session": h.session, "model": h.model, "guide": h.guide, "started": h.started,
+        })).collect::<Vec<_>>(),
+        "records": records,
+        "malformed": ledger.malformed.iter().map(|(l, m)| serde_json::json!({ "line": l, "reason": m })).collect::<Vec<_>>(),
+        "unconsumed_from": ledger.unconsumed_from(),
+        "last_covered_to": ledger.last_covered_to(),
+    }))
+}
+
 /// 重嵌按钮：全库重建嵌入索引（真实模型；失败显式报错，前端降级提示）。
 #[command]
 pub fn reindex_embeddings(dir: String) -> Result<String, String> {
@@ -247,13 +181,14 @@ pub fn attach_code_map(
     dir: String,
     node_id: String,
     abs_source: String,
-) -> Result<ChainSnapshot, String> {
+) -> Result<serde_json::Value, String> {
     let root = PathBuf::from(&dir);
     let rel = engram_core::evidence::evidence_rel_path(&dir, &abs_source)?;
     engram_core::code_map::attach_code_map(&root, &node_id, &rel)?;
     let mode = engram_core::workspace::read_mode_tag(&root)
         .unwrap_or(engram_core::model::ScanMode::Analysis);
-    scan_chain_dir_mode(&root, mode).map_err(|e| e.to_string())
+    let snap = scan_chain_dir_mode(&root, mode).map_err(|e| e.to_string())?;
+    Ok(engram_core::ops::snapshot_view(&snap))
 }
 
 /// 代码栏：刷新骨架（源码变更后重新提取；返回最新骨架 markdown，含实时 stale 状态）
@@ -266,12 +201,13 @@ pub fn sync_code_map(dir: String, node_id: String) -> Result<Option<String>, Str
 
 /// 代码栏：移除挂载（清 code_map 字段 + 删骨架派生物）。返回重扫后的快照。
 #[command]
-pub fn detach_code_map(dir: String, node_id: String) -> Result<ChainSnapshot, String> {
+pub fn detach_code_map(dir: String, node_id: String) -> Result<serde_json::Value, String> {
     let root = PathBuf::from(&dir);
     engram_core::code_map::detach_code_map(&root, &node_id)?;
     let mode = engram_core::workspace::read_mode_tag(&root)
         .unwrap_or(engram_core::model::ScanMode::Analysis);
-    scan_chain_dir_mode(&root, mode).map_err(|e| e.to_string())
+    let snap = scan_chain_dir_mode(&root, mode).map_err(|e| e.to_string())?;
+    Ok(engram_core::ops::snapshot_view(&snap))
 }
 
 /// 检索线索可视化（信息栏只读）：触发句 / 检索词 / 记忆状态（强度、上次触达、读写数）/ 索引状态

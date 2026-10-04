@@ -42,6 +42,17 @@ export interface ChainNode {
   freeze_reason?: string;
   /** v2.12 M-Code 代码骨架挂载（源码相对路径） */
   code_map?: string;
+  // ── P2-7 人机同源结构指标（后端 snapshot_view 下发；显示层**不自己重算**）──
+  // 人看到的球径 = degree；AI 在工具响应里读到的 children_count / subtree_size / depth
+  // 出自同一份 structure_index + subtree_sizes 算法 —— 两边是同一个数。
+  /** 度数（关联边数，无向） */
+  degree?: number;
+  /** 深度（根 = 0；与 AI 的 depth 同源） */
+  depth?: number;
+  /** 直接子节点数（与 AI 的 children_count 同源） */
+  children_count?: number;
+  /** 子树规模（含自身；与 AI 的 subtree_size 同源） */
+  subtree_size?: number;
 }
 
 export interface ChainEdge {

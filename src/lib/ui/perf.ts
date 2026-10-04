@@ -1,54 +1,8 @@
-// v2.15 性能策略中枢（1500 节点承载力 + 未来扩展预留）：
-// - 所有「按规模降级」的阈值集中在此表——未来新增降级项 = 加字段 + 接入点读策略，不撒魔法数字；
+// 三维图谱时代的性能/工具模块：
 // - createFrameMonitor：rAF FPS/帧耗时监控（诊断浮层与自动化验证共用）；
-// - fnv1a：图快照签名哈希（大图 $effect 不再拼巨型字符串）。
-
-export interface PerfPolicy {
-  /** 边渐变上限：超过此边数全部走实线（canvas 渐变纹理是大图平移缩放的大头） */
-  gradientEdgeLimit: number;
-  /** 标签最小渲染字号（cytoscape min-zoomed-font-size：缩到更小就不画标签，内建裁剪） */
-  minZoomedFont: number;
-  /** 涟漪最大层深（密集图 BFS 6 层≈全图，降深省类与环数） */
-  rippleMaxDepth: number;
-  /** 力导向最大迭代数（网格近似版；节点越多代数越少，保证布局预算不爆炸） */
-  forceMaxIter: number;
-  /** 呼吸样式更新频率（Hz）：慢正弦，低到 15Hz 视觉无差 */
-  breathHz: number;
-  /** 位置缓存重建节流（每 N 帧重建一次，平移/缩放期间省分配） */
-  posCacheFrames: number;
-}
-
-interface Tier {
-  maxNodes: number;
-  p: PerfPolicy;
-}
-
-const TIERS: Tier[] = [
-  {
-    maxNodes: 400,
-    p: { gradientEdgeLimit: 300, minZoomedFont: 6, rippleMaxDepth: 6, forceMaxIter: 400, breathHz: 30, posCacheFrames: 1 },
-  },
-  {
-    maxNodes: 800,
-    p: { gradientEdgeLimit: 300, minZoomedFont: 8, rippleMaxDepth: 5, forceMaxIter: 200, breathHz: 30, posCacheFrames: 1 },
-  },
-  {
-    maxNodes: 1400,
-    p: { gradientEdgeLimit: 0, minZoomedFont: 10, rippleMaxDepth: 4, forceMaxIter: 120, breathHz: 20, posCacheFrames: 2 },
-  },
-  {
-    maxNodes: Infinity,
-    p: { gradientEdgeLimit: 0, minZoomedFont: 12, rippleMaxDepth: 3, forceMaxIter: 80, breathHz: 15, posCacheFrames: 2 },
-  },
-];
-
-/** 按节点数选档（边数已并入阈值字段；未来可按 edges 细分） */
-export function perfPolicy(nodes: number): PerfPolicy {
-  for (const t of TIERS) {
-    if (nodes <= t.maxNodes) return t.p;
-  }
-  return TIERS[TIERS.length - 1].p;
-}
+// - fnv1a：三维视图确定性微扰（枝条抖动）与快照签名哈希。
+// 说明：2D cytoscape 时代的 PerfPolicy/TIERS（按规模降级表）已随 2D 机械删除——
+// 3D 的分级策略集中在 Graph3D.svelte（bloom 仅 ≤1200 节点、力导向 tick 数按规模分档）。
 
 /** 当前档位名（诊断浮层展示） */
 export function perfTierName(nodes: number): string {

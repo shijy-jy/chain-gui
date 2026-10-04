@@ -1,0 +1,28 @@
+chore: 版本号 bump 到 3.0.0 并安装到 D:\AIworkspace\Engram
+
+布局重写（树感知确定性布局）+ 交互新增（双击拉近、聚焦压暗）+ 显示方式变更
+（图谱不显示名称）属破坏性变更，版本号从 2.18.0 提到 3.0.0。
+
+- crates/{engram-core,engram-mcp,engram-gui,engram-cli}/Cargo.toml: 2.18.0 → 3.0.0
+  （四个 crate 同步，并同步各自的内部依赖 version 约束）
+- crates/engram-gui/tauri.conf.json、package.json 同步 3.0.0
+- Cargo.lock 由构建自动同步
+
+安装：把新构建的 app.exe（内嵌前端，46.3MB，v3.0.0）覆盖到 D:\AIworkspace\Engram\app.exe，
+旧版按既有习惯备份为 app.exe.old2180。未动同目录的 engram-mcp.exe（当前有 8 个进程在用）。
+
+顺带修复（本次踩到的坑）：
+- PowerShell 5.1 的 `Set-Content -Encoding UTF8` 会**加 BOM**，我用它改 JSON/Cargo.toml 时
+  污染了 4 个 Cargo.toml 和 2 个 JSON：tauri.conf.json 因此解析失败（"expected value at line 1 column 1"）、
+  前端构建报 "@sveltejs/vite-plugin-svelte is ESM only but tried to load by require"。
+  已全部剥除 BOM，并留下 _scratch/fix_bom.cjs 供以后扫描（结论：仓库里只有 .ps1 该带 BOM）。
+- 纠正 v3.3 的一处自我认知错误：让图上文字消失的真正开关是 **label 置空**；
+  `text-opacity: 0` 在本 cytoscape 版本里**写进去不生效**（读数恒为 "1"）。
+  样式里移除该误导属性，自检口径改为"label 是否为空 + label 包围盒是否为 0"。
+
+验证（安装位独立运行，vite 未启动）：
+- URL = http://tauri.localhost/（内嵌前端生效）
+- names 自检 = {nodesWithNonEmptyLabel: 0, nodesWithLabelBox: 0}（点击前后都成立）
+- 工具栏仅剩 可见深度 / 层间距 / 同层间距 / 形态
+- 双击节点 zoom 0.348→0.626（1.80×）且精确居中；聚焦态点亮 55 / 压暗 49
+- 点击后右侧信息栏显示名称与元数据；settle 后完全静止

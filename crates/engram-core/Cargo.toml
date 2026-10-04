@@ -1,6 +1,6 @@
 [package]
 name = "engram-core"
-version = "3.0.0"
+version = "3.1.0"
 description = "Engram 领域核心：唯一知道「规则」的纯库（零 Tauri、零 MCP 依赖）"
 authors = ["shijy-jy"]
 license = "MIT"
@@ -9,6 +9,9 @@ edition = "2021"
 rust-version = "1.77.2"
 
 [dependencies]
+# 三层重构 P4：文件层独立 crate（事实源/协议词表/schema/迁移/审计原语）
+# —— 依赖方向单向：core（记忆层+API）→ file；file 不认识"记忆"
+engram-file = { path = "../engram-file", version = "3.1.0" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"

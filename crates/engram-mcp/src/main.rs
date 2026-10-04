@@ -30,12 +30,18 @@ struct EngramMcp {
     tool_router: ToolRouter<Self>,
 }
 
-/// 核心层 Result 映射为 MCP 响应：Ok → JSON 文本；Err → 协议级错误（isError）
-fn to_result(r: Result<Value, String>) -> Result<CallToolResult, ErrorData> {
+/// 核心层 Result 映射为 MCP 响应：Ok → JSON 文本（统一注入 guide_version——
+/// 设计稿 v1 §10：版本变化当次可见，AI 自主决定重读指南）；Err → 协议级错误（isError）
+fn to_result(r: Result<Value, String>, guide_version: u32) -> Result<CallToolResult, ErrorData> {
     match r {
-        Ok(v) => Ok(CallToolResult::success(vec![ContentBlock::text(
-            serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()),
-        )])),
+        Ok(mut v) => {
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert("guide_version".to_string(), serde_json::json!(guide_version));
+            }
+            Ok(CallToolResult::success(vec![ContentBlock::text(
+                serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()),
+            )]))
+        }
         Err(e) => Err(ErrorData::internal_error(e, None)),
     }
 }
@@ -67,6 +73,8 @@ struct ExpandParams {
     id: String,
     /// 扩展层数：仅 1 或 2（默认 1）
     depth: Option<u32>,
+    /// 沿链梳理方向：children（从根向下）/ parents（回溯来源）/ both（默认，无向）
+    direction: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -75,42 +83,6 @@ struct ReadPathParams {
     from: String,
     /// 终点节点 id
     to: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct CreateNodeParams {
-    /// 节点标题（必填，单行；同名检测命中时需 force=true 另建）
-    title: String,
-    /// 正文（可选，缺省为 "# 标题" 占位）
-    body: Option<String>,
-    /// 标签列表（可选）
-    tags: Option<Vec<String>>,
-    /// true = 跳过同名拦截强制另建
-    force: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct UpdateNodeParams {
-    /// 节点 id
-    id: String,
-    /// append = 正文末尾追加；replace_body = 整体替换正文
-    mode: String,
-    /// 追加或替换的内容
-    content: String,
-    /// 乐观锁：read_node 取得的 updated 值；不匹配则 CONFLICT 不落盘
-    expected_updated: Option<String>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct LinkNodesParams {
-    /// 父节点 id
-    from: String,
-    /// 子节点 id
-    to: String,
-    /// 关系类型：contains / solves / alternative
-    rel_type: String,
-    /// 可选边说明（写入子节点 rel_desc；空串=清除，不传=不动）
-    desc: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -124,22 +96,6 @@ struct RecallParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct ArchiveNodeParams {
-    /// 节点 id
-    id: String,
-    /// 归档原因（可选，写入 frontmatter archived_reason）
-    reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct UnlinkNodesParams {
-    /// 父节点 id
-    from: String,
-    /// 子节点 id
-    to: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ConsolidateParams {
     /// 仅蒸馏这些节点参与的簇（可选；缺省 = 全部连通分量）
     targets: Option<Vec<String>>,
@@ -147,6 +103,83 @@ struct ConsolidateParams {
     dry_run: Option<bool>,
     /// 簇数上限（默认 8，最大 100）
     k: Option<usize>,
+}
+
+/// 三层重构：remember 的落节点意图（op 区分；全部复用现有写路径，过守门/乐观锁/审计）
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct CommitParams {
+    /// create / update / link / unlink / archive
+    op: String,
+    /// create：节点标题
+    title: Option<String>,
+    /// create：正文（缺「> 触发：」句只标记不阻断）
+    body: Option<String>,
+    /// create：标签列表
+    tags: Option<Vec<String>>,
+    /// create：跳过同名/重复检测强制另建
+    force: Option<bool>,
+    /// update / archive：节点 id
+    id: Option<String>,
+    /// update：append / replace_body
+    mode: Option<String>,
+    /// update：追加或替换的内容
+    content: Option<String>,
+    /// update：乐观锁（read_node 取得的 updated；不匹配 CONFLICT 不落盘）
+    expected_updated: Option<String>,
+    /// link / unlink：父节点 id
+    from: Option<String>,
+    /// link / unlink：子节点 id
+    to: Option<String>,
+    /// link：contains / solves / alternative
+    rel: Option<String>,
+    /// link：可选边说明
+    desc: Option<String>,
+    /// archive：归档原因
+    reason: Option<String>,
+}
+
+/// 三层重构：remember 事件参数（kind 区分 msg / tool / decision）
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RememberParams {
+    /// 会话 id（工作区持续账本内区分谁在说；仅字母/数字/-/_/.，不得以 . 开头）
+    session: String,
+    /// 追加的事件类别：msg / tool / decision（None = 本次不追加事件；但有 commits 时必须有事件）
+    kind: Option<String>,
+    /// msg：角色（user / assistant）
+    role: Option<String>,
+    /// msg：消息文本
+    text: Option<String>,
+    /// tool：工具名
+    name: Option<String>,
+    /// tool：参数摘要
+    args: Option<String>,
+    /// tool：结果摘要
+    result: Option<String>,
+    /// decision：keep / skip / revise
+    decided: Option<String>,
+    /// decision：覆盖的消息 seq 区间 [from, to]（含端点，两元素数组）
+    covers: Option<Vec<u64>>,
+    /// decision：本次决策落到的节点 id（可空数组）
+    nodes: Option<Vec<String>>,
+    /// decision：决策理由（必填；空串拒绝——否则无法区分有意跳过与遗忘）
+    reason: Option<String>,
+    /// 落节点意图列表（可选）
+    commits: Option<Vec<CommitParams>>,
+}
+
+/// 三层重构 P2：冻结自愈（治理权转移后的裁决出口）
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ResolveConflictParams {
+    /// 冻结节点 id（read_node 里 frozen=true 的节点）
+    id: String,
+    /// 裁决后的标题（单行非空；通常去掉 [待裁决] 前缀）
+    title: String,
+    /// 裁决后的状态：pending / in_progress / success / failed / blocked / none
+    status: String,
+    /// 裁决后的正文（分析模式必填非空；缺省 = 保持冻结前正文）
+    body: Option<String>,
+    /// 乐观锁：read_node 取得的 updated（不符返回 CONFLICT，不改变冻结态）
+    expected_updated: Option<String>,
 }
 
 // ── 工具实现（协议映射层，逻辑全在 engram_core::ops）────────────
@@ -165,7 +198,7 @@ impl EngramMcp {
         description = "获取图谱全局概览：节点/边规模、活跃链摘要、健康度计数、工作区模式与指南版本。会话开始或迷失方向时调用。返回 JSON 文本。"
     )]
     async fn get_overview(&self) -> Result<CallToolResult, ErrorData> {
-        to_result(mcp::get_overview(&self.ctx))
+        to_result(mcp::get_overview(&self.ctx), self.ctx.guide_version())
     }
 
     #[tool(
@@ -175,7 +208,7 @@ impl EngramMcp {
         &self,
         Parameters(p): Parameters<SearchParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        to_result(mcp::search(&self.ctx, &p.query, p.limit))
+        to_result(mcp::search(&self.ctx, &p.query, p.limit), self.ctx.guide_version())
     }
 
     #[tool(
@@ -185,7 +218,7 @@ impl EngramMcp {
         &self,
         Parameters(p): Parameters<ReadNodeParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        to_result(mcp::read_node_full(&self.ctx, &p.id, p.include_neighbors, p.include_code_map))
+        to_result(mcp::read_node_full(&self.ctx, &p.id, p.include_neighbors, p.include_code_map), self.ctx.guide_version())
     }
 
     #[tool(
@@ -195,7 +228,10 @@ impl EngramMcp {
         &self,
         Parameters(p): Parameters<ExpandParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        to_result(mcp::expand(&self.ctx, &p.id, p.depth))
+        to_result(
+            mcp::expand(&self.ctx, &p.id, p.depth, p.direction.as_deref()),
+            self.ctx.guide_version(),
+        )
     }
 
     #[tool(
@@ -205,65 +241,14 @@ impl EngramMcp {
         &self,
         Parameters(p): Parameters<ReadPathParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        to_result(mcp::read_path(&self.ctx, &p.from, &p.to))
+        to_result(mcp::read_path(&self.ctx, &p.from, &p.to), self.ctx.guide_version())
     }
 
     #[tool(
         description = "获取当前工作区模式的 AI 使用指南全文与版本号。任何写入操作前必须先调用本工具获取最新规范。返回 JSON 文本（content 字段为指南全文）。"
     )]
     async fn get_guide(&self) -> Result<CallToolResult, ErrorData> {
-        to_result(mcp::get_guide(&self.ctx))
-    }
-
-    #[tool(
-        description = "【写入】新建知识节点（仅开发模式工作区）。title 必填且单行；检测到同名节点时拒绝，确认另建传 force=true。写入前请先 get_guide。返回 JSON 文本（含新 id 与规范提示）。"
-    )]
-    async fn create_node(
-        &self,
-        Parameters(p): Parameters<CreateNodeParams>,
-    ) -> Result<CallToolResult, ErrorData> {
-        let _guard = self.write_lock.lock().await;
-        to_result(mcp::create_node(
-            &self.ctx,
-            &p.title,
-            p.body.as_deref(),
-            p.tags,
-            p.force,
-        ))
-    }
-
-    #[tool(
-        description = "【写入】更新节点正文：mode=append 追加 / replace_body 整体替换。建议先 read_node 取 updated 并传 expected_updated（乐观锁，不匹配返回 CONFLICT 不落盘）。写入前请先 get_guide。返回 JSON 文本。"
-    )]
-    async fn update_node(
-        &self,
-        Parameters(p): Parameters<UpdateNodeParams>,
-    ) -> Result<CallToolResult, ErrorData> {
-        let _guard = self.write_lock.lock().await;
-        to_result(mcp::update_node(
-            &self.ctx,
-            &p.id,
-            &p.mode,
-            &p.content,
-            p.expected_updated.as_deref(),
-        ))
-    }
-
-    #[tool(
-        description = "【写入】建立 from(父)→to(子) 链接（仅开发模式工作区）。rel_type 仅 contains/solves/alternative；desc 可选边说明。写入前请先 get_guide。返回 JSON 文本。"
-    )]
-    async fn link_nodes(
-        &self,
-        Parameters(p): Parameters<LinkNodesParams>,
-    ) -> Result<CallToolResult, ErrorData> {
-        let _guard = self.write_lock.lock().await;
-        to_result(mcp::link_nodes(
-            &self.ctx,
-            &p.from,
-            &p.to,
-            &p.rel_type,
-            p.desc.as_deref(),
-        ))
+        to_result(mcp::get_guide(&self.ctx), self.ctx.guide_version())
     }
 
     #[tool(
@@ -274,34 +259,15 @@ impl EngramMcp {
         Parameters(p): Parameters<RecallParams>,
     ) -> Result<CallToolResult, ErrorData> {
         // recall 只读（stats 回写为内部派生状态，不受 D3 写锁约束）
-        to_result(mcp::recall(
-            &self.ctx,
-            &p.query,
-            p.k,
-            p.include_archived.unwrap_or(false),
-        ))
-    }
-
-    #[tool(
-        description = "【写入】归档节点（仅开发模式工作区）：archived: true + 标题前缀 [归档]，文件移入 .chain/archive/。归档节点默认不进图与检索，recall 传 include_archived=true 可找回，read_node 仍可直读。90 天未触达为建议阈值（仅提示）。写入前请先 get_guide。返回 JSON 文本。"
-    )]
-    async fn archive_node(
-        &self,
-        Parameters(p): Parameters<ArchiveNodeParams>,
-    ) -> Result<CallToolResult, ErrorData> {
-        let _guard = self.write_lock.lock().await;
-        to_result(mcp::archive_node(&self.ctx, &p.id, p.reason.as_deref()))
-    }
-
-    #[tool(
-        description = "【写入】断开 from(父)→to(子) 链接（仅开发模式工作区）：子节点 parent 置 null 并清理 rel/rel_desc。返回 rel_removed 供回溯。写入前请先 get_guide。返回 JSON 文本。"
-    )]
-    async fn unlink_nodes(
-        &self,
-        Parameters(p): Parameters<UnlinkNodesParams>,
-    ) -> Result<CallToolResult, ErrorData> {
-        let _guard = self.write_lock.lock().await;
-        to_result(mcp::unlink_nodes(&self.ctx, &p.from, &p.to))
+        to_result(
+            mcp::recall(
+                &self.ctx,
+                &p.query,
+                p.k,
+                p.include_archived.unwrap_or(false),
+            ),
+            self.ctx.guide_version(),
+        )
     }
 
     #[tool(
@@ -312,7 +278,137 @@ impl EngramMcp {
         Parameters(p): Parameters<ConsolidateParams>,
     ) -> Result<CallToolResult, ErrorData> {
         let _guard = self.write_lock.lock().await;
-        to_result(mcp::consolidate(&self.ctx, p.targets, p.dry_run, p.k))
+        to_result(
+            mcp::consolidate(&self.ctx, p.targets, p.dry_run, p.k),
+            self.ctx.guide_version(),
+        )
+    }
+
+    // ── 三层重构 P0/P1 新工具（设计稿 v1 §10）──────────────────────────────
+
+    #[tool(
+        description = "【记忆入口·核心】追加对话并可选地把 AI 整理出的脉络落成节点——三层重构后唯一的写入口（取代 create/update/link）。kind=msg 追加一条消息；kind=tool 追加工具轨迹；kind=decision 追加记忆决策留痕（decided=keep/skip/revise，covers 为被本决策消费的消息 seq 区间，reason 必填——skip 也必须留痕）。commits 数组可选地执行节点意图（op=create/update/link/unlink/archive），全部过守门；正文缺「> 触发：」句只标记不阻断（conventions 字段）。有 commits 时必须有事件（溯源锚点）。返回 JSON 文本。"
+    )]
+    async fn remember(
+        &self,
+        Parameters(p): Parameters<RememberParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let _guard = self.write_lock.lock().await;
+        let event = match p.kind.as_deref() {
+            None => None,
+            Some("msg") => Some(mcp::RememberEvent::Message {
+                role: p.role.unwrap_or_default(),
+                text: p.text.unwrap_or_default(),
+            }),
+            Some("tool") => Some(mcp::RememberEvent::Tool {
+                name: p.name.unwrap_or_default(),
+                args: p.args.unwrap_or_default(),
+                result: p.result.unwrap_or_default(),
+            }),
+            Some("decision") => {
+                let covers = match &p.covers {
+                    Some(v) if v.len() == 2 => Some((v[0], v[1])),
+                    None => None,
+                    Some(_) => {
+                        return Err(ErrorData::internal_error(
+                            "REMEMBER_BAD_COVERS: covers 须为两元素数组 [from, to]（含端点）"
+                                .to_string(),
+                            None,
+                        ))
+                    }
+                };
+                Some(mcp::RememberEvent::Decision {
+                    decided: p.decided.unwrap_or_default(),
+                    covers,
+                    nodes: p.nodes.unwrap_or_default(),
+                    reason: p.reason.unwrap_or_default(),
+                })
+            }
+            Some(other) => {
+                return Err(ErrorData::internal_error(
+                    format!("REMEMBER_BAD_KIND: kind 仅 msg/tool/decision，收到「{other}」"),
+                    None,
+                ))
+            }
+        };
+        let commits: Option<Vec<mcp::CommitIntent>> = match p.commits {
+            None => None,
+            Some(cs) => {
+                let mut out = Vec::new();
+                for c in cs {
+                    let intent = match c.op.as_str() {
+                        "create" => mcp::CommitIntent::Create {
+                            title: c.title.unwrap_or_default(),
+                            body: c.body,
+                            tags: c.tags,
+                            force: c.force,
+                        },
+                        "update" => mcp::CommitIntent::Update {
+                            id: c.id.unwrap_or_default(),
+                            mode: c.mode.unwrap_or_default(),
+                            content: c.content.unwrap_or_default(),
+                            expected_updated: c.expected_updated,
+                        },
+                        "link" => mcp::CommitIntent::Link {
+                            from: c.from.unwrap_or_default(),
+                            to: c.to.unwrap_or_default(),
+                            rel: c.rel.unwrap_or_default(),
+                            desc: c.desc,
+                        },
+                        "unlink" => mcp::CommitIntent::Unlink {
+                            from: c.from.unwrap_or_default(),
+                            to: c.to.unwrap_or_default(),
+                        },
+                        "archive" => mcp::CommitIntent::Archive {
+                            id: c.id.unwrap_or_default(),
+                            reason: c.reason,
+                        },
+                        other => {
+                            return Err(ErrorData::internal_error(
+                                format!(
+                                    "REMEMBER_BAD_OP: op 仅 create/update/link/unlink/archive，收到「{other}」"
+                                ),
+                                None,
+                            ))
+                        }
+                    };
+                    out.push(intent);
+                }
+                Some(out)
+            }
+        };
+        to_result(
+            mcp::remember(&self.ctx, &p.session, event, commits),
+            self.ctx.guide_version(),
+        )
+    }
+
+    #[tool(
+        description = "【只读】对话账本状态：规模（records）、会话与指南版本、消费进度（unconsumed_from 之后的记录是本次接管要读的部分）、决策计数（keep/skip/revise）、坏行清单（malformed，需修复）。新 AI 接管工作区时先调它。返回 JSON 文本。"
+    )]
+    async fn dialogue_status(&self) -> Result<CallToolResult, ErrorData> {
+        to_result(mcp::dialogue_status(&self.ctx), self.ctx.guide_version())
+    }
+
+    #[tool(
+        description = "【写入】冻结自愈：并发写冲突后节点进入 [待裁决] 冻结态（frozen=true），用本工具读双方内容后写回最终裁决（title/status/body 一次给定），去除冻结标记。非冻结节点调用报 NOT_FROZEN；expected_updated 不符报 CONFLICT（不改变冻结态）。返回 JSON 文本。"
+    )]
+    async fn resolve_conflict(
+        &self,
+        Parameters(p): Parameters<ResolveConflictParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let _guard = self.write_lock.lock().await;
+        to_result(
+            mcp::resolve_conflict(
+                &self.ctx,
+                &p.id,
+                &p.title,
+                &p.status,
+                p.body.as_deref(),
+                p.expected_updated.as_deref(),
+            ),
+            self.ctx.guide_version(),
+        )
     }
 }
 
@@ -325,7 +421,7 @@ impl ServerHandler for EngramMcp {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(si)
             .with_instructions(format!(
-                "Engram MCP server（工作区：{}；模式：{}；AI 指南 v{}）。写入类工具（create_node/update_node/link_nodes/archive_node/unlink_nodes/consolidate）调用前必须先 get_guide 获取最新规范；update_node 建议先 read_node 取 updated 并传 expected_updated 防并发覆盖（CONFLICT 冲突会触发 [待裁决] 冻结，绝不静默覆盖）。",
+                "Engram MCP server（工作区：{}；模式：{}；AI 指南 v{}）。三层重构后**记忆的唯一写入口是 remember**（对话账本 + 节点意图 + 决策留痕；取代已移除的 create_node/update_node/link_nodes/archive_node/unlink_nodes）。任何写入前必须先 get_guide 获取最新规范；update 意图建议先 read_node 取 updated 并传 expected_updated 防并发覆盖（CONFLICT 冲突会触发 [待裁决] 冻结）。每个工具响应携带 guide_version，版本变化当次可见。",
                 self.ctx.root.display(),
                 self.ctx.mode_str(),
                 self.ctx.guide_version(),

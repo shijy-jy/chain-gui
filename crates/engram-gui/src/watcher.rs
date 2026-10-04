@@ -35,7 +35,8 @@ pub fn start_watch(
     // 事件回调与 Tauri 解耦：build_watch_callback 纯逻辑可脱离 AppHandle 测试（补事件循环盲区）
     let callback = build_watch_callback(dir.clone(), mode, move |result| match result {
         RescanResult::Ok(snapshot) => {
-            let _ = app.emit("chain-changed", &*snapshot);
+            // 与 scan_chain 同一条路径：结构注解随事件一起下发（人机同源，P2-7）
+            let _ = app.emit("chain-changed", engram_core::ops::snapshot_view(&snapshot));
         }
         RescanResult::Err(e) => {
             let _ = app.emit("chain-error", e);

@@ -263,7 +263,7 @@ export function missingParents(tree: NodeTree): string[] {
 }
 
 /**
- * 未闭环任务判定（与 chain_to_cytoscape.ts 的图标记同规则）：
+ * 未闭环任务判定（与 Graph3D 的图标记同规则）：
  * task 且没有任何子节点（本节点不在任何边的 parent 端）且正文无「自验收」。
  * 阅读模式下同步显示，读到任务时闭环状态一眼可见。
  */

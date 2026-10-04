@@ -8,12 +8,21 @@
 //! - D1：rel 保持子节点 frontmatter 单值，边说明走可选 rel_desc（不引入边列表）
 //! - D2：rel_type 仅放行 contains / solves / alternative（严格校验，非法值报错）
 
-pub mod chain;
-pub mod node_edit;
+// 三层重构 P4：链级操作与节点编辑原语已随文件层移入 engram-file；
+// 此处 re-export 保持 engram_core::ops::chain / node_edit 旧路径兼容。
+pub use engram_file::chain_ops as chain;
+pub use engram_file::node_edit;
+// 三层重构（设计稿 v1 §10）：对话账本写入 + 节点意图执行 + 决策留痕的唯一切入点
+pub mod remember;
+
+pub use remember::{remember, CommitIntent, RememberEvent};
+
+// 文件层共用原语 re-export（原子写/宽松解析/frontmatter 取值；旧路径 crate::ops::* 兼容）
+pub use engram_file::fsio::{atomic_write, atomic_write_bytes, fm_get_str, parse_lenient};
 
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::guide::{guide_for, guide_version_for};
 use crate::model::{ScanMode, UpdateFields};
@@ -169,64 +178,7 @@ impl Workspace {
 /// tmp/rename 原子写：先写同目录隐藏 .tmp 再 rename 替换，杜绝半截文件。
 /// Windows 上 Rust rename 为替换语义（MOVEFILE_REPLACE_EXISTING），
 /// 由测试 update_append_then_replace（连续两次写同一文件）覆盖验证。
-/// 唯一写路径原语：GUI 侧写入也走这里。
-pub fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
-    let file_name = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| format!("非法文件路径：{}", path.display()))?;
-    let tmp = path.with_file_name(format!(".{file_name}.tmp"));
-    std::fs::write(&tmp, content).map_err(|e| format!("写临时文件失败：{e}"))?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("原子替换失败：{e}")
-    })?;
-    Ok(())
-}
-
-/// 二进制原子写（同 atomic_write 的 tmp/rename 语义；索引向量等非 UTF-8 数据专用，
-/// 严禁经 String 转换——from_utf8_lossy 会改写字节破坏数据）
-pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
-    let file_name = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| format!("非法文件路径：{}", path.display()))?;
-    let tmp = path.with_file_name(format!(".{file_name}.tmp"));
-    std::fs::write(&tmp, content).map_err(|e| format!("写临时文件失败：{e}"))?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("原子替换失败：{e}")
-    })?;
-    Ok(())
-}
-
-/// 开发模式宽松解析兜底：无 frontmatter 的 .md 补最小 frontmatter（语义同 GUI update_node）
-/// 核心唯一写路径共用原语（GUI set_parent / update_node / MCP 写入工具）
-pub fn parse_lenient(raw: &str, node_id: &str) -> Result<(serde_yaml::Mapping, String), String> {
-    use serde_yaml::Value as YV;
-    match frontmatter::parse(raw) {
-        Ok(result) => Ok(result),
-        Err(e) => Err(format!("解析 frontmatter 失败：{e}")),
-    }
-    .or_else(|_| {
-        let now = frontmatter::now_iso8601();
-        let mut m = serde_yaml::Mapping::new();
-        m.insert(YV::String("id".into()), YV::String(node_id.into()));
-        m.insert(YV::String("type".into()), YV::String("note".into()));
-        m.insert(YV::String("status".into()), YV::String("none".into()));
-        m.insert(YV::String("title".into()), YV::String(node_id.into()));
-        m.insert(YV::String("created".into()), YV::String(now.clone()));
-        m.insert(YV::String("updated".into()), YV::String(now));
-        m.insert(YV::String("revision".into()), YV::Number(1u64.into()));
-        m.insert(YV::String("parent".into()), YV::Null);
-        Ok((m, raw.to_string()))
-    })
-}
-
-fn fm_get_str(fm: &serde_yaml::Mapping, key: &str) -> Option<String> {
-    fm.get(serde_yaml::Value::String(key.into()))
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
-}
+/// 唯一写路径原语已移入 engram-file::fsio（顶层 pub use 暴露；见文件头部）。
 
 fn fm_get_bool(fm: &serde_yaml::Mapping, key: &str) -> bool {
     fm.get(serde_yaml::Value::String(key.into()))
@@ -244,15 +196,162 @@ fn normalize_title_key(t: &str) -> String {
 
 /// 冻结门禁（ADR 0003）：frozen 节点拒绝一切 MCP 写入（人工裁决后恢复）
 fn ensure_not_frozen(fm: &serde_yaml::Mapping, id: &str) -> Result<(), String> {
-    if fm_get_bool(fm, "frozen") {
+        if fm_get_bool(fm, "frozen") {
         return Err(format!(
-            "节点 {id} 已冻结 [待裁决]（并发写冲突待人工裁决，拒绝写入）。恢复方式：编辑节点文件去除 frozen 标记并修正内容，或在 GUI 修改标题/状态"
+            "节点 {id} 已冻结 [待裁决]（并发写冲突待裁决，拒绝写入）。恢复方式：AI 用 resolve_conflict 读双方内容后写回最终裁决；人工也可编辑节点文件去除 frozen 标记并修正标题/状态"
         ));
     }
     Ok(())
 }
 
 // ── 只读工具 ──────────────────────────────────────────────
+
+/// 结构注解（AI 导航用，契约 v9）：id → { parent, depth, children_count, degree, origin }。
+/// 目的：让**每一次检索/召回的结果自带"下一步去哪"的信息**，AI 顺着节点链梳理时
+/// 不必为每条结果额外调一次 read_node 才能判断位置（遍历模型不变，跳数减少）。
+/// `degree` 同时是显示层球径的依据（P2-7 人机同源：人看到的球多大 = AI 读到的 degree）。
+pub(crate) fn structure_index(
+    snap: &crate::model::chain::ChainSnapshot,
+) -> HashMap<String, Value> {
+    let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
+    for e in &snap.edges {
+        children.entry(e.parent.as_str()).or_default().push(e.child.as_str());
+    }
+    let ids: HashSet<&str> = snap.nodes.iter().map(|n| n.id.as_str()).collect();
+    let mut depth: HashMap<String, usize> = HashMap::new();
+    let mut q: VecDeque<(&str, usize)> = snap
+        .nodes
+        .iter()
+        .filter(|n| match &n.parent {
+            Some(p) => !ids.contains(p.as_str()),
+            None => true,
+        })
+        .map(|n| (n.id.as_str(), 0))
+        .collect();
+    while let Some((id, d)) = q.pop_front() {
+        if depth.contains_key(id) {
+            continue;
+        }
+        depth.insert(id.to_string(), d);
+        for c in children.get(id).cloned().unwrap_or_default() {
+            q.push_back((c, d + 1));
+        }
+    }
+    let mut out = HashMap::new();
+    // degree（无向关联边数，P2-7）：AI 在检索/扩展结果里读到的度 = 人看到的球径所依据的同一个数
+    let mut degree: HashMap<&str, usize> = HashMap::new();
+    for e in &snap.edges {
+        *degree.entry(e.parent.as_str()).or_insert(0) += 1;
+        *degree.entry(e.child.as_str()).or_insert(0) += 1;
+    }
+    for n in &snap.nodes {
+        out.insert(
+            n.id.clone(),
+            json!({
+                "parent": n.parent,
+                "depth": depth.get(&n.id).copied().unwrap_or(0),
+                "children_count": children.get(n.id.as_str()).map(|v| v.len()).unwrap_or(0),
+                "degree": degree.get(n.id.as_str()).copied().unwrap_or(0),
+                "origin": n.origin,
+            }),
+        );
+    }
+    out
+}
+
+/// 把结构注解并入一条检索结果（键同名覆盖，缺省不写）
+pub(crate) fn attach_structure(item: &mut Value, st: Option<&Value>) {
+    if let (Some(Value::Object(extra)), Some(obj)) = (st, item.as_object_mut()) {
+        for (k, v) in extra {
+            obj.insert(k.clone(), v.clone());
+        }
+    }
+}
+
+/// 显示层结构注解（P2-7 人机同源）：把**AI 读到的同一批结构指标**随快照一起下发给显示层。
+///
+/// 不变量：显示层**不得自己重算结构指标**——人看到的球径 = 这里的 `degree`，AI 读到的
+/// `children_count` / `subtree_size` / `depth` 出自同一份 `structure_index` + `subtree_sizes`，
+/// 两边是同一个数（同一算法、同一处定义）。因此"人看图看出的重要性"与"AI 导航读到的数字"
+/// 不再有两套口径。
+///
+/// 返回与 Tauri `scan_chain` / `chain-changed` 相同的 JSON 形状（nodes/edges/archived/manifest/
+/// validation），只是每个活跃节点多带 `degree / depth / children_count / subtree_size / origin`。
+/// 归档节点不在活跃图上（无结构边），刻意不加这些字段——前端按缺省处理。
+pub fn snapshot_view(snap: &crate::model::chain::ChainSnapshot) -> Value {
+    let sidx = structure_index(snap);
+    let sub = subtree_sizes(snap);
+    // 逐项都从 sidx 取（**不在这里重算**——同一指标只能有一处算法，否则人机又会分叉）
+    let pick = |id: &str, key: &str, dflt: u64| -> u64 {
+        sidx.get(id)
+            .and_then(|s| s.get(key))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(dflt)
+    };
+    let annotate = |n: &crate::model::node::Node| -> Value {
+        let mut v = serde_json::to_value(n).unwrap_or_else(|_| json!({ "id": n.id }));
+        if let Value::Object(obj) = &mut v {
+            obj.insert("degree".into(), json!(pick(&n.id, "degree", 0)));
+            obj.insert("depth".into(), json!(pick(&n.id, "depth", 0)));
+            obj.insert(
+                "children_count".into(),
+                json!(pick(&n.id, "children_count", 0)),
+            );
+            obj.insert(
+                "subtree_size".into(),
+                json!(sub.get(&n.id).copied().unwrap_or(1)),
+            );
+        }
+        v
+    };
+    let nodes: Vec<Value> = snap.nodes.iter().map(annotate).collect();
+    // 归档节点保持原样（无结构注解）
+    let archived: Vec<Value> = snap
+        .archived
+        .iter()
+        .map(|n| serde_json::to_value(n).unwrap_or_else(|_| json!({ "id": n.id })))
+        .collect();
+    json!({
+        "nodes": nodes,
+        "edges": snap.edges,
+        "archived": archived,
+        "manifest": snap.manifest,
+        "validation": snap.validation,
+    })
+}
+
+/// 子树规模（含自身；迭代后序，深链不爆栈）：id → size
+pub(crate) fn subtree_sizes(snap: &crate::model::chain::ChainSnapshot) -> HashMap<String, usize> {
+    let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
+    for e in &snap.edges {
+        children.entry(e.parent.as_str()).or_default().push(e.child.as_str());
+    }
+    let mut size: HashMap<String, usize> = snap.nodes.iter().map(|n| (n.id.clone(), 1)).collect();
+    // 拓扑序：按 depth 降序处理（深者先算）
+    let idx = structure_index(snap);
+    let mut order: Vec<(&str, usize)> = snap
+        .nodes
+        .iter()
+        .map(|n| {
+            let d = idx
+                .get(&n.id)
+                .and_then(|v| v.get("depth"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            (n.id.as_str(), d)
+        })
+        .collect();
+    order.sort_by(|a, b| b.1.cmp(&a.1));
+    for (id, _) in order {
+        let s = size.get(id).copied().unwrap_or(1);
+        if let Some(p) = snap.nodes.iter().find(|n| n.id == id).and_then(|n| n.parent.clone()) {
+            if let Some(ps) = size.get_mut(&p) {
+                *ps += s;
+            }
+        }
+    }
+    size
+}
 
 /// get_overview()：全局概览——规模 + 活跃链 + 健康度 + 模式与指南版本
 pub fn get_overview(ctx: &Workspace) -> Result<Value, String> {
@@ -291,6 +390,7 @@ pub fn get_overview(ctx: &Workspace) -> Result<Value, String> {
     if hubs.is_empty() {
         hubs = ranked;
     }
+    let sub = subtree_sizes(&snap);
     let hubs: Vec<Value> = hubs
         .into_iter()
         .take(5)
@@ -300,10 +400,41 @@ pub fn get_overview(ctx: &Workspace) -> Result<Value, String> {
                 "title": n.title,
                 "degree": d,
                 "children_count": snap.nodes.iter().filter(|c| c.parent.as_deref() == Some(n.id.as_str())).count(),
+                "subtree_size": sub.get(&n.id).copied().unwrap_or(1),
                 "has_code_map": n.code_map.is_some(),
             })
         })
         .collect();
+    // 结构块（契约 v9）：把"人眼从 3D 图看出的结构"翻译成数据——深度分布、叶子/孤儿、根数
+    let idx = structure_index(&snap);
+    let mut hist: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+    let mut leaves = 0usize;
+    let mut orphans = 0usize;
+    let mut max_depth = 0usize;
+    for n in &snap.nodes {
+        let e = idx.get(&n.id);
+        let d = e.and_then(|v| v.get("depth")).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let cc = e.and_then(|v| v.get("children_count")).and_then(|v| v.as_u64()).unwrap_or(0);
+        *hist.entry(d).or_insert(0) += 1;
+        if cc == 0 {
+            leaves += 1;
+        }
+        if n.parent.is_none() {
+            orphans += 1;
+        }
+        max_depth = max_depth.max(d);
+    }
+    let depth_hist: Vec<Value> = hist.iter().map(|(d, c)| json!({ "depth": d, "count": c })).collect();
+    // 契约 v9：root_ids —— 层级优先读取的入口（parent=null 的节点，按子树规模倒序、同规模按 id，取前 20）。
+    // 只给"从哪开始"的数据，不给阅读顺序结论（用户 2026-10-03 定调）。
+    let mut roots: Vec<(&str, usize)> = snap
+        .nodes
+        .iter()
+        .filter(|n| n.parent.is_none())
+        .map(|n| (n.id.as_str(), sub.get(&n.id).copied().unwrap_or(1)))
+        .collect();
+    roots.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let root_ids: Vec<&str> = roots.iter().take(20).map(|(id, _)| *id).collect();
     Ok(json!({
         "workspace": ctx.root.display().to_string(),
         "mode": ctx.mode_str(),
@@ -313,6 +444,13 @@ pub fn get_overview(ctx: &Workspace) -> Result<Value, String> {
         "chain_health": snap.manifest.chain_health,
         "guide_version": ctx.guide_version(),
         "entry_hubs": hubs,
+        "structure": {
+            "roots": orphans,
+            "root_ids": root_ids,
+            "max_depth": max_depth,
+            "leaves": leaves,
+            "depth_hist": depth_hist,
+        },
     }))
 }
 
@@ -336,6 +474,7 @@ pub(crate) fn search_impl(
     }
     let limit = limit.unwrap_or(10).clamp(1, 100);
     let snap = ctx.scan()?;
+    let sidx = structure_index(&snap);
     let mut hits: Vec<(u8, Value)> = Vec::new();
     for n in &snap.nodes {
         let mut score = 0u8;
@@ -362,18 +501,17 @@ pub(crate) fn search_impl(
             }
         }
         if score > 0 {
-            hits.push((
-                score,
-                json!({
-                    "id": n.id,
-                    "title": n.title,
-                    "type": n.node_type,
-                    "status": n.status,
-                    "matched_on": matched_on,
-                    "snippet": frontmatter::truncate_utf8(n.body.trim(), 160),
-                    "updated": n.updated,
-                }),
-            ));
+            let mut item = json!({
+                "id": n.id,
+                "title": n.title,
+                "type": n.node_type,
+                "status": n.status,
+                "matched_on": matched_on,
+                "snippet": frontmatter::truncate_utf8(n.body.trim(), 160),
+                "updated": n.updated,
+            });
+            attach_structure(&mut item, sidx.get(&n.id));
+            hits.push((score, item));
         }
     }
     // 命中字段权重优先，同级按 updated 倒序；同秒再按 id 升序（跨平台确定性，避免
@@ -465,8 +603,15 @@ pub fn read_node_full(
     Ok(v)
 }
 
-/// expand(id, depth=1..2)：以 id 为中心无向 BFS 扩展，返回局部子图（摘要级）
-pub fn expand(ctx: &Workspace, id: &str, depth: Option<u32>) -> Result<Value, String> {
+/// expand(id, depth=1..2, direction=children|parents|both)：以 id 为中心 BFS 扩展，返回局部子图（摘要级）。
+/// direction 支持两条读取策略：children 自根向下层级优先；parents 回溯来源；both（默认）无向。
+/// 每个节点附 hop（层距）与 first_line（正文首行机械截断，非摘要）。
+pub fn expand(
+    ctx: &Workspace,
+    id: &str,
+    depth: Option<u32>,
+    direction: Option<&str>,
+) -> Result<Value, String> {
     ctx.bump_clock()?;
     let depth = depth.unwrap_or(1);
     if !(1..=2).contains(&depth) {
@@ -474,20 +619,27 @@ pub fn expand(ctx: &Workspace, id: &str, depth: Option<u32>) -> Result<Value, St
             "depth 仅支持 1 或 2（防大图上响应膨胀），收到：{depth}"
         ));
     }
+    // 契约 v9：direction 区分沿链梳理方向——children（从根向下）/ parents（回溯来源）/ both（默认，无向）
+    let dir = direction.unwrap_or("both");
+    if !matches!(dir, "children" | "parents" | "both") {
+        return Err(format!(
+            "direction 仅支持 children / parents / both，收到：{dir}"
+        ));
+    }
     let snap = ctx.scan()?;
     if !snap.nodes.iter().any(|n| n.id == id) {
         return Err(format!("节点 {id} 不存在"));
     }
     let _ = ctx.touch_read(id); // 读触达（T3）
-    // 无向邻接表
+    // 邻接表（按 direction 定向：children = 父→子；parents = 子→父；both = 无向）
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for e in &snap.edges {
-        adj.entry(e.parent.as_str())
-            .or_default()
-            .push(e.child.as_str());
-        adj.entry(e.child.as_str())
-            .or_default()
-            .push(e.parent.as_str());
+        if dir != "parents" {
+            adj.entry(e.parent.as_str()).or_default().push(e.child.as_str());
+        }
+        if dir != "children" {
+            adj.entry(e.child.as_str()).or_default().push(e.parent.as_str());
+        }
     }
     let mut visited: HashSet<&str> = HashSet::from([id]);
     let mut frontier: Vec<&str> = vec![id];
@@ -504,26 +656,69 @@ pub fn expand(ctx: &Workspace, id: &str, depth: Option<u32>) -> Result<Value, St
         }
         frontier = next;
     }
-    let nodes: Vec<Value> = snap
+    // 契约 v9：节点附 depth（相对中心的层距）与 first_line（正文首个内容行的**机械截断**——
+    // 只做取样不移写原文；AI 决定是否读全文，禁止把它当"摘要"使用）
+    let sidx = structure_index(&snap);
+    let mut hop: HashMap<&str, usize> = HashMap::from([(id, 0)]);
+    {
+        let mut layer: Vec<&str> = vec![id];
+        for d in 1..=depth {
+            let mut next = Vec::new();
+            for cur in &layer {
+                if let Some(neis) = adj.get(cur) {
+                    for nei in neis {
+                        if !hop.contains_key(*nei) && visited.contains(*nei) {
+                            hop.insert(nei, d as usize);
+                            next.push(*nei);
+                        }
+                    }
+                }
+            }
+            layer = next;
+        }
+    }
+    let mut nodes: Vec<Value> = snap
         .nodes
         .iter()
         .filter(|n| visited.contains(n.id.as_str()))
         .map(|n| {
-            json!({
+            let first_line = n
+                .body
+                .lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty() && !l.starts_with('#'))
+                .unwrap_or("");
+            let mut item = json!({
                 "id": n.id, "title": n.title, "type": n.node_type,
                 "status": n.status, "parent": n.parent, "rel": n.rel,
-            })
+                "hop": hop.get(n.id.as_str()).copied().unwrap_or(0),
+                "first_line": frontmatter::truncate_utf8(first_line, 120),
+            });
+            attach_structure(&mut item, sidx.get(&n.id));
+            item
         })
         .collect();
+    // 中心优先、再按层距、同层按 id（确定性）
+    nodes.sort_by(|a, b| {
+        a["hop"]
+            .as_u64()
+            .cmp(&b["hop"].as_u64())
+            .then_with(|| a["id"].as_str().cmp(&b["id"].as_str()))
+    });
     let edges: Vec<Value> = snap
         .edges
         .iter()
         .filter(|e| visited.contains(e.parent.as_str()) && visited.contains(e.child.as_str()))
         .map(|e| json!({"parent": e.parent, "child": e.child, "rel": e.rel}))
         .collect();
-    Ok(
-        json!({ "center": id, "depth": depth, "node_count": nodes.len(), "nodes": nodes, "edges": edges }),
-    )
+    Ok(json!({
+        "center": id,
+        "depth": depth,
+        "direction": dir,
+        "node_count": nodes.len(),
+        "nodes": nodes,
+        "edges": edges,
+    }))
 }
 
 /// read_path(from, to)：无向 BFS 最短路径，返回节点序列 + 关系叙述化 narrative
@@ -641,7 +836,7 @@ pub fn create_node(
     tags: Option<Vec<String>>,
     force: Option<bool>,
 ) -> Result<Value, String> {
-    create_node_impl(ctx, title, body, tags, force, None)
+    create_node_impl(ctx, title, body, tags, force, None, None, None)
 }
 
 pub(crate) fn create_node_impl(
@@ -651,6 +846,10 @@ pub(crate) fn create_node_impl(
     tags: Option<Vec<String>>,
     force: Option<bool>,
     embedder_override: Option<&dyn crate::embed::Embedder>,
+    // 三层重构：记忆溯源串（remember 写入；legacy 通道为 None）
+    origin: Option<&str>,
+    // 三层重构：规矩性违规标记（remember 写入；None = 全部合规）
+    conventions: Option<Vec<String>>,
 ) -> Result<Value, String> {
     ctx.bump_clock()?;
     if !ctx.mode.is_dev() {
@@ -771,6 +970,20 @@ pub(crate) fn create_node_impl(
                 .collect(),
         ),
     );
+    // 三层重构：溯源与规矩性标记（remember 通道写入；legacy create_node 两者皆无）
+    if let Some(o) = origin {
+        if !o.trim().is_empty() {
+            fm.insert(YV::String("origin".into()), YV::String(o.to_string()));
+        }
+    }
+    if let Some(cs) = conventions {
+        if !cs.is_empty() {
+            fm.insert(
+                YV::String("conventions".into()),
+                YV::Sequence(cs.into_iter().map(YV::String).collect()),
+            );
+        }
+    }
     let body_text = match body {
         Some(b) if !b.trim().is_empty() => b.trim().to_string(),
         _ => format!("# {title}"),
@@ -829,6 +1042,17 @@ pub fn update_node(
     expected_updated: Option<&str>,
 ) -> Result<Value, String> {
     ctx.bump_clock()?;
+    update_node_impl(ctx, id, mode, content, expected_updated)
+}
+
+/// 无时钟版（remember 批量意图内部复用；记忆时钟一次工具调用只 +1）
+pub(crate) fn update_node_impl(
+    ctx: &Workspace,
+    id: &str,
+    mode: &str,
+    content: &str,
+    expected_updated: Option<&str>,
+) -> Result<Value, String> {
     if !matches!(mode, "append" | "replace_body") {
         return Err(format!("mode 仅支持 append / replace_body，收到：{mode}"));
     }
@@ -934,6 +1158,112 @@ pub fn update_node(
     }))
 }
 
+/// resolve_conflict：冻结自愈（三层重构 P2，设计稿 v1 §9/§10）。
+/// 人治通道下线后，CONFLICT 的裁决权交回 AI：冻结节点（[待裁决] + frozen:true）由 AI
+/// 读双方内容后**显式写回最终裁决**——去除冻结标记与 [待裁决] 前缀、恢复状态与正文。
+/// - 非冻结节点调用 → NOT_FROZEN 拒绝（普通修改走 remember 的 update 意图）；
+/// - 冻结期间其他写路径仍被 ensure_not_frozen 拒绝——本工具是唯一出口；
+/// - 裁决走原子写 + audit("unfreeze") 留痕（治理权转移后，验证权仍在痕迹）。
+pub fn resolve_conflict(
+    ctx: &Workspace,
+    id: &str,
+    title: &str,
+    status: &str,
+    body: Option<&str>,
+    expected_updated: Option<&str>,
+) -> Result<Value, String> {
+    ctx.bump_clock()?;
+    if !is_safe_id(id) {
+        return Err("节点 id 非法".into());
+    }
+    let path = ctx.node_path(id);
+    if !path.exists() {
+        return Err(format!("节点 {id} 不存在"));
+    }
+    let raw = std::fs::read_to_string(&path).map_err(|e| format!("读取失败：{e}"))?;
+    let (mut fm, old_body) = if ctx.mode.is_dev() {
+        parse_lenient(&raw, id)?
+    } else {
+        frontmatter::parse(&raw).map_err(|e| format!("解析 frontmatter 失败：{e}"))?
+    };
+    if !fm_get_bool(&fm, "frozen") {
+        return Err(format!(
+            "NOT_FROZEN: 节点 {id} 未冻结（无并发冲突待裁决）；普通修改请走 remember 的 update 意图"
+        ));
+    }
+    // 裁决同样过乐观锁：expected 不符 → CONFLICT 拒绝，但**不再冻结**（节点已在冻结态）
+    if let Some(expected) = expected_updated {
+        let current = fm_get_str(&fm, "updated").unwrap_or_default();
+        if current != expected {
+            return Err(format!(
+                "CONFLICT: 节点 {id} 的 updated 已变为 {current}（你期望 {expected}）——冻结节点裁决前请重新 read_node 核对双方内容"
+            ));
+        }
+    }
+    let title = title.trim();
+    if title.is_empty() || title.contains('\n') || title.contains('\r') {
+        return Err("title 必须为单行非空文本".into());
+    }
+    let (status_enum, status_str): (crate::model::node::NodeStatus, String) = match status {
+        "pending" => (crate::model::node::NodeStatus::Pending, "pending".into()),
+        "in_progress" => (crate::model::node::NodeStatus::InProgress, "in_progress".into()),
+        "success" => (crate::model::node::NodeStatus::Success, "success".into()),
+        "failed" => (crate::model::node::NodeStatus::Failed, "failed".into()),
+        "blocked" => (crate::model::node::NodeStatus::Blocked, "blocked".into()),
+        "none" => (crate::model::node::NodeStatus::None, "none".into()),
+        other => {
+            return Err(format!(
+                "INVALID_STATUS: status 非法「{other}」（仅 pending/in_progress/success/failed/blocked/none）"
+            ))
+        }
+    };
+    let new_body = match body {
+        Some(b) => {
+            if !ctx.mode.is_dev() && b.trim().is_empty() {
+                return Err("body 不能为空（分析模式）".into());
+            }
+            b.trim().to_string()
+        }
+        None => old_body,
+    };
+
+    use serde_yaml::Value as YV;
+    fm.insert(YV::String("title".into()), YV::String(title.to_string()));
+    fm.insert(YV::String("status".into()), YV::String(status_str.clone()));
+    fm.remove(YV::String("frozen".into()));
+    fm.remove(YV::String("freeze_reason".into()));
+    // revision+1 与 updated 刷新
+    let fields = UpdateFields {
+        title: None,
+        status: None,
+        body: None,
+        tags: None,
+        evidence: None,
+        parent: None,
+        rel: None,
+    };
+    crate::model::node::apply_update(&mut fm, &fields).map_err(|e| format!("应用更新失败：{e}"))?;
+    let new_content =
+        frontmatter::serialize(&fm, &new_body).map_err(|e| format!("序列化失败：{e}"))?;
+    atomic_write(&path, &new_content)?;
+    ctx.touch_write(id)?;
+    ctx.mark_index_stale(id)?;
+    ctx.audit(
+        "unfreeze",
+        id,
+        &format!("title={title} status={status_enum:?} 冲突已裁决"),
+    );
+
+    Ok(json!({
+        "resolved": true,
+        "id": id,
+        "title": title,
+        "status": status_str,
+        "revision": fm_get_str(&fm, "revision"),
+        "hint": format!("冲突已裁决并解除冻结（AI 指南 v{}）。裁决内容已原子落盘；请确认双方内容已核对（audit.jsonl 有 unfreeze 留痕）。", ctx.guide_version()),
+    }))
+}
+
 /// link_nodes(from, to, rel_type, desc?)：建立 from(父) → to(子) 链接
 /// D1：rel 写入子节点 frontmatter 单值；desc 写入可选 rel_desc（空串=清除，None=不动）
 /// D2：rel_type 严格校验，仅 contains / solves / alternative
@@ -945,6 +1275,17 @@ pub fn link_nodes(
     desc: Option<&str>,
 ) -> Result<Value, String> {
     ctx.bump_clock()?;
+    link_nodes_impl(ctx, from, to, rel_type, desc)
+}
+
+/// 无时钟版（remember 批量意图内部复用）
+pub(crate) fn link_nodes_impl(
+    ctx: &Workspace,
+    from: &str,
+    to: &str,
+    rel_type: &str,
+    desc: Option<&str>,
+) -> Result<Value, String> {
     if !ctx.mode.is_dev() {
         return Err(
             "WORKSPACE_MODE_MISMATCH: 仅开发模式工作区可自由建链；分析模式的链由 AI 按协议维护"
@@ -1027,6 +1368,84 @@ pub fn recall(
 ) -> Result<Value, String> {
     ctx.bump_clock()?;
     crate::retrieval::recall(ctx, query, k, include_archived)
+}
+
+/// dialogue_status：对话账本只读状态（三层重构 P0，设计稿 §10）。
+/// 报告账本规模、会话与指南版本漂移、消费进度（covers）、决策计数、坏行清单。
+/// 新 AI 接管时先调它拿到 `unconsumed_from`，只读未消费段。
+pub fn dialogue_status(ctx: &Workspace) -> Result<Value, String> {
+    ctx.bump_clock()?;
+    let ledger = crate::dialogue_log::read_ledger(&ctx.root)?;
+    let (keep, skip, revise) = ledger.decision_counts();
+    let file = crate::dialogue::workspace_dialogue_path(&ctx.root);
+    // 记忆健康度出口（契约 v9）：线索缺口（recall 未命中的查询）+ 未闭环 task
+    let gaps = {
+        let mut st = ctx.stats.lock().map_err(|e| format!("stats 锁失败：{e}"))?;
+        st.gaps()?
+    };
+    let snap = ctx.scan()?;
+    // 覆盖度（契约 v9）：AI 的"从根向下 / 跨链随机不重复"策略需要知道哪些节点本库已读过。
+    // 数据来自记忆层既有触达记录（stats.per_id），零新增埋点。
+    let coverage = {
+        let reads = {
+            let mut st = ctx.stats.lock().map_err(|e| format!("stats 锁失败：{e}"))?;
+            st.reads_map()?
+        };
+        let read_nodes = snap
+            .nodes
+            .iter()
+            .filter(|n| reads.get(&n.id).map(|(r, _)| *r > 0).unwrap_or(false))
+            .count();
+        let mut unread: Vec<String> = snap
+            .nodes
+            .iter()
+            .filter(|n| reads.get(&n.id).map(|(r, _)| *r == 0).unwrap_or(true))
+            .map(|n| n.id.clone())
+            .collect();
+        unread.sort();
+        let total_unread = unread.len();
+        unread.truncate(30);
+        json!({
+            "total": snap.nodes.len(),
+            "read": read_nodes,
+            "unread": total_unread,
+            "unread_ids": unread,
+        })
+    };
+    let parents: std::collections::HashSet<&str> =
+        snap.edges.iter().map(|e| e.parent.as_str()).collect();
+    let open_loops: Vec<Value> = snap
+        .nodes
+        .iter()
+        .filter(|n| {
+            matches!(n.node_type, crate::model::node::NodeType::Task)
+                && n.status == crate::model::node::NodeStatus::Success
+                && !parents.contains(n.id.as_str())
+                && !n.body.contains("自验收")
+        })
+        .map(|n| json!({ "id": n.id, "title": n.title }))
+        .collect();
+    Ok(json!({
+        "workspace": ctx.root.display().to_string(),
+        "file": format!(".chain/{}/log.jsonl", crate::dialogue::DIALOGUE_DIR),
+        "exists": crate::dialogue::exists(&file),
+        "records": ledger.records.len(),
+        "sessions": ledger.sessions(),
+        "guide_versions": ledger.guide_versions(),
+        "last_covered_to": ledger.last_covered_to(),
+        "unconsumed_from": ledger.unconsumed_from(),
+        "unconsumed_count": ledger.unconsumed_seqs().len(),
+        "decisions": json!({ "keep": keep, "skip": skip, "revise": revise }),
+        "malformed": ledger
+            .malformed
+            .iter()
+            .map(|(line, reason)| json!({ "line": line, "reason": reason }))
+            .collect::<Vec<_>>(),
+        "gaps": gaps,
+        "open_loops": open_loops,
+        "coverage": coverage,
+        "hint": "对话账本 + 记忆健康度（契约 v9）。unconsumed_from 之后的记录是本次接管要读的部分；gaps = recall 未命中的查询（线索缺口，供补节点）；open_loops = 已 success 但无验证子节点且无「自验收」注明的 task；coverage = 本库读过的节点数与未读节点 id（供 AI 规划「从根向下 / 跨链随机不重复」的读取策略）。malformed 坏行需修复（对话不可再生，修复前先备份）。",
+    }))
 }
 
 /// 检索线索可视化（信息栏「检索线索」节，只读、零破坏）：
@@ -1185,6 +1604,15 @@ pub fn archive_node(
     reason: Option<&str>,
 ) -> Result<Value, String> {
     ctx.bump_clock()?;
+    archive_node_impl(ctx, id, reason)
+}
+
+/// 无时钟版（remember 批量意图内部复用）
+pub(crate) fn archive_node_impl(
+    ctx: &Workspace,
+    id: &str,
+    reason: Option<&str>,
+) -> Result<Value, String> {
     if !ctx.mode.is_dev() {
         return Err(
             "WORKSPACE_MODE_MISMATCH: 仅开发模式工作区可归档节点（知识库维护工具）；分析模式的链由 AI 按协议维护"
@@ -1266,6 +1694,11 @@ pub fn archive_node(
 /// 并清理 rel / rel_desc（返回值 rel_removed 供回溯）。
 pub fn unlink_nodes(ctx: &Workspace, from: &str, to: &str) -> Result<Value, String> {
     ctx.bump_clock()?;
+    unlink_nodes_impl(ctx, from, to)
+}
+
+/// 无时钟版（remember 批量意图内部复用）
+pub(crate) fn unlink_nodes_impl(ctx: &Workspace, from: &str, to: &str) -> Result<Value, String> {
     if !ctx.mode.is_dev() {
         return Err(
             "WORKSPACE_MODE_MISMATCH: 仅开发模式工作区可自由断边（知识库维护工具）；分析模式的链由 AI 按协议维护"
@@ -1556,9 +1989,69 @@ mod tests {
         assert_eq!(r["results"][0]["matched_on"][0], "title");
 
         // expand depth=1 从中间节点出发应见三个节点
-        let e = expand(&ctx, "b", None).unwrap();
+        let e = expand(&ctx, "b", None, None).unwrap();
         assert_eq!(e["node_count"], 3);
-        assert!(expand(&ctx, "b", Some(3)).is_err(), "depth>2 应拒绝");
+        assert_eq!(e["direction"], "both", "缺省方向应为 both");
+        assert!(expand(&ctx, "b", Some(3), None).is_err(), "depth>2 应拒绝");
+        assert!(
+            expand(&ctx, "b", None, Some("sideways")).is_err(),
+            "非 children/parents/both 的方向应拒绝"
+        );
+
+        // 契约 v9：direction 定向——children 只见下游（层级优先自根向下读），parents 只见上游（回溯来源）
+        let ids = |v: &Value| -> Vec<String> {
+            let mut out: Vec<String> = v["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|n| n["id"].as_str().unwrap().to_string())
+                .collect();
+            out.sort();
+            out
+        };
+        let down = expand(&ctx, "b", Some(2), Some("children")).unwrap();
+        assert_eq!(down["direction"], "children");
+        assert_eq!(ids(&down), vec!["b", "c"], "children 不应见父节点 a");
+        let up = expand(&ctx, "b", Some(2), Some("parents")).unwrap();
+        assert_eq!(up["direction"], "parents");
+        assert_eq!(ids(&up), vec!["a", "b"], "parents 不应见子节点 c");
+
+        // hop = 相对中心的层距（自根向下逐级读时判断"读到第几层"）
+        let deep = expand(&ctx, "a", Some(2), Some("children")).unwrap();
+        let hop_of = |v: &Value, id: &str| -> u64 {
+            v["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|n| n["id"] == id)
+                .unwrap()["hop"]
+                .as_u64()
+                .unwrap()
+        };
+        assert_eq!(hop_of(&deep, "a"), 0);
+        assert_eq!(hop_of(&deep, "b"), 1);
+        assert_eq!(hop_of(&deep, "c"), 2);
+
+        // first_line = 正文首个内容行的机械截断（跳过标题行；不是摘要，AI 据此决定读哪条原文）
+        let long = format!(
+            "---\nid: long\ntype: note\ntitle: 长正文\nparent: a\nrel: contains\nstatus: none\ncreated: 2026-09-01T10:00:00+08:00\nupdated: 2026-09-01T10:00:00+08:00\nrevision: 1\ntags: []\n---\n\n# 长正文\n\n{}\n第二行不该出现\n",
+            "正".repeat(200)
+        );
+        fs::write(tmp.path().join(".chain/nodes/long.md"), long).unwrap();
+        let again = expand(&ctx, "a", Some(2), Some("children")).unwrap();
+        let lf = again["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == "long")
+            .unwrap()["first_line"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(lf.starts_with("正正"), "首行应取正文首个内容行：{lf}");
+        assert!(lf.len() <= 120, "first_line 应按 120 字节机械截断");
+        assert!(!lf.contains("第二行"), "只取首行，不得拼多行");
+        assert!(!lf.contains('#'), "标题行应跳过");
 
         // read_path 根到叶
         let p = read_path(&ctx, "a", "c").unwrap();
@@ -1613,6 +2106,74 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_view_carries_ai_identical_structure_metrics() {
+        // P2-7 人机同源：显示层拿到的 degree/depth/children_count/subtree_size
+        // 必须与 AI 在工具响应里读到的是同一批数（同一份 structure_index + subtree_sizes）。
+        let tmp = setup("dev");
+        write_node(&tmp, "root", "根", "null", "contains");
+        write_node(&tmp, "hub", "枢纽", "root", "contains");
+        write_node(&tmp, "leaf1", "叶1", "hub", "contains");
+        write_node(&tmp, "leaf2", "叶2", "hub", "contains");
+        let ctx = ctx_of(&tmp);
+
+        let snap = ctx.scan().unwrap();
+        let view = snapshot_view(&snap);
+        let node = |id: &str| -> Value {
+            view["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|n| n["id"] == id)
+                .unwrap()
+                .clone()
+        };
+        // 快照形状不变（前端 invoke 契约）+ 每个活跃节点带结构注解
+        assert!(view["edges"].is_array() && view["manifest"].is_object() && view["archived"].is_array());
+        assert_eq!(view["nodes"].as_array().unwrap().len(), 4);
+        let h = node("hub");
+        assert_eq!(h["degree"], 3, "hub 连 root/leaf1/leaf2：{h}");
+        assert_eq!(h["depth"], 1);
+        assert_eq!(h["children_count"], 2);
+        assert_eq!(h["subtree_size"], 3);
+        let r = node("root");
+        assert_eq!(r["degree"], 1);
+        assert_eq!(r["depth"], 0);
+        assert_eq!(r["subtree_size"], 4, "整棵树：{r}");
+
+        // 与 AI 侧同源：search 附的结构注解与快照里的数逐项一致
+        let s = search(&ctx, "枢纽", None).unwrap();
+        let hit = &s["results"][0];
+        assert_eq!(hit["id"], "hub");
+        assert_eq!(hit["degree"], h["degree"]);
+        assert_eq!(hit["depth"], h["depth"]);
+        assert_eq!(hit["children_count"], h["children_count"]);
+
+        // expand 侧同样一致（AI 导航读法）
+        let e = expand(&ctx, "hub", Some(2), Some("children")).unwrap();
+        let en = e["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == "hub")
+            .unwrap();
+        assert_eq!(en["children_count"], h["children_count"]);
+        assert_eq!(en["depth"], h["depth"]);
+
+        // 归档节点不带结构注解（不在活跃图上，前端按缺省处理）
+        let mut snap2 = ctx.scan().unwrap();
+        let mut arc = snap2.nodes[0].clone();
+        arc.id = "gone".into();
+        arc.archived = true;
+        snap2.archived.push(arc);
+        let v2 = snapshot_view(&snap2);
+        assert!(
+            v2["archived"][0].get("degree").is_none(),
+            "归档节点不加结构注解：{}",
+            v2["archived"][0]
+        );
+    }
+
+    #[test]
     fn get_overview_recommends_entry_hubs() {
         // v2.20 外部实测建议③：get_overview 直接推荐总索引/高连接度入口
         let tmp = setup("dev");
@@ -1632,6 +2193,17 @@ mod tests {
             hubs.iter().all(|h| h["id"] != "leaf1" && h["id"] != "leaf2"),
             "叶节点不应被推荐：{o}"
         );
+        // 契约 v9：structure.root_ids = 层级优先读取的入口（parent=null，按子树规模倒序）
+        let roots: Vec<&str> = o["structure"]["root_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(roots, vec!["root"], "唯一根应为 root：{o}");
+        assert_eq!(o["structure"]["roots"], 1);
+        assert_eq!(o["structure"]["max_depth"], 2);
+        assert_eq!(o["structure"]["leaves"], 3, "leaf1/leaf2/other：{o}");
     }
 
     #[test]
@@ -1796,7 +2368,7 @@ mod tests {
 
         read_node(&ctx, "a", None).unwrap();
         search(&ctx, "叶", None).unwrap();
-        expand(&ctx, "a", Some(1)).unwrap();
+        expand(&ctx, "a", Some(1), None).unwrap();
         read_path(&ctx, "a", "c").unwrap();
         // 四个读工具 → per_id 触达回写（a: read+search? search 命中 c；expand 中心 a；path 端点 a/c）
         let raw = fs::read_to_string(tmp.path().join(".chain/stats.json")).unwrap();
@@ -1877,6 +2449,87 @@ mod tests {
     }
 
     #[test]
+    fn resolve_conflict_unfreezes_and_rejects_non_frozen() {
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        create_node(&ctx, "裁决目标", Some("原文"), None, None).unwrap();
+        // 制造冻结
+        update_node(
+            &ctx,
+            "node-1",
+            "replace_body",
+            "恶意覆盖",
+            Some("2000-01-01T00:00:00+08:00"),
+        )
+        .unwrap_err();
+        let v = read_node(&ctx, "node-1", None).unwrap();
+        assert_eq!(v["frozen"], true);
+
+        // 非冻结节点调用 → NOT_FROZEN
+        create_node(&ctx, "正常节点", None, None, None).unwrap(); // node-2
+        let err = resolve_conflict(&ctx, "node-2", "正常节点", "none", None, None).unwrap_err();
+        assert!(err.contains("NOT_FROZEN"), "{err}");
+
+        // 冻结期间其余写路径仍拒绝（自愈工具是唯一出口）
+        let err = update_node(&ctx, "node-1", "append", "x", None).unwrap_err();
+        assert!(err.contains("已冻结"), "{err}");
+
+        // AI 裁决：title/status/body 一次写回
+        let r = resolve_conflict(&ctx, "node-1", "裁决目标", "none", Some("裁决后的正文"), None)
+            .unwrap();
+        assert_eq!(r["resolved"], true);
+        let v = read_node(&ctx, "node-1", None).unwrap();
+        assert_eq!(v["title"], "裁决目标");
+        assert_eq!(v["status"], "none");
+        assert!(v.get("frozen").is_none(), "解冻后 frozen 字段消失：{v}");
+        assert_eq!(v["body"].as_str().unwrap(), "裁决后的正文");
+
+        // 解冻后可继续正常写
+        update_node(&ctx, "node-1", "append", "继续写", None).unwrap();
+        // 审计留痕
+        let log = fs::read_to_string(tmp.path().join(".chain/audit.jsonl")).unwrap();
+        assert!(log.contains("\"action\":\"unfreeze\""), "unfreeze 留痕：{log}");
+    }
+
+    #[test]
+    fn resolve_conflict_validates_inputs() {
+        let tmp = setup("dev");
+        let ctx = ctx_of(&tmp);
+        create_node(&ctx, "目标", Some("原文"), None, None).unwrap();
+        update_node(
+            &ctx,
+            "node-1",
+            "replace_body",
+            "x",
+            Some("2000-01-01T00:00:00+08:00"),
+        )
+        .unwrap_err();
+        assert!(
+            resolve_conflict(&ctx, "node-1", "", "none", None, None)
+                .unwrap_err()
+                .contains("title")
+        );
+        assert!(
+            resolve_conflict(&ctx, "node-1", "新题", "bogus", None, None)
+                .unwrap_err()
+                .contains("INVALID_STATUS")
+        );
+        // expected 不符 → CONFLICT 且**不再冻结**
+        let err = resolve_conflict(
+            &ctx,
+            "node-1",
+            "新题",
+            "none",
+            None,
+            Some("2000-01-01T00:00:00+08:00"),
+        )
+        .unwrap_err();
+        assert!(err.starts_with("CONFLICT"), "{err}");
+        let v = read_node(&ctx, "node-1", None).unwrap();
+        assert_eq!(v["frozen"], true, "裁决冲突不改变冻结态");
+    }
+
+    #[test]
     fn duplicate_detection_stage2_stub() {
         let tmp = setup("dev");
         let ctx = ctx_of(&tmp);
@@ -1898,6 +2551,8 @@ mod tests {
             None,
             None,
             Some(&Stub),
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(r["created"], true);
@@ -1921,6 +2576,8 @@ mod tests {
             None,
             Some(true),
             Some(&Stub),
+            None,
+            None,
         )
         .unwrap();
         assert!(r2.get("duplicate_hint").is_none(), "force 应跳过检测");

@@ -1,4 +1,4 @@
-<!-- CHAIN_GUIDE_VERSION: 14 -->
+<!-- CHAIN_GUIDE_VERSION: 21 -->
 # AI 工程实践哲学指南（必读 · 思维宪法）
 
 > **使用时机**：在任何 AI Agent、助手、工具即将进入工程实践（接手项目、调用工具、写代码、操作文件、与用户协作）**之前**，先通读本文。它不是操作手册，而是**思维宪法**——帮助 AI 在原则性与灵活性之间保持动态统一，避免两种典型堕落：教条主义（死守流程不顾现实）与机会主义（为进度丢原则）。
@@ -591,6 +591,11 @@ parent: t-002
 - **tags 即检索词**：tags 填未来可能作为检索词的同义/近义词（≤5 个，每个 ≤20 字）。
 - **检索阶梯（软件侧，ADR 0006）**：L1 精简线索↔trigger → L2 多线索↔trigger → L3 大意↔线索 → L4 三内容（title/body/tags）↔关键线索（归档节点自此可见）→ L5 三内容↔大意（蒸馏骨架自此可见）。
 - **recall 工具**：语义召回；无索引/无模型时自动退化为关键词检索并在返回中显式声明（degraded 字段）。结果含 mode 字段，判断排序依据时以此为准。
+- **导航上下文（v21）**：`search` / `recall` / `read_node` / `expand` 每条结果自带 `parent / depth / children_count / degree / origin / updated` —— 顺着链往上往下梳理时一次检索即可决定下一步读哪；`degree`（无向关联边数）也是**人看图时球体大小的依据**（人机同源：你读到的度 = 人看到的球多大，别再自己估算中心性）；`get_overview` 带 `structure`（roots / **root_ids**（parent=null 的入口节点，按子树规模倒序，≤20）/ max_depth / leaves / depth_hist + hub 的 subtree_size）；`dialogue_status` 带 `gaps`（未命中的查询 → 补节点线索）、`open_loops`（未闭环 task）与 `coverage`（`total / read / unread / unread_ids[]`）。
+- **两条读取策略（都用上面这些字段自己规划，软件不预设导读路径）**：
+  - **层级优先（还原一个项目时）**：从 `structure.root_ids` 起 `expand(id, direction:"children")` 逐级向下。信息量逐级指数增长，**先看骨架再决定读哪条原文**——`expand` 每个节点带 `hop`（距中心跳数）、`first_line`（正文首行机械截断，非摘要）与 `children_count / depth`，据此判断哪一枝值得深入。
+  - **跨链随机（开发自己项目时）**：用 `coverage.unread_ids` 抽未读节点，**每次随机不重复**，读到即覆盖；`direction:"parents"` 反查上下文补齐理解。
+- **`expand` 的 `direction`**：`children`（向下，默认 `both`）/ `parents`（向上）/ `both`。**读节点正文就是放弃读原文**，`first_line` 只做机械截断，不得据此二次概括节点内容（那会丢信息）。
 
 ## 附 · 代码骨架内化（M-Code，v13）
 
@@ -603,5 +608,38 @@ parent: t-002
 - **检索语义**：模块名/函数名/签名进入检索阶梯；骨架即该概念的可执行证据
 - **stale 兜底**：源码变更后骨架被标 `stale: true`——AI 进场发现 stale，**先刷新再工作**（安静优先），不基于过期骨架做判断
 - 骨架是**派生物**（`.chain/code_map/`，可重建、不进事实源）：删除后重跑 sync-code-map 即恢复；改源码不改骨架不是知识变更，重跑同步即可
+
+## 附 · 对话账本与记忆入口（三层重构 v16 · 唯一入口）
+
+**本节优先于前文的节点写入说明**：自 v16 起，记忆的唯一入口是 `remember`——旧工具 create_node / update_node / link_nodes **已从 MCP 移除**（契约 v7）。分析模式的链协议结构规则不变——变的是**写入先过对话账本**。
+
+### 心智模型
+
+对话是"讲解过程"，节点是"整理好的脉络"。工作过程（含被否掉的方案、试错、原始知识）先进 `.chain/dialogue/log.jsonl`（append-only、不裁剪）；**值得长期记住的结论**才在 remember 的 `commits` 里落成节点。不保留也要留痕（kind=decision, decided=skip, reason 必填）——否则"有意跳过"与"忘了记"无法区分。
+
+### remember 用法
+
+```
+remember { session, kind:"msg", role, text }                              # 追加一条消息
+remember { session, kind:"tool", name, args, result }                     # 追加工具轨迹
+remember { session, kind:"decision", decided:"keep"|"skip"|"revise",
+           covers:[from,to], nodes:[...], reason }                        # 决策留痕（消费锚点）
+  + commits: [ { op:"create", title, body, tags, force? } |               # 开发模式落节点
+               { op:"update", id, mode, content, expected_updated? } |    # 分析模式修订走这个
+               { op:"link", from, to, rel, desc? } | ... ]
+```
+
+- `session`：会话 id（仅字母/数字/-/_/.）；持续账本里靠它区分谁在说。
+- `covers` = 本决策消费的消息 seq 区间（含端点）。新会话接管先 `dialogue_status` 拿 `unconsumed_from`，只读未消费段。
+- 新建节点自动带 `origin: dialogue/log.jsonl#<seq>`——「这条记忆从哪来」可查。
+- 结构违规阻断（REMEMBER_* 错误码）；规矩违规（如缺 trigger 句）只标记不阻断：frontmatter 写 `conventions: [missing_trigger]`，可事后扫出。
+- 分析模式：链协议维护不变（create/link 仍受模式门禁），修订结论用 `commits` 里的 op=update。
+- **并发冲突与冻结自愈（v17）**：update 意图的 `expected_updated` 不符 → 节点冻结（`[待裁决]` + `status: blocked` + `frozen: true`），冲突内容不落盘；唯一出口是 `resolve_conflict { id, title, status, body?, expected_updated? }`——先 read_node 核对双方内容再写回最终裁决，audit 留痕（unfreeze）。治理权在 AI，验证权在痕迹。
+- **存量节点（v18 祖父条款）**：无 `origin` 字段的节点 = 重构前存量记忆，扫描时隐式标记 `origin: legacy`。只读不改，可被引用 / 挂子节点 / 归档，**不得作为新记忆的扩写基础**；新知识一律经对话产生新节点。
+
+### 检索与指南版本
+
+- 节点优先是默认：`search` / `recall` 默认只搜节点；翻对话必须显式 `scope:"dialogue"`（过程内容不进语义召回）。
+- 每个工具响应携带 `guide_version`：版本变化当次可见，自主决定重读本指南（不强制）。
 
 *本文件由 Engram 的校验器与命令源码反向生成，字段、枚举、结构规则与软件完全一致。软件升级若变更规则，以新版指南为准。*

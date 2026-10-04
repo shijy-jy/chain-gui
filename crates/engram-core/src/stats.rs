@@ -394,6 +394,21 @@ impl StatsStore {
         Ok(())
     }
 
+    /// 全库读写触达快照（id → (reads, writes)）：供「覆盖度」出口使用——
+    /// AI 的读策略（从根向下 / 跨链随机不重复）需要知道哪些节点本库已读过，
+    /// 而系统早已在 per_id 里记录了触达，此前只是没有出口。
+    pub fn reads_map(&mut self) -> Result<std::collections::BTreeMap<String, (u64, u64)>, String> {
+        self.ensure_loaded()?;
+        Ok(self
+            .data
+            .as_ref()
+            .unwrap()
+            .per_id
+            .iter()
+            .map(|(k, v)| (k.clone(), (v.reads, v.writes)))
+            .collect())
+    }
+
     /// 节点记忆状态（信息栏「检索线索」可视化用，只读）：
     /// 读写计数、最近触达序数（记忆时钟）、当前记忆时钟、强度（序数轴 + 负值归一化）
     pub fn node_memory(&mut self, id: &str) -> Result<NodeMemory, String> {

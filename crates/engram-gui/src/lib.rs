@@ -27,7 +27,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::scan_chain,
-            commands::update_node,
             commands::init_chain,
             commands::get_ai_guide,
             commands::get_guide_version,
@@ -37,17 +36,10 @@ pub fn run() {
             commands::snapshot_chain,
             commands::list_snapshots,
             commands::read_snapshot,
-            commands::fold_chain,
             commands::open_evidence,
             commands::evidence_rel_path,
-            commands::create_node,
-            commands::delete_node,
-            commands::set_parent,
-            // v2.20 人用通道（文件树模式）：分析模式也允许人编辑结构；core 内守协议护栏，
-            // MCP 工具仍走上面三个非 human 版本（AI 侧契约零变化）
-            commands::create_node_human,
-            commands::delete_node_human,
-            commands::set_parent_human,
+            // 三层重构 P2：人治写通道（update/create/delete/set_parent/fold_chain/
+            // *_human）已移除——GUI 为只读观察面，记忆写入唯一入口 = MCP remember
             commands::list_workspaces,
             commands::add_workspace,
             commands::remove_workspace,
@@ -57,6 +49,7 @@ pub fn run() {
             commands::sync_code_map,
             commands::detach_code_map,
             commands::get_node_memory_info,
+            commands::get_dialogue,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

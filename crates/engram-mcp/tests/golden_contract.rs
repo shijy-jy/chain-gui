@@ -1,7 +1,7 @@
 //! golden 契约测试（终版 §5「MCP 契约」的落地形态）：
-//! 用 CARGO_BIN_EXE 拉起真实 engram-mcp 进程，重放 tools/_collect_golden.ps1 的
-//! 18 条工具调用（契约 v4：13 工具），把响应与 docs/test-golden/engram-mcp-golden.json
-//! 做值级归一化对比：
+//! 用 CARGO_BIN_EXE 拉起真实 engram-mcp 进程，重放 tools/_collect_golden.mjs 的
+//! 28 条工具调用（契约 v8：11 工具，写路径唯一入口 remember + 冻结自愈 resolve_conflict），
+//! 把响应与 docs/test-golden/engram-mcp-golden.json 做值级归一化对比：
 //!
 //! - 时间戳（RFC3339 +08:00）→ "TS"（每次运行必然不同）
 //! - 临时工作区路径（*engram_golden_<pid>）→ "WS"（跨机器/CI 路径不同）
@@ -156,21 +156,27 @@ fn replay_flow(ws: &TempDir) -> Vec<(String, String, String)> {
         entries.push((name.to_string(), request, response));
     };
 
-    // 与 tools/_collect_golden.ps1 完全一致的 18 条（顺序即契约）
+    // 与 tools/_collect_golden.mjs 完全一致的 28 条（顺序即契约；契约 v8：11 工具，
+    // 写路径唯一入口 remember + 冻结自愈 resolve_conflict）
     tool_call(
-        "create_node",
-        r##"{"title":"Golden A","body":"# A\nnode A body"}"##,
+        "remember",
+        r##"{"session":"s-golden","kind":"msg","role":"user","text":"开始搭 golden 工作区"}"##,
     );
     // 防时序抖动：updated 为秒级精度，跨秒创建保证 search 的 updated 倒序结果确定
-    // （与 _collect_golden.ps1 的 Start-Sleep 对应，两端必须一致）
+    // （与 _collect_golden.mjs 的 sleep 对应，两端必须一致）
     std::thread::sleep(Duration::from_millis(1100));
     tool_call(
-        "create_node",
-        r##"{"title":"Golden B","body":"# B\nnode B body"}"##,
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"keep","covers":[1,1],"reason":"建初始节点","commits":[{"op":"create","title":"Golden A","body":"# A\nnode A body"}]}"##,
+    );
+    std::thread::sleep(Duration::from_millis(1100));
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"keep","reason":"建第二个节点","commits":[{"op":"create","title":"Golden B","body":"# B\nnode B body"}]}"##,
     );
     tool_call(
-        "link_nodes",
-        r#"{"from":"node-1","to":"node-2","rel_type":"solves"}"#,
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"keep","reason":"建立 solves 链","commits":[{"op":"link","from":"node-1","to":"node-2","rel":"solves"}]}"##,
     );
     tool_call("get_overview", "{}");
     tool_call("search", r#"{"query":"Golden"}"#);
@@ -179,29 +185,56 @@ fn replay_flow(ws: &TempDir) -> Vec<(String, String, String)> {
     tool_call("read_path", r#"{"from":"node-1","to":"node-2"}"#);
     tool_call("get_guide", "{}");
     tool_call(
-        "update_node",
-        r#"{"id":"node-1","mode":"append","content":"\nappended note"}"#,
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"revise","reason":"补充结论","commits":[{"op":"update","id":"node-1","mode":"append","content":"\nappended note"}]}"##,
     );
+    // 结构违规（词表外 rel）→ remember 阻断并报已执行意图数（决策行仍留痕）
     tool_call(
-        "link_nodes",
-        r#"{"from":"node-1","to":"node-2","rel_type":"bogus"}"#,
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"keep","reason":"词表外 rel 验证","commits":[{"op":"link","from":"node-1","to":"node-2","rel":"bogus"}]}"##,
     );
     // recall：无索引工作区 → 关键词降级（mode=keyword,degraded=true），确定性无模型依赖
     tool_call("recall", r#"{"query":"Golden"}"#);
-    // ── M8' 契约 v4 新增（13 工具）：consolidate 计划 → 执行（骨架节点）→ 断边/归档 → 可见性 ──
+    // ── 蒸馏计划 → 执行（骨架节点）→ 断边/归档 → 可见性 ──
     tool_call("consolidate", "{}");
-    // 防时序抖动：node-3 骨架节点须跨秒创建，保证后续 recall 的 updated 倒序结果确定
-    // （与 _collect_golden.ps1 的 Start-Sleep 对应，两端必须一致）
+    // 防时序抖动：骨架节点须跨秒创建，保证后续 recall 的 updated 倒序结果确定
+    // （与 _collect_golden.mjs 的 sleep 对应，两端必须一致）
     std::thread::sleep(Duration::from_millis(1100));
     tool_call("consolidate", r#"{"dry_run":false}"#);
-    tool_call("unlink_nodes", r#"{"from":"node-1","to":"node-2"}"#);
     tool_call(
-        "archive_node",
-        r#"{"id":"node-2","reason":"内容过时"}"#,
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"keep","reason":"拆链重排","commits":[{"op":"unlink","from":"node-1","to":"node-2"}]}"##,
     );
-    // 归档后 recall 默认过滤（node-1 + 蒸馏骨架 node-3）→ include_archived 找回 node-2
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"keep","reason":"内容过时","commits":[{"op":"archive","id":"node-2"}]}"##,
+    );
+    // 归档后 recall 默认过滤（node-1 + 蒸馏骨架）→ include_archived 找回 node-2
     tool_call("recall", r#"{"query":"Golden"}"#);
     tool_call("recall", r#"{"query":"Golden","include_archived":true}"#);
+    // ── 三层重构：账本状态 / 溯源 / 决策留痕 ──
+    tool_call("dialogue_status", "{}");
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"msg","role":"user","text":"把这段整理成节点"}"##,
+    );
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"keep","covers":[9,9],"nodes":["node-2"],"reason":"整理成节点","commits":[{"op":"create","title":"Golden C","body":"> 触发：Golden C\n\nfrom dialogue"}]}"##,
+    );
+    tool_call("dialogue_status", "{}");
+    tool_call("read_node", r#"{"id":"node-2"}"#);
+    // ── 三层重构 P2 契约 v8：并发冲突 → 冻结 → resolve_conflict 自愈 ──
+    tool_call(
+        "remember",
+        r##"{"session":"s-golden","kind":"decision","decided":"revise","reason":"并发冲突验证","commits":[{"op":"update","id":"node-1","mode":"replace_body","content":"冲突内容","expected_updated":"2000-01-01T00:00:00+08:00"}]}"##,
+    );
+    tool_call("read_node", r#"{"id":"node-1"}"#);
+    tool_call(
+        "resolve_conflict",
+        r##"{"id":"node-1","title":"Golden A","status":"none","body":"# A\nnode A body（裁决后）"}"##,
+    );
+    tool_call("read_node", r#"{"id":"node-1"}"#);
 
     drop(stdin);
     let _ = child.kill();

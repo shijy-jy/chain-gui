@@ -5,16 +5,15 @@
   import { panel } from './panel_state.svelte.ts';
   import type { ChainNode, ChainSnapshot, NodeStatus, NodeType, ScanMode } from './types';
 
-  let { node, chainDir, mode, allNodes, onSave, onCancel, onFold, onDelete, onSetParent, onCodeMapChange, collapsed = false, onExpand }: {
+  // 三层重构 P2：人治写通道已移除（onSave/onFold/onDelete/onSetParent 已删除）——
+  // 本组件降为只读信息栏；记忆写入唯一入口 = MCP remember。
+  // allNodes 保留在公开 API 中（App 仍传入，供其它视图/未来只读联动使用）。
+  let { node, chainDir, mode, allNodes, onCancel, onCodeMapChange, collapsed = false, onExpand }: {
     node: ChainNode | null;
     chainDir: string | null;
     mode: ScanMode;
     allNodes: ChainNode[];
-    onSave: (fields: { title: string; status: NodeStatus | null; body: string; tags: string[]; evidence: string[] }) => Promise<void>;
     onCancel: () => void;
-    onFold?: () => Promise<void>;
-    onDelete?: (nodeId: string) => Promise<void>;
-    onSetParent?: (nodeId: string, parent: string | null, rel: string) => Promise<void>;
     onCodeMapChange?: (snap: ChainSnapshot, nodeId: string) => void;
     collapsed?: boolean;
     onExpand?: () => void;
@@ -44,61 +43,10 @@
     }
   });
 
-  // 初始值用字面量（不用 node.xxx），避免 Svelte 5 state_referenced_locally 警告；
-  // 实际值由下面的 $effect 同步（组件挂载和 node 切换时都会跑）
-  let title = $state('');
-  let status = $state<NodeStatus>('pending');
-  let body = $state('');
-  let tagsText = $state('');
-  let evidence = $state<string[]>([]);   // 协议不变：存相对路径；界面只显示文件名
-  let saving = $state(false);
-  let error = $state<string | null>(null);
-
-  // 过程日志（v1.2）
+  // 过程日志（v1.2）：维护通道追加（不是节点写入，保留）
   let logText = $state('');
   let logSaving = $state(false);
   let logMessage = $state<string | null>(null);
-
-  // 折叠（v1.3）：两段式确认，防止误触
-  let foldArmed = $state(false);
-  let foldBusy = $state(false);
-  let foldMessage = $state<string | null>(null);
-
-  // v2.0 开发模式：链接编辑 + 删除节点（两段式确认）
-  let parentSel = $state<string | null>(null);
-  let relSel = $state<string>('contains');   // v2.4 递进关系类型
-  // v2.15 父节点搜索式输入（1500 节点 <select> 的 DOM 压力 → 搜索 + 限 20 条）
-  let parentQuery = $state('');
-  let parentOpen = $state(false);
-  const parentOptions = $derived(
-    parentQuery.trim() === ''
-      ? []
-      : allNodes
-          .filter(
-            (n) =>
-              n.id !== node?.id &&
-              (n.title.toLowerCase().includes(parentQuery.trim().toLowerCase()) ||
-                n.id.toLowerCase().includes(parentQuery.trim().toLowerCase())),
-          )
-          .slice(0, 20),
-  );
-  function parentTitle(id: string): string {
-    return allNodes.find((n) => n.id === id)?.title ?? id;
-  }
-  let parentBusy = $state(false);
-  let parentMessage = $state<string | null>(null);
-  let delArmed = $state(false);
-  let delBusy = $state(false);
-  let delMessage = $state<string | null>(null);
-
-  const relLabels: Record<string, string> = {
-    contains: '包含（从属）',
-    solves: '解决局限（递进）',
-    alternative: '备选替代',
-  };
-
-  // 证据（v1.8）：文件名列表 + 点击打开 + 文件选择器添加
-  let evBusy = $state(false);
 
   // v2.13 检索线索可视化（只读）：触发句 / 检索词 / 记忆状态 / 索引状态
   type MemoryInfo = {
@@ -248,10 +196,9 @@
   // v2.6 移至模块级共享状态（src/lib/panel_state.ts）——App 需要读取宽度为画布预留空间，
   // 防止常驻信息栏压住右下角缩放按钮/右上角波纹面板与画布节点。
 
-  // v1.9 正文显示模式：预览（Markdown + LaTeX 渲染，同 DeepSeek 网页版 KaTeX 观感）/
-  // 编辑（textarea），模块级保留用户选择；默认预览优先，点「编辑」才进文本框
-  let bodyMode = $state<'edit' | 'preview'>('preview');
-  let bodyHtml = $derived(bodyMode === 'preview' ? renderBody(body) : '');
+  // v1.9 正文只读渲染：预览（Markdown + LaTeX 渲染，同 DeepSeek 网页版 KaTeX 观感）。
+  // 三层重构 P2：编辑（textarea）已随人用写通道移除——正文写入唯一入口 = MCP remember
+  let bodyHtml = $derived(renderBody(node?.body ?? ''));
 
   // —— 布局拖拽：横向边界条调整上方内容区高度（VSCode 分栏手感）——
   function resizeSection(which: 'bodyH' | 'evidenceH' | 'logH' | 'codeH') {
@@ -318,7 +265,7 @@
   };
 
   async function openEvidence(rel: string) {
-    if (!chainDir || evBusy) return;
+    if (!chainDir) return;
     evMessage = null;
     try {
       await invoke('open_evidence', { dir: chainDir, rel });
@@ -327,55 +274,6 @@
     }
   }
 
-  async function pickEvidence() {
-    if (!chainDir || saving || evBusy) return;
-    evMessage = null;
-    const selected = await open({ multiple: true });
-    if (!selected) return;
-    const files = Array.isArray(selected) ? selected : [selected];
-    evBusy = true;
-    try {
-      const rels: string[] = [];
-      for (const abs of files) {
-        try {
-          const rel = await invoke<string>('evidence_rel_path', { dir: chainDir, abs });
-          rels.push(rel);
-        } catch (e) {
-          evMessage = String(e);
-        }
-      }
-      if (rels.length > 0) {
-        evidence = Array.from(new Set([...evidence, ...rels]));
-      }
-    } finally {
-      evBusy = false;
-    }
-  }
-
-  function removeEvidence(rel: string) {
-    evidence = evidence.filter((r) => r !== rel);
-  }
-
-  async function handleFold() {
-    if (!onFold || foldBusy) return;
-    if (!foldArmed) {
-      foldArmed = true;
-      foldMessage = '再次点击确认：子链所有节点将归档，本节点变为摘要';
-      return;
-    }
-    foldBusy = true;
-    foldMessage = null;
-    try {
-      await onFold();
-    } catch (e) {
-      foldMessage = String(e);
-      foldArmed = false;
-    } finally {
-      foldBusy = false;
-    }
-  }
-
-  const statusOptions: NodeStatus[] = ['pending', 'in_progress', 'success', 'failed', 'blocked'];
   const statusLabels: Record<NodeStatus, string> = {
     pending: '待开始',
     in_progress: '进行中',
@@ -394,83 +292,6 @@
     note: '#94a3b8',
   };
   let typeColor = $derived(node ? typeColors[node.type] : '#94a3b8');
-
-  // node 变化时重置表单（effect 只追踪读取的 node.xxx，写入的 state 不触发重跑）
-  // v2.6 常驻信息栏：node 可为 null（未选中任何节点 → 占位提示）
-  $effect(() => {
-    if (node) {
-      title = node.title;
-      status = node.status;
-      body = node.body;
-      tagsText = node.tags.join(', ');
-      evidence = [...node.evidence];
-      parentSel = node.parent;
-      relSel = node.rel ?? 'contains';   // v2.4
-    } else {
-      title = '';
-      status = 'pending';
-      body = '';
-      tagsText = '';
-      evidence = [];
-      parentSel = null;
-      relSel = 'contains';
-    }
-    error = null;
-  });
-
-  // v2.0 开发模式：改链接（父节点 + v2.4 递进关系类型）
-  async function handleChangeParent() {
-    if (!node) return;   // v2.6 空态保护
-    if (!onSetParent || parentBusy || (parentSel === node.parent && relSel === (node.rel ?? 'contains'))) return;
-    parentBusy = true;
-    parentMessage = null;
-    try {
-      await onSetParent(node.id, parentSel, relSel);
-      parentMessage = parentSel ? `链接已指向 ${parentSel}（${relLabels[relSel]}）` : '已断开链接（独立节点）';
-    } catch (e) {
-      parentMessage = String(e);
-      parentSel = node.parent;
-      relSel = node.rel ?? 'contains';
-    } finally {
-      parentBusy = false;
-    }
-  }
-
-  // v2.0 开发模式：删除节点（两段式确认）
-  async function handleDelete() {
-    if (!node) return;   // v2.6 空态保护
-    if (!onDelete || delBusy) return;
-    if (!delArmed) {
-      delArmed = true;
-      delMessage = `再次点击确认删除「${node.title}」——文件将被删除，不可恢复`;
-      return;
-    }
-    delBusy = true;
-    delMessage = null;
-    try {
-      await onDelete(node.id);
-    } catch (e) {
-      delMessage = String(e);
-      delArmed = false;
-    } finally {
-      delBusy = false;
-    }
-  }
-
-  async function handleSave() {
-    if (saving) return;
-    saving = true;
-    error = null;
-    try {
-      const tags = tagsText.split(',').map(t => t.trim()).filter(t => t.length > 0);
-      // v2.0 开发模式不写状态（知识库节点状态可有可无）
-      await onSave({ title: title.trim(), status: isDev ? null : status, body, tags, evidence });
-    } catch (e) {
-      error = String(e);
-    } finally {
-      saving = false;
-    }
-  }
 
   async function handleAppendLog() {
     if (!chainDir || logSaving) return;
@@ -491,8 +312,6 @@
       logSaving = false;
     }
   }
-
-  let canFold = $derived(!!onFold && !!node && node.parent !== null);
 
   // v2.17.1 选中代码节点自动展开代码栏 + 把代码栏滚入可视区（侧栏内容可滚动后下层面板可能被挤出屏）
   let lastCodeScrollId = '';
@@ -537,6 +356,18 @@
     <span class="meta-item" title="最后更新">更于 {node.updated.slice(0, 16)}</span>
     <span class="meta-item" title="父节点">父 {node.parent ?? '无（根）'}</span>
   </div>
+
+  <!-- P2-7 人机同源结构指标：与 AI 在工具响应里读到的是同一批数（同一份 structure_index/subtree_sizes）。
+       球径 = degree；AI 的 expand/dialogue_status 里看到的 children_count / subtree_size / depth 即此处。
+       旧快照或归档节点缺注解时不显示（不猜数）。 -->
+  {#if typeof node.degree === 'number'}
+    <div class="meta-row struct-row">
+      <span class="meta-item" title="度数：关联边数（无向）。画布上的球体大小 = 这个数（与 AI 读到的 degree 同源）">度 {node.degree}</span>
+      <span class="meta-item" title="深度：根 = 0（与 AI 读到的 depth 同源；分析模式层级球壳布局的半径 = 深度 × 层距）">深 {node.depth ?? 0}</span>
+      <span class="meta-item" title="直接子节点数（与 AI 读到的 children_count 同源）">子 {node.children_count ?? 0}</span>
+      <span class="meta-item" title="子树规模：含自身的后代总数（与 AI 读到的 subtree_size 同源）">子树 {node.subtree_size ?? 1}</span>
+    </div>
+  {/if}
 
   <!-- v2.12 徽标行（加性）：归档/待裁决/蒸馏/代码骨架状态一目了然 -->
   {#if node.archived || node.frozen || node.derived || node.code_map}
@@ -602,130 +433,58 @@
     </div>
   {/if}
 
-  <!-- 固定小字段区（不参与分栏拖拽） -->
+  <!-- 只读信息字段：标题 / 状态 / 标签（三层重构 P2：人用写通道已移除，写入唯一入口 = MCP remember） -->
   <div class="fixed-fields">
     <div class="field">
-      <label for="title">标题</label>
-      <input id="title" type="text" bind:value={title} disabled={saving} />
+      <span class="field-label">标题</span>
+      <div class="ro-value">{node.title}</div>
     </div>
     {#if !isDev}
       <div class="field">
-        <label for="status">状态</label>
-        <select id="status" bind:value={status} disabled={saving}>
-          {#each statusOptions as opt}
-            <option value={opt}>{statusLabels[opt]}</option>
-          {/each}
-        </select>
+        <span class="field-label">状态</span>
+        <div class="ro-value">{statusLabels[node.status]}</div>
       </div>
     {/if}
     <div class="field">
-      <label for="tags">标签（逗号分隔）</label>
-      <input id="tags" type="text" bind:value={tagsText} disabled={saving} />
+      <span class="field-label">标签</span>
+      <div class="ro-value">{node.tags.length > 0 ? node.tags.join(', ') : '（无标签）'}</div>
     </div>
-    {#if isDev}
-      <!-- v2.0 开发模式：自由编辑链接（父节点 + v2.4 递进关系） -->
-      <div class="field">
-        <label for="parent-sel">父节点（链接）</label>
-        <div class="parent-row">
-          <!-- v2.15 搜索式父节点选择：1500 节点工作区不再渲染 1500 个 <option> -->
-          <div class="parent-search-wrap">
-            <input
-              class="parent-search"
-              type="text"
-              placeholder={parentSel ? `${parentTitle(parentSel)} · ${parentSel}` : '搜索父节点（标题/id）…'}
-              bind:value={parentQuery}
-              onfocus={() => (parentOpen = true)}
-              onblur={() => setTimeout(() => (parentOpen = false), 150)}
-              disabled={parentBusy || saving}
-            />
-            {#if parentOpen && parentOptions.length > 0}
-              <div class="parent-results">
-                {#each parentOptions as n (n.id)}
-                  <button
-                    class="parent-opt"
-                    onclick={() => {
-                      parentSel = n.id;
-                      parentQuery = '';
-                      parentOpen = false;
-                    }}
-                  >
-                    {n.title} · {n.id}
-                  </button>
-                {/each}
-              </div>
-            {/if}
-          </div>
-          <button class="parent-apply" onclick={handleChangeParent}
-                  disabled={parentBusy || saving || (parentSel === node.parent && relSel === (node.rel ?? 'contains'))}>
-            {parentBusy ? '…' : '改链接'}
-          </button>
-        </div>
-        {#if parentSel}
-          <div class="parent-row rel-row">
-            <label for="rel-sel">关系（对父节点）</label>
-            <select id="rel-sel" bind:value={relSel} disabled={parentBusy || saving}>
-              <option value="contains">包含（从属）</option>
-              <option value="solves">解决局限（递进主线）</option>
-              <option value="alternative">备选替代</option>
-            </select>
-          </div>
-        {/if}
-        {#if parentMessage}
-          <p class="parent-msg">{parentMessage}</p>
-        {/if}
-      </div>
-    {/if}
   </div>
 
-  <!-- v1.9 正文区：可折叠 + 编辑/预览切换 + 可拖边界调高度 -->
+  <!-- v1.9 正文区：只读 Markdown 渲染（可折叠 + 可拖边界调高度；编辑面已随人用写通道移除） -->
   <div class="pane-head" role="button" tabindex="0" onclick={() => (panel.bodyOpen = !panel.bodyOpen)} onkeydown={paneHeadKey}>
     <span class="chev">{panel.bodyOpen ? '▾' : '▸'}</span>正文
     <span class="pane-hint">拖下方边界调高度</span>
-    <span class="mode-switch" role="group" aria-label="正文显示模式">
-      <button type="button" class="mode-btn" class:active={bodyMode === 'edit'}
-              onclick={(e) => { e.stopPropagation(); bodyMode = 'edit'; }}>编辑</button>
-      <button type="button" class="mode-btn" class:active={bodyMode === 'preview'}
-              title="Markdown + LaTeX 公式渲染（$...$ 行内、$$...$$ 独立行）"
-              onclick={(e) => { e.stopPropagation(); bodyMode = 'preview'; }}>预览</button>
-    </span>
   </div>
   {#if panel.bodyOpen}
     <div class="pane" style:height="{panel.bodyH}px">
-      {#if bodyMode === 'edit'}
-        <textarea id="body" class="body-input" bind:value={body} disabled={saving}></textarea>
-      {:else}
-        <!-- v1.9 预览：Markdown + LaTeX 公式渲染 -->
-        <div class="body-preview">{@html bodyHtml}</div>
-      {/if}
+      <!-- v1.9 预览：Markdown + LaTeX 公式渲染 -->
+      <div class="body-preview">{@html bodyHtml}</div>
     </div>
     <div class="h-handle" role="separator" aria-orientation="horizontal" onpointerdown={resizeSection('bodyH')} title="拖拽调整正文高度"><span class="grip"></span></div>
   {/if}
 
-  <!-- v1.8 证据区：文件名列表（点击打开）+ 文件选择器添加 -->
+  <!-- v1.8 证据区：文件名列表（点击打开）；添加/移除已随人用写通道移除 -->
   <button type="button" class="pane-head" onclick={() => (panel.evidenceOpen = !panel.evidenceOpen)}>
-    <span class="chev">{panel.evidenceOpen ? '▾' : '▸'}</span>证据（{evidence.length}）
+    <span class="chev">{panel.evidenceOpen ? '▾' : '▸'}</span>证据（{node.evidence.length}）
     <span class="pane-hint">点击文件名打开</span>
   </button>
   {#if panel.evidenceOpen}
     <div class="pane ev-pane" style:height="{panel.evidenceH}px">
-      {#if evidence.length === 0}
-        <div class="ev-empty">暂无证据产物，点下方按钮添加</div>
+      {#if node.evidence.length === 0}
+        <div class="ev-empty">暂无证据产物</div>
       {:else}
         <div class="evidence-list">
-          {#each evidence as rel (rel)}
+          {#each node.evidence as rel (rel)}
             <div class="ev-row">
               <button class="ev-name" title={isViewOnly(rel) ? `记事本查看（不运行）：${rel}` : `打开：${rel}`} onclick={() => openEvidence(rel)}>{evName(rel)}</button>
               {#if isViewOnly(rel)}
                 <span class="ev-badge" title="脚本/可执行文件：点击仅用记事本查看，不会运行">只读</span>
               {/if}
-              <button class="ev-del" title="移除该证据" onclick={() => removeEvidence(rel)} disabled={saving}>✕</button>
             </div>
           {/each}
         </div>
       {/if}
-      <button class="ev-add" onclick={pickEvidence} disabled={saving || evBusy || !chainDir}>
-        {evBusy ? '添加中…' : '＋ 添加证据文件'}
-      </button>
       {#if evMessage}<p class="ev-msg">⚠ {evMessage}</p>{/if}
     </div>
     <div class="h-handle" role="separator" aria-orientation="horizontal" onpointerdown={resizeSection('evidenceH')} title="拖拽调整证据区高度"><span class="grip"></span></div>
@@ -828,42 +587,10 @@
     <div class="h-handle" role="separator" aria-orientation="horizontal" onpointerdown={resizeSection('logH')} title="拖拽调整日志区高度"><span class="grip"></span></div>
   {/if}
 
-  <!-- 底部固定区：折叠 / 错误 / 保存（始终可见，不随分栏滚动） -->
+  <!-- 底部固定区：收起（始终可见，不随分栏滚动；折叠/删除/保存已随人用写通道移除） -->
   <div class="bottom-fixed">
-    {#if canFold && !isDev}
-      <div class="fold-block">
-        <div class="fold-title">子链折叠（v1.3）</div>
-        <button class="fold-btn" class:armed={foldArmed} onclick={handleFold} disabled={foldBusy}>
-          {foldBusy ? '折叠中…' : foldArmed ? '⚠ 确认折叠？' : '折叠此子链'}
-        </button>
-        {#if foldMessage}
-          <p class="fold-msg">{foldMessage}</p>
-        {/if}
-      </div>
-    {/if}
-
-    {#if isDev}
-      <!-- v2.0 开发模式：删除节点（两段式确认） -->
-      <div class="fold-block">
-        <div class="fold-title">删除节点（开发模式）</div>
-        <button class="fold-btn del-btn" class:armed={delArmed} onclick={handleDelete} disabled={delBusy}>
-          {delBusy ? '删除中…' : delArmed ? '⚠ 确认删除？' : '删除此节点'}
-        </button>
-        {#if delMessage}
-          <p class="fold-msg">{delMessage}</p>
-        {/if}
-      </div>
-    {/if}
-
-    {#if error}
-      <p class="error">⚠ {error}</p>
-    {/if}
-
     <footer>
-      <button class="cancel" onclick={onCancel} disabled={saving} title="收起为侧边细条">收起</button>
-      <button class="save" onclick={handleSave} disabled={saving}>
-        {saving ? '保存中…' : '保存'}
-      </button>
+      <button class="cancel" onclick={onCancel} title="收起为侧边细条">收起</button>
     </footer>
     </div><!-- /sidebar-scroll -->
   </div>
@@ -1046,6 +773,13 @@
     padding: 2px 8px;
     border-radius: 999px;
   }
+  /* P2-7 结构指标行：与 AI 同源的那组数（度/深/子/子树）——用青色微调，与 rev/时间等元数据区分 */
+  .struct-row { margin-top: -6px; }
+  .struct-row .meta-item {
+    color: rgba(125, 211, 252, 0.75);
+    background: rgba(56, 189, 248, 0.08);
+    border-color: rgba(56, 189, 248, 0.22);
+  }
 
   /* v2.12 徽标行（加性）：归档/待裁决/蒸馏/代码骨架 */
   .badge-row {
@@ -1149,10 +883,10 @@
     font-size: 10px;
   }
 
-  /* 固定小字段区：标题/状态/标签 */
+  /* 只读信息字段区：标题/状态/标签（三层重构 P2：输入控件已随人用写通道移除） */
   .fixed-fields { flex-shrink: 0; }
   .field { margin-bottom: 12px; }
-  label {
+  .field-label {
     display: block;
     font-size: 10px;
     letter-spacing: 1.5px;
@@ -1160,7 +894,17 @@
     color: rgba(255, 255, 255, 0.5);
     margin-bottom: 6px;
   }
-  input, select, textarea {
+  .ro-value {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 8px 12px;
+    word-break: break-word;
+    line-height: 1.6;
+  }
+  textarea {
     width: 100%;
     padding: 8px 12px;
     background: rgba(255, 255, 255, 0.04);
@@ -1168,21 +912,17 @@
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;
     font-size: 13px;
-    font-family: inherit;
+    font-family: 'Consolas', 'Monaco', monospace;
     box-sizing: border-box;
+    resize: none;
+    line-height: 1.6;
     transition: border-color 0.2s var(--ease-soft), background 0.2s var(--ease-soft), box-shadow 0.2s var(--ease-soft);
   }
-  input:focus, select:focus, textarea:focus {
+  textarea:focus {
     outline: none;
     border-color: rgba(167, 139, 250, 0.55);
     background: rgba(255, 255, 255, 0.06);
     box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.14);
-  }
-  textarea {
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 12px;
-    resize: none;
-    line-height: 1.6;
   }
 
   /* v1.8 分栏头部：点击折叠/展开（button 语义，键盘 Enter/Space 可用） */
@@ -1224,7 +964,6 @@
     min-height: 0;
     overflow: hidden;
   }
-  .body-input { flex: 1; min-height: 0; }
 
   /* v1.8 横向边界拖拽条（调整上方内容区高度） */
   .h-handle {
@@ -1243,35 +982,6 @@
     border-radius: 2px;
     background: rgba(255, 255, 255, 0.12);
     transition: background 0.15s ease;
-  }
-
-  /* v1.9 正文编辑/预览切换按钮 */
-  .mode-switch {
-    display: inline-flex;
-    gap: 4px;
-    margin-left: 8px;
-  }
-  .mode-btn {
-    font-size: 9px;
-    font-family: inherit;
-    letter-spacing: 0;
-    text-transform: none;
-    padding: 2px 9px;
-    border-radius: 999px;
-    color: rgba(255, 255, 255, 0.5);
-    background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    cursor: pointer;
-    transition:
-      background 0.18s var(--ease-soft),
-      color 0.18s var(--ease-soft),
-      border-color 0.18s var(--ease-soft);
-  }
-  .mode-btn:hover { color: rgba(255, 255, 255, 0.85); border-color: rgba(255, 255, 255, 0.3); }
-  .mode-btn.active {
-    background: rgba(255, 255, 255, 0.88);
-    color: #0a0a0a;
-    border-color: rgba(255, 255, 255, 0.88);
   }
 
   /* v1.9 正文预览：Markdown 暗色排版 + KaTeX 公式。
@@ -1382,20 +1092,6 @@
     border: 1px solid rgba(251, 191, 36, 0.3);
     white-space: nowrap;
   }
-  .ev-del {
-    flex-shrink: 0;
-    width: 22px;
-    height: 22px;
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.4);
-    background: none;
-    border: 1px solid transparent;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .ev-del:hover:not(:disabled) { color: #f87171; border-color: rgba(248, 113, 113, 0.4); }
-  .ev-del:disabled { opacity: 0.4; cursor: not-allowed; }
   .ev-add {
     flex-shrink: 0;
     font-size: 11px;
@@ -1417,16 +1113,8 @@
     word-break: break-all;
   }
 
-  /* 底部固定区：折叠 + 错误 + 保存 */
+  /* 底部固定区：收起 */
   .bottom-fixed { flex-shrink: 0; }
-  .error {
-    color: #f87171;
-    background: rgba(248, 113, 113, 0.1);
-    border: 1px solid rgba(248, 113, 113, 0.25);
-    padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 12px;
-  }
   footer {
     display: flex;
     gap: 10px;
@@ -1447,13 +1135,7 @@
     border: 1px solid rgba(255, 255, 255, 0.15);
   }
   .cancel:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
-  .save {
-    background: rgba(255, 255, 255, 0.92);
-    color: #0a0a0a;
-    font-weight: 500;
-  }
-  .save:hover:not(:disabled) { background: #ffffff; }
-  .save:disabled, .cancel:disabled { opacity: 0.4; cursor: not-allowed; }
+  .cancel:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* 日志区（v1.2 起，v1.8 改分栏） */
   .log-pane { gap: 8px; }
@@ -1488,131 +1170,10 @@
     color: rgba(255, 255, 255, 0.45);
   }
 
-  /* 折叠块（v1.3） */
-  .fold-block {
-    padding-top: 10px;
-    margin-top: 6px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.12);
-  }
-  .fold-title {
-    font-size: 10px;
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.35);
-    margin-bottom: 8px;
-  }
-  .fold-btn {
-    font-size: 11px;
-    padding: 5px 14px;
-    background: rgba(251, 191, 36, 0.12);
-    color: #fbbf24;
-    border: 1px solid rgba(251, 191, 36, 0.3);
-    border-radius: 999px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .fold-btn:hover:not(:disabled) { background: rgba(251, 191, 36, 0.22); }
-  .fold-btn.armed {
-    background: rgba(248, 113, 113, 0.25);
-    color: #f87171;
-    border-color: rgba(248, 113, 113, 0.5);
-  }
-  .fold-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .fold-msg {
-    margin: 8px 0 0;
-    font-size: 11px;
-    font-family: 'Consolas', monospace;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  /* v2.0 开发模式：链接编辑 + 删除按钮 */
-  .parent-row { display: flex; gap: 8px; }
-  .parent-row select { flex: 1; }
-  /* v2.15 父节点搜索式输入（1500 节点不再渲染海量 option） */
-  .parent-search-wrap { position: relative; flex: 1; }
-  .parent-search {
-    width: 100%;
-    box-sizing: border-box;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 6px;
-    color: rgba(255, 255, 255, 0.85);
-    font-size: 11px;
-    padding: 6px 8px;
-  }
-  .parent-search:focus { outline: none; border-color: rgba(125, 211, 252, 0.55); }
-  .parent-results {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    z-index: 30;
-    background: rgba(24, 26, 32, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 8px;
-    max-height: 220px;
-    overflow-y: auto;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  }
-  .parent-opt {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: none;
-    border: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 11px;
-    padding: 7px 10px;
-    cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .parent-opt:hover { background: rgba(125, 211, 252, 0.16); }
-  .rel-row {
-    margin-top: 6px;
-    align-items: center;
-  }
-  .rel-row label {
-    margin: 0;
-    font-size: 10px;
-    letter-spacing: 0.5px;
-    text-transform: none;
-    color: rgba(255, 255, 255, 0.4);
-    white-space: nowrap;
-  }
-  .rel-row select { flex: 1; }
-  .parent-apply {
-    flex-shrink: 0;
-    font-size: 11px;
-    padding: 0 14px;
-    background: rgba(125, 211, 252, 0.1);
-    color: #7dd3fc;
-    border: 1px solid rgba(125, 211, 252, 0.3);
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .parent-apply:hover:not(:disabled) { background: rgba(125, 211, 252, 0.2); }
-  .parent-apply:disabled { opacity: 0.4; cursor: not-allowed; }
-  .parent-msg {
-    margin: 6px 0 0;
-    font-size: 10px;
-    font-family: 'Consolas', monospace;
-    color: rgba(255, 255, 255, 0.45);
-    word-break: break-all;
-  }
-  .del-btn { color: #f87171; border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.1); }
-  .del-btn:hover:not(:disabled) { background: rgba(248, 113, 113, 0.2); }
-
   /* v2.8 UI 打磨：面板内按钮微交互统一（悬浮上移 / 按压缩放，零交互语义变化） */
   footer button,
-  .fold-btn,
   .ev-add,
-  .ev-del,
-  .log-append,
-  .parent-apply,
-  .del-btn {
+  .log-append {
     transition:
       background 0.18s var(--ease-soft),
       color 0.18s var(--ease-soft),
@@ -1620,21 +1181,13 @@
       transform 0.14s var(--ease-out);
   }
   footer button:hover:not(:disabled),
-  .fold-btn:hover:not(:disabled),
   .ev-add:hover:not(:disabled),
-  .ev-del:hover:not(:disabled),
-  .log-append:hover:not(:disabled),
-  .parent-apply:hover:not(:disabled),
-  .del-btn:hover:not(:disabled) {
+  .log-append:hover:not(:disabled) {
     transform: translateY(-1px);
   }
   footer button:active:not(:disabled),
-  .fold-btn:active:not(:disabled),
   .ev-add:active:not(:disabled),
-  .ev-del:active:not(:disabled),
-  .log-append:active:not(:disabled),
-  .parent-apply:active:not(:disabled),
-  .del-btn:active:not(:disabled) {
+  .log-append:active:not(:disabled) {
     transform: translateY(0) scale(0.96);
   }
 </style>

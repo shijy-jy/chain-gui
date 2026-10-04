@@ -1,0 +1,27 @@
+feat!: 图谱不再显示节点名称（名称只在右侧信息栏）
+
+用户要求：初始图谱界面不显示节点名称，"以后不在图上显示"。
+点开节点后名称与正文由右侧常驻信息栏承载，图上保持纯圆点。
+
+改动：
+- 样式：node 的 label 置空 + text-opacity:0（并显式关掉 text-outline/wrap/min-zoomed-font-size，
+  避免 cytoscape 默认值把文字画出来）。节点身份改由「类型配色 + 圆点大小(度) + 悬停看 id」承载。
+- 数据：chain_to_cytoscape 不再生成 label 字段（活跃节点与归档节点都改）
+- 删除整个标签预算系统（这是上一轮为"标签压字"做的，既然不显示名称就全部作废）：
+  - src/lib/label_layout.ts（屏幕空间装箱、文本测量、截断）
+  - tools/label_verify.cjs（标签回归）
+  - App.svelte：updateLabels / scheduleLabelUpdate / measureLabelText / labelGeom /
+    LABEL_METRICS / rawLabelById / applyLabelGeomStyle / labelDepth 等，以及
+    zoom-pan 上的标签重算监听
+- UI：移除「字号」「标签数」两个滑条；图例文案改为说明"图上不显示名称，名称在右侧信息栏"
+- 调试接缝：labels → names（断言 nodesWithVisibleLabel 恒为 0）
+
+保留（与本次无关，已被复用）：focus-dim/focus-lit 聚焦压暗、双击拉近（1.8×）、
+fitVisible 取景、可见深度裁剪。
+
+验证（release 独立运行，vite 未启动）：
+- location.href = http://tauri.localhost/
+- 数据里带 label 的可见节点 = 0
+- 节点渲染包围盒 = 纯圆点尺寸（22x22 世界，无文字撑宽），标签盒 0x0
+- 点击节点：图上仍 0 文字，右侧信息栏显示名称与元数据
+- 悬停仍显示 id · 类型（唯一保留的文字提示，属浮层不属于图谱）

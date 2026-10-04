@@ -8,7 +8,14 @@ use crate::guide::{AI_GUIDE_DEV_VERSION, AI_GUIDE_VERSION};
 /// v3（M7'）：archive_node / unlink_nodes（12 工具），golden 16 条。
 /// v4（M8'）：consolidate（13 工具），golden 18 条。
 /// v5（v2.20）：read_node 增 include_code_map（骨架通道）；get_overview 增 entry_hubs 入口推荐。
-pub const TOOL_CONTRACT_VERSION: u32 = 5;
+/// v6（三层重构 P0/P1）：新增 remember / dialogue_status；所有工具响应携带 guide_version。
+/// v7（三层重构 P1 收尾）：移除 create_node / update_node / link_nodes / archive_node /
+///   unlink_nodes 五个节点直写工具——记忆入口唯一化（唯一写入口 = remember）。
+/// v8（三层重构 P2）：新增 resolve_conflict（冻结自愈）——人治通道下线后 CONFLICT 的裁决出口。
+/// v9（AI 导航增强）：search/recall 结果附结构上下文（parent/depth/children_count/origin）；
+///   get_overview 增 structure 块（roots/max_depth/leaves/depth_hist + hub 子树规模）；
+///   dialogue_status 增 gaps（线索缺口）与 open_loops（未闭环 task）。
+pub const TOOL_CONTRACT_VERSION: u32 = 9;
 
 /// 索引/schema 格式版本（宪法第 9 条；§10⑤ 起已实现，见 crate::schema）
 pub const SCHEMA_SPEC_VERSION: Option<&str> = Some("1.1");

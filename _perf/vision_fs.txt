@@ -1,0 +1,4 @@
+1) The text is large and readable, with clear headings and code blocks.
+2) The layout is clean, with clear headings and code blocks.
+3) There are no UI glitches.
+4) Polish score: 9/10. The code viewer is well-organized and easy to navigate.

@@ -1,0 +1,20 @@
+20:37:11.161998 exec-cmd.c:266          trace: resolved executable dir: D:/Git/mingw64/bin
+20:37:11.187711 git.c:502               trace: built-in: git fetch origin --verbose
+20:37:11.194743 run-command.c:673       trace: run_command: GIT_DIR=.git git remote-https origin https://github.com/shijy-jy/chain-gui.git
+20:37:11.194743 run-command.c:934       trace: start_command: git remote-https origin https://github.com/shijy-jy/chain-gui.git
+20:37:11.230348 exec-cmd.c:266          trace: resolved executable dir: D:/Git/mingw64/libexec/git-core
+20:37:11.240022 git.c:810               trace: exec: git-remote-https origin https://github.com/shijy-jy/chain-gui.git
+20:37:11.241027 run-command.c:673       trace: run_command: git-remote-https origin https://github.com/shijy-jy/chain-gui.git
+20:37:11.241027 run-command.c:934       trace: start_command: git-remote-https origin https://github.com/shijy-jy/chain-gui.git
+20:37:11.277778 exec-cmd.c:266          trace: resolved executable dir: D:/Git/mingw64/libexec/git-core
+POST git-upload-pack (224 bytes)
+20:37:14.048789 run-command.c:673       trace: run_command: git rev-list --objects --stdin --not --exclude-hidden=fetch --all --quiet --alternate-refs
+20:37:14.048789 run-command.c:934       trace: start_command: git rev-list --objects --stdin --not --exclude-hidden=fetch --all --quiet --alternate-refs
+From https://github.com/shijy-jy/chain-gui
+ = [up to date]      main       -> origin/main
+20:37:14.120718 run-command.c:1565      run_processes_parallel: preparing to run up to 1 tasks
+20:37:14.120718 run-command.c:1593      run_processes_parallel: done
+20:37:14.120718 run-command.c:673       trace: run_command: git maintenance run --auto --no-quiet --detach
+20:37:14.120718 run-command.c:934       trace: start_command: git maintenance run --auto --no-quiet --detach
+20:37:14.150584 exec-cmd.c:266          trace: resolved executable dir: D:/Git/mingw64/libexec/git-core
+20:37:14.162885 git.c:502               trace: built-in: git maintenance run --auto --no-quiet --detach

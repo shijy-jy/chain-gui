@@ -1,0 +1,28 @@
+fix(build): 补 custom-protocol 特性块——修复「前端重建了但 release 看不到新版」
+
+现象：dist/ 已重建为新版，但 target/release/app.exe 跑起来仍是旧界面。
+更严重的是：把 vite 停掉后 release 直接 chrome-error —— 说明它根本没内嵌前端，
+而是运行时去请求 devUrl(http://localhost:1420)。
+
+根因（读 tauri-2.11.5/build.rs 确认）：
+
+    let custom_protocol = has_feature("custom-protocol");
+    let dev = !custom_protocol;
+
+即：没有 custom-protocol 这个 feature 的构建被当作 dev 模式，前端不内嵌、只认 devUrl。
+cargo tauri build 会自动加 --features custom-protocol，但直接 cargo build --release 不会 ——
+而这个项目的 Cargo.toml 缺了 Tauri 模板标配的 [features] 声明，导致 feature 无处可加
+（在 workspace 根加还会报 none of the selected packages contains this feature）。
+
+修复：在 crates/engram-gui/Cargo.toml 补上标准特性块
+    [features]
+    custom-protocol = ["tauri/custom-protocol"]
+之后 cargo build --release -p engram-gui --features custom-protocol 与 cargo tauri build 行为一致。
+
+验证（vite 已停、纯独立运行）：
+- location.href = http://tauri.localhost/ （内嵌资源协议，不再是 :1420）
+- 二进制 44.4MB → 46.3MB（多出的 1.9MB 即内嵌前端）
+- 新 UI 全在：可见深度/层间距/同层间距/字号/标签数/形态 六个控件
+- 端到端：径向布局 0.2ms、标签画面=预算(7/7)、settle 后完全静止、重排后坐标一致
+
+另加 dev_new_ui.bat：一键看新版 UI（vite + debug 二进制，零等待）。

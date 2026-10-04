@@ -1,0 +1,21 @@
+[package]
+name = "engram-file"
+version = "3.1.0"
+description = "Engram 文件层：事实源与原始输入的字节级读写、协议词表、schema 与迁移（不依赖记忆层）"
+authors = ["shijy-jy"]
+license = "MIT"
+repository = "https://github.com/shijy-jy/engram"
+edition = "2021"
+rust-version = "1.77.2"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+anyhow = "1"
+walkdir = "2"
+# watcher 事件循环（纯回调构造，Tauri 发射留在 GUI 侧）
+notify = "8.2.0"
+
+[dev-dependencies]
+tempfile = "3"

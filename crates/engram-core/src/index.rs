@@ -51,13 +51,9 @@ pub struct IndexStore {
     freshness: Option<(Option<std::time::SystemTime>, u64)>,
 }
 
-/// 变更检测哈希（非加密用途；同进程版本内一致即可）
-pub fn content_hash(text: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    text.hash(&mut h);
-    format!("{:016x}", h.finish())
-}
+/// 变更检测哈希已移入 engram-file::fsio（walker 与索引共用同一口径）；
+/// 此处 re-export 保持 crate::index::content_hash 旧路径兼容。
+pub use engram_file::fsio::content_hash;
 
 fn index_dir(root: &Path) -> PathBuf {
     root.join(".chain").join("index")

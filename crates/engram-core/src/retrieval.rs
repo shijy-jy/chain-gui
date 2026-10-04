@@ -157,7 +157,7 @@ fn recall_vector(
     };
     if cold {
         let ranked = cold_start_rank(snap, &scored);
-        let results = build_results(&candidates, ranked, k);
+        let results = build_results(snap, &candidates, ranked, k);
         finish_recall(
             ctx,
             snap,
@@ -202,7 +202,7 @@ fn recall_vector(
                 .collect();
         }
         top.truncate(k);
-        let results = build_results(&candidates, top, k);
+        let results = build_results(snap, &candidates, top, k);
         let reason = if widened {
             Some("相似度放宽至第二档（阶梯 L4/L5 逐级放宽）")
         } else {
@@ -257,20 +257,27 @@ fn cold_start_rank(
 }
 
 fn build_results(
+    snap: &ChainSnapshot,
     candidates: &[&crate::model::node::Node],
     ranked: Vec<(f32, String)>,
     k: usize,
 ) -> Vec<Value> {
+    // 契约 v9：召回结果自带结构上下文（parent/depth/children_count/origin）——
+    // AI 顺着节点链梳理时，一次召回即可判断"下一步往哪读"，不必逐条 read_node 补位置。
+    let sidx = crate::ops::structure_index(snap);
     let mut out = Vec::new();
     for (score, id) in ranked.into_iter().take(k) {
         if let Some(n) = candidates.iter().find(|n| n.id == id) {
-            out.push(json!({
+            let mut item = json!({
                 "id": n.id,
                 "title": n.title,
                 "score": (score * 1000.0).round() / 1000.0,
                 "type": n.node_type,
                 "status": n.status,
-            }));
+                "updated": n.updated,
+            });
+            crate::ops::attach_structure(&mut item, sidx.get(&n.id));
+            out.push(item);
         }
     }
     out
@@ -311,9 +318,13 @@ fn keyword_fallback_reason(
         .unwrap_or_default()
         .into_iter()
         .map(|r| {
+            // 契约 v9：关键词降级路径同样携带结构上下文（与向量路径一致）
             json!({
                 "id": r["id"], "title": r["title"], "score": 1.0,
                 "type": r["type"], "status": r["status"],
+                "updated": r["updated"],
+                "parent": r["parent"], "depth": r["depth"],
+                "children_count": r["children_count"], "origin": r["origin"],
             })
         })
         .collect();
@@ -332,6 +343,9 @@ fn keyword_fallback_reason(
                 json!({
                     "id": n.id, "title": n.title, "score": 1.0,
                     "type": n.node_type, "status": n.status,
+                    "updated": n.updated, "origin": n.origin,
+                    "parent": n.parent, "depth": 0, "children_count": 0,
+                    "archived": true,
                 })
             })
             .collect();
