@@ -5,3 +5,6 @@
 {"k":"msg","seq":5,"session":"s-2026-10-04-ws","ts":"2026-10-04T17:24:33+08:00","role":"user","text":"3.2.1 已上线：分析模式建链通道。t-004 缺口关闭。"}
 {"k":"msg","seq":6,"session":"s-2026-10-04-ws","ts":"2026-10-04T17:25:01+08:00","role":"user","text":"重试建 v-002"}
 {"k":"decision","seq":7,"session":"s-2026-10-04-ws","ts":"2026-10-04T17:25:01+08:00","decided":"keep","covers":[6,6],"nodes":["v-002"],"reason":"补建 v-002 验证节点","mode":"commit"}
+{"k":"msg","seq":8,"session":"s-2026-10-04-ws","ts":"2026-10-04T17:29:05+08:00","role":"user","text":"补建 v-002 验证节点（前缀递增修复后）"}
+{"k":"decision","seq":9,"session":"s-2026-10-04-ws","ts":"2026-10-04T17:29:05+08:00","decided":"keep","covers":[5,6],"nodes":["v-002"],"reason":"v-002 补建：分析模式建链通道全工具测试 30/30 通过（含前缀递增回归修复）。","mode":"commit"}
+{"k":"decision","seq":10,"session":"s-2026-10-04-ws","ts":"2026-10-04T17:29:16+08:00","decided":"skip","covers":[8,8],"nodes":[],"reason":"补建脚本自身的消息，无新知识，收尾清账。","mode":"commit"}
