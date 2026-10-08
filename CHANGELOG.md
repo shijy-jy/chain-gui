@@ -2,6 +2,16 @@
 
 本文件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式。MCP 工具契约变更必须在此显式记录（ADR 0008 配套）。
 
+## [3.2.2] - 2026-10-08
+
+### 修复：MCP 启动时兑现「指南自动刷新」承诺（审计反馈）
+
+外部审计（2026-10-08）实测发现三处 guide 版本不一致：git HEAD 的 `.chain/AI_GUIDE.md` 为 v7、工作区盘上文件 v21、`get_guide` 返回 v23——且 v21 与 v23 结论相反（v21 声称"分析模式 create/link 仍受门禁"）。根因：刷新逻辑只在 `init_chain` 里，而 **MCP-only 工作区没有 init 入口**，walker 只警告不刷新——"AI 进场读到的总是最新协议"未兑现。
+
+- **`chain_ops::refresh_guide_if_stale(root, mode)`**：按模式刷新的统一入口（analysis → AI_GUIDE / dev → AI_GUIDE_DEV；无标记视为旧版；同版/更新保留批注），`init_chain` 与 MCP 启动共用；
+- **engram-mcp 启动时刷新**：`Workspace::open` 后按工作区模式刷新过期引导并写 stderr 日志（`盘上 v21 → 内嵌 v23`）；失败不阻断启动；stdout 协议通道零影响（golden 38 条复跑全过）；
+- 契约 v11 不变（启动副作用非工具变更）；新增 dev 模式刷新回归测试（engram-file 测试 +1）。
+
 ## [3.2.1] - 2026-10-04
 
 ### 分析模式建链通道（t-004 缺口修复）：AI 仅靠 MCP 即可完整维护链

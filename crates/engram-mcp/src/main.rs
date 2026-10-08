@@ -547,6 +547,17 @@ async fn main() -> anyhow::Result<()> {
         eprintln!("engram-mcp 启动失败：{e}");
         std::process::exit(1);
     });
+    // 3.2.2：启动时兑现「指南自动刷新」承诺——MCP-only 工作区没有 init 入口，
+    // 旧盘引导（如 v21 的「create/link 门禁」）会让 AI 得出与当前软件相反的行为。
+    // 同版/更新保留（尊重批注）；失败不阻断启动。
+    match mcp::chain::refresh_guide_if_stale(&ctx.root, ctx.mode.clone()) {
+        Ok((true, from)) => eprintln!(
+            "engram-mcp：工作区 AI_GUIDE.md 已刷新（盘上 {from} → 内嵌 v{}）",
+            ctx.guide_version()
+        ),
+        Ok((false, _)) => {}
+        Err(e) => eprintln!("engram-mcp：AI_GUIDE.md 刷新检查失败（不阻断启动）：{e}"),
+    }
     eprintln!(
         "engram-mcp 已启动：workspace={} mode={} guide=v{}",
         ctx.root.display(),

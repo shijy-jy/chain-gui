@@ -1,7 +1,7 @@
 //! 链级操作（核心纯逻辑）：初始化 / 过程日志 / 快照 / 折叠。
 //! 与节点编辑原语（node_edit）共同构成唯一写路径。
 
-use crate::guide::{parse_guide_version, AI_GUIDE, AI_GUIDE_DEV, AI_GUIDE_VERSION};
+use crate::guide::{parse_guide_version, AI_GUIDE, AI_GUIDE_DEV, AI_GUIDE_DEV_VERSION, AI_GUIDE_VERSION};
 use crate::model::chain::{ChainSnapshot, SnapshotMeta};
 use crate::model::node::{FoldedInfo, Node, NodeStatus};
 use crate::model::ScanMode;
@@ -39,25 +39,9 @@ pub fn init_chain(root: &Path, mode: ScanMode) -> Result<ChainSnapshot, String> 
         );
         atomic_write(&example, &content).map_err(|e| format!("写示例节点失败：{e}"))?;
     }
-    // AI 使用指南：分析模式版本对比刷新（v1.2）；开发模式缺省才写（v2.1）。
-    // v2.19 开发模式同样「过期即刷新」——旧版知识库指南（如 v2）缺代码内化等新协议，必须跟上
-    if !mode.is_dev() {
-        refresh_ai_guide_if_stale(root)?;
-    } else {
-        let guide = root.join(".chain").join("AI_GUIDE.md");
-        if !guide.exists() {
-            fs::write(&guide, AI_GUIDE_DEV)
-                .map_err(|e| format!("写开发模式 AI_GUIDE.md 失败：{e}"))?;
-        } else {
-            match crate::guide::parse_guide_version(&fs::read_to_string(&guide).unwrap_or_default()) {
-                Some(v) if v >= crate::guide::AI_GUIDE_DEV_VERSION => {}
-                _ => {
-                    fs::write(&guide, AI_GUIDE_DEV)
-                        .map_err(|e| format!("刷新开发模式 AI_GUIDE.md 失败：{e}"))?;
-                }
-            }
-        }
-    }
+    // AI 使用指南：按模式「过期即刷新」（v2.19 起开发模式同样生效；3.2.2 起统一入口，
+    // MCP 启动复用同一函数——旧版指南缺新守则/协议会让 AI 按过期规则办事）
+    refresh_guide_if_stale(root, mode)?;
 
     scan_chain_dir_mode(root, mode).map_err(|e| e.to_string())
 }
@@ -65,25 +49,35 @@ pub fn init_chain(root: &Path, mode: ScanMode) -> Result<ChainSnapshot, String> 
 /// 盘上 AI_GUIDE.md 无版本标记或版本低于内嵌版本时，用内嵌指南刷新。
 /// 返回 (是否刷新, 盘上版本描述)。
 pub fn refresh_ai_guide_if_stale(root: &Path) -> Result<(bool, String), String> {
+    refresh_guide_if_stale(root, ScanMode::Analysis)
+}
+
+/// 3.2.2：按模式刷新过期引导文件（MCP 启动调用；init_chain 复用）。
+/// 盘上无版本标记或版本低于内嵌版本时刷新；同版/更新保留（尊重用户批注）。
+/// 修复：MCP-only 工作区没有 init 入口，旧盘引导（如 v21 的"create/link 门禁"）
+/// 会让 AI 得出与当前软件相反的行为——启动时兑现"AI 进场读到的总是最新协议"的承诺。
+pub fn refresh_guide_if_stale(root: &Path, mode: ScanMode) -> Result<(bool, String), String> {
     let guide = root.join(".chain").join("AI_GUIDE.md");
+    let (embedded, version): (&'static str, u32) = if mode.is_dev() {
+        (AI_GUIDE_DEV, AI_GUIDE_DEV_VERSION)
+    } else {
+        (AI_GUIDE, AI_GUIDE_VERSION)
+    };
     if !guide.exists() {
-        fs::write(&guide, AI_GUIDE).map_err(|e| format!("写 AI_GUIDE.md 失败：{e}"))?;
+        fs::write(&guide, embedded).map_err(|e| format!("写 AI_GUIDE.md 失败：{e}"))?;
         return Ok((true, "absent".into()));
     }
     let existing = fs::read_to_string(&guide).map_err(|e| format!("读 AI_GUIDE.md 失败：{e}"))?;
     match parse_guide_version(&existing) {
-        Some(v) if v >= AI_GUIDE_VERSION => Ok((false, format!("v{v}"))),
+        Some(v) if v >= version => Ok((false, format!("v{v}"))),
         Some(v) => {
-            fs::write(&guide, AI_GUIDE).map_err(|e| format!("刷新 AI_GUIDE.md 失败：{e}"))?;
-            Ok((true, format!("v{v}->v{AI_GUIDE_VERSION}")))
+            fs::write(&guide, embedded).map_err(|e| format!("刷新 AI_GUIDE.md 失败：{e}"))?;
+            Ok((true, format!("v{v}")))
         }
         None => {
             // 无版本标记：视为旧版（v1.2 之前的指南无标记），刷新
-            fs::write(&guide, AI_GUIDE).map_err(|e| format!("刷新 AI_GUIDE.md 失败：{e}"))?;
-            Ok((
-                true,
-                "unmarked->".to_string() + &AI_GUIDE_VERSION.to_string(),
-            ))
+            fs::write(&guide, embedded).map_err(|e| format!("刷新 AI_GUIDE.md 失败：{e}"))?;
+            Ok((true, "unmarked".into()))
         }
     }
 }
@@ -511,6 +505,28 @@ mod tests {
         assert!(refreshed, "旧版本应刷新: {desc}");
         let after = fs::read_to_string(&guide_path).unwrap();
         assert_eq!(after, AI_GUIDE);
+    }
+
+    #[test]
+    fn test_guide_refresh_dev_mode_uses_dev_guide() {
+        // 3.2.2 回归：dev 工作区的旧引导必须刷新为 DEV 指南（不是分析指南）
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".chain")).unwrap();
+        let guide_path = root.join(".chain").join("AI_GUIDE.md");
+        fs::write(&guide_path, "<!-- CHAIN_GUIDE_DEV_VERSION: 1 -->\n旧版 dev v1").unwrap();
+
+        let (refreshed, desc) = refresh_guide_if_stale(root, ScanMode::Dev).unwrap();
+        assert!(refreshed, "dev 旧版应刷新: {desc}");
+        assert_eq!(fs::read_to_string(&guide_path).unwrap(), AI_GUIDE_DEV);
+        // 同版保留
+        fs::write(
+            &guide_path,
+            format!("<!-- CHAIN_GUIDE_DEV_VERSION: {AI_GUIDE_DEV_VERSION} -->\n批注"),
+        )
+        .unwrap();
+        let (refreshed2, _) = refresh_guide_if_stale(root, ScanMode::Dev).unwrap();
+        assert!(!refreshed2, "dev 同版不应刷新（保留批注）");
     }
 
     #[test]
