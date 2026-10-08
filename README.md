@@ -1,15 +1,16 @@
 <p align="center">
   <h1 align="center">🌊 Engram</h1>
   <p align="center">
-    <b>开发者与 AI 共用的工程记忆图谱</b><br/>
-    <i>The rippling memory graph shared by you and your AI</i>
+    <b>AI 负责记忆，你负责看清它 —— 本地优先的工程记忆图谱</b><br/>
+    <i>An engineering memory graph where the AI writes, you observe, and every decision is traceable.</i>
   </p>
   <p align="center">
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
     <a href="https://tauri.app"><img src="https://img.shields.io/badge/Tauri-2-orange" alt="Tauri 2"></a>
     <a href="https://svelte.dev"><img src="https://img.shields.io/badge/Svelte-5-ff3e00" alt="Svelte 5"></a>
     <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-1.77%2B-dea584" alt="Rust"></a>
-    <img src="https://img.shields.io/badge/tests-97%20passing-brightgreen" alt="tests">
+    <img src="https://img.shields.io/badge/MCP-11%20tools-7c5cff" alt="MCP 11 tools">
+    <img src="https://img.shields.io/badge/tests-270%20unit%20%2B%2038%20golden-brightgreen" alt="tests">
   </p>
   <p align="center">
     <img src="docs/screenshot-analysis.png" alt="分析模式：链协议图谱" width="46%">
@@ -19,137 +20,181 @@
 
 ---
 
-## 一句话 / In One Sentence
+## 这是什么 / What is this
 
-**Engram 把你和 AI 在对话中共同维护的工程记忆（`.chain/nodes/*.md` 纯文本）渲染成一张水面般的交互式知识图谱。**
+**Engram 是一个跑在你电脑上的工程记忆系统**：AI 在和你干活时，把对话中值得沉淀的结论写成一张纯文本节点图谱（`.chain/nodes/*.md`），并完整渲染成一张可交互的水面图谱。数据就是 Markdown 文件——git 可管、可迁移、任何编辑器可改，软件只是它的一个窗口。
 
-*Engram turns the plain-text engineering memory you and your AI maintain together into a rippling, interactive knowledge graph.*
+它解决一个很具体的问题：**换一个会话、换一个 AI，项目上下文就丢了**。Engram 让"项目知道自己在哪、为什么走到这、失败过什么"这件事，不依赖任何人的聊天记录。
 
-**日常用法只有三步 / How we use it every day**：
+| 你可能熟悉的 | Engram 的做法 |
+|---|---|
+| MEMORY.md / memory bank（一个文件塞所有上下文） | 结构化图谱：节点 + 关系 + 权重，检索与观察分离 |
+| 云端记忆服务（数据在别人手里） | **纯本地**：文件层只是 `.chain/` 目录，零云端依赖 |
+| AI 直接改文件，改错无从追溯 | **唯一写入口 + 全量留痕**：每个决策（含"不保留"）都有审计痕迹 |
+| 人看不懂 AI 的记忆 | 人有完整观察面：3D 图谱、文件树、对话阅读面 |
 
-1. 点一下「复制 AI 指南」，把它贴进任意 AI 对话——AI 立刻学会你的工程记忆协议
-2. AI 按协议在 `.chain/` 里创建、更新节点（纯 Markdown + YAML frontmatter）
-3. 你随时打开 Engram：看全局结构、搜索定位节点、编辑正文、单击节点让涟漪表达关系强弱
-
-人看图、AI 读文件——**双方共享同一份工程记忆**。数据是纯文本：git 可管、可迁移、任何编辑器可改，软件只是它的一个窗口。
-
-> **不是"多 AI 协作框架"**。Engram 是一张记忆图谱：谁维护文件、用哪个模型都不重要；重要的是项目走到哪一步、为什么这么走、失败过什么——都被如实钉在图上，随时可回溯。
-
----
-
-## 🧭 两种模式 / Two Modes
-
-| | 分析模式 · 链协议 | 开发模式 · 自由知识库 |
-|---|---|---|
-| 定位 | 工程推进：目标 → 设计 → 任务 → 验证 | 知识搭建：笔记、卡片、任意拓扑 |
-| 结构 | 严格单根树，校验器强制（单根/无环/无悬空） | 完全自由：多根、孤立卡片、环都可以 |
-| 状态 | pending / in_progress / success / failed / blocked | 无状态（中性 note 类型） |
-| 失败处理 | 失败定格 → 派生追查链 → 重验闭环 | 递进关系建模（见下） |
-| AI 指南 | `AI_GUIDE.md`（思维宪法 + 链协议，v7） | `AI_GUIDE_DEV.md`（知识库搭建指南，v2） |
-
-**递进关系建模**（开发模式）：链接带关系类型，图谱用线型表达——实线 `contains` 包含 / 虚线 `solves` 解决父节点的失败与局限（递进主线）/ 点线 `alternative` 备选方案。
-
-> 工作区模式由 `.chain/.mode` 标签绑定，随工程走，不可混用。
+> **不是"多 AI 协作框架"**。谁维护、用哪个模型都不重要；重要的是项目走到哪一步、为什么这么走——都被如实钉在图上，随时回溯。
 
 ---
 
-## ⚡ 功能特性 / Features
+## 30 秒工作流 / How it works
 
-**图谱交互 Graph interaction**
-- 🌊 **水面波纹**：单击节点 = 波源，同心细环向全场扩散；直接相关节点点亮并随之"震动"，更深层渐暗——关系强弱一眼可见；再点停止，其它节点可作次级波源
-- 📖 **文件树模式**（人专用视图，2.18）：工具栏一键把**图结构切成一棵节点文件树**——它不只是阅读：树里可以**新建节点**（默认挂当前节点下，图谱同一父节点下同步长出）、**编辑**（标题/状态/标签/正文/父节点与关系，Ctrl+S）、**删除**（两段式确认）；外加折叠展开、全库关键字定位（标题/id/标签/正文命中）、「上一篇/下一篇」按文件树前序把整库当一本书读、渲染/原文切换与字号、面包屑与子节点/证据跳转。**图谱与文件树是同一套链的两种显示与编辑方式：图谱偏 AI 用，文件树偏人用**（不写工作区额外文件、MCP 无此工具、AI 不可识别不可使用）
-- 🔦 **亮度层级**：按 BFS 层深逐级衰减（默认 d0=1.0 → d1=0.8 → d2=0.4 → …），「亮度对比」滑条可调
-- 🧲 **力导向布局**：「最小间距」硬保证（碰撞力每帧强制）+「最大间距」限制无关分量飘散 + 连线交叉最小化；拖拽实时跟手重排
-- 🔎 **关键字搜索**：标题/id/标签模糊匹配，回车或点击结果居中定位 + 高亮脉冲
-- 🖱️ 双击节点打开编辑侧栏；点空白收起为右缘细条（不丢上下文）
+```mermaid
+graph LR
+  AI["AI 客户端<br/>(Claude / Codex / 任意 MCP 宿主)"] <-->|"MCP stdio · 11 tools"| M
+  M["记忆层 · engram-core<br/>守门 · 对话消费 · 记忆动力学"] -->|"atomic_write · append-only"| F[("文件层 · .chain/<br/>nodes/*.md 节点图谱<br/>dialogue/log.jsonl 对话账本")]
+  F -->|"原样读取 · watch"| M
+  M -->|"MemoryView（只读）"| G["显示层 · engram-gui<br/>3D 图谱 · 文件树 · 对话阅读面"]
+  G -->|"Intent"| M
+```
 
-**节点与数据 Nodes & data**
-- 侧栏编辑：标题/状态/标签/正文（Markdown + LaTeX 预览）/证据文件/过程日志
-- 证据产物分层归档 `artifacts/<节点id>/`，点击文件名直接打开
-- 链快照（受控回溯）与子链折叠（压缩已完成的子链，历史永不丢）
-- 文件监听实时刷新：外部编辑/AI 写入，图谱自动更新
+日常循环只有三步：
 
-**工程化 Engineering**
-- AI 指南内置版本管理：初始化/扫描时自动刷新工作区里的旧版指南副本
-- 校验器反向生成规则文档，指南与软件行为严格一致
-- 97 个 Rust 单元测试 + svelte-check 类型检查 + 生产构建
+1. **接入一次**：把 `engram-mcp` 挂进你的 MCP 客户端，指向项目目录
+2. **AI 干活**：AI 通过 `remember` 写入节点、消费对话账本——所有写入过守门、留审计痕迹，人无法绕过、AI 也无法绕过
+3. **你随时看**：打开 Engram 图谱——波纹表达关系强弱，文件树把整库当书读，对话阅读面看 AI 的每一条决策理由
 
----
+**人看图，AI 读写文件，双方共享同一份工程记忆。**
 
-## 📸 截图 / Screenshots
-
-**分析模式**（链协议图谱 + 状态光晕）· **开发模式**（知识库 + 递进关系线型）· **波纹交互**（点击节点后的亮度分层）：
-
-| 分析模式 | 开发模式 | 波纹交互 |
-|---|---|---|
-| ![分析模式](docs/screenshot-analysis.png) | ![开发模式](docs/screenshot-dev.png) | ![波纹](docs/screenshot-dev-wave.png) |
+四条不变量（架构层面强制）：对话是唯一原始输入（append-only）· MCP 是 AI 唯一记忆入口 · 写路径唯一（守门+留痕）· 显示层只读。
 
 ---
 
 ## 🚀 快速开始 / Quick Start
 
-**前置环境 Prerequisites**
+**前置环境**：[Rust](https://rustup.rs) ≥ 1.77（Windows 需 VS Build Tools 的 C++ 组件）、[Node.js](https://nodejs.org) 18+、Tauri CLI（`cargo install tauri-cli --version "^2.0" --locked`）
 
-- [Rust](https://rustup.rs) ≥ 1.77（Windows 需 Visual Studio Build Tools 的 C++ 桌面开发组件）
-- [Node.js](https://nodejs.org) 18+
-- Tauri CLI：`cargo install tauri-cli --version "^2.0" --locked`
-
-**运行 Run**
+**构建并运行桌面端**
 
 ```bash
-git clone https://github.com/shijy-jy/engram.git
-cd engram
+git clone https://github.com/shijy-jy/chain-gui.git
+cd chain-gui
 npm install
-cargo tauri dev
+cargo tauri dev        # 开发运行；cargo tauri build 打安装包
 ```
 
-**体验示例 Try the demos**
+**体验示例**：左侧工作区栏 → 添加文件夹 → 选择仓库内的 `demo/dev`（知识库示例：递进关系线型、多根拓扑）。
 
-仓库自带两个示例工程（`demo/analysis` 链协议示例、`demo/dev` 知识库 + 递进链示例）：左侧工作区栏 → 添加文件夹 → 选择 `demo/analysis`（分析页签）或 `demo/dev`（开发页签）。
+**接入你的 AI（MCP）**
+
+```bash
+cargo build --release -p engram-mcp    # 产物: target/release/engram-mcp(.exe)
+```
+
+```jsonc
+// Claude Desktop / 任意 MCP 宿主的 mcpServers 配置
+{
+  "mcpServers": {
+    "engram": {
+      "command": "/绝对路径/target/release/engram-mcp",
+      "args": ["--workspace", "/你的项目目录"]
+    }
+  }
+}
+```
+
+然后在任意对话里说一句「把这次讨论沉淀到 Engram」即可。工作区结构参考 `demo/dev`（`.chain/nodes/` + `.chain/dialogue/`）。
 
 ---
 
-## 📁 目录结构 / Structure
+## 🔌 MCP 工具 / Tools（契约 v11）
+
+| 读（8） | 作用 |
+|---|---|
+| `get_overview` | 全局概览：健康度、entry_hubs、active_chain、结构直方图 |
+| `search` / `recall` | 关键词 / 语义检索（结果自带结构上下文：父链、层深、子节点数） |
+| `read_node` / `read_path` / `expand` | 读节点 / 读链路 / 按方向+层距展开（`first_line` 120 字节机械截断，绝不冒充摘要） |
+| `get_guide` | 拉取当前工作区的 AI 使用指南（版本自动对齐） |
+| `dialogue_status` | 对话账本消费进度 + 未闭环任务 + 伏笔（foreshadowing）浮出 |
+
+| 写（3） | 作用 |
+|---|---|
+| `remember` | **唯一写入口**：追加对话 + 落节点 + 决策留痕，一笔完成；op 词表 create/update/link/unlink/archive 全部过守门 |
+| `consolidate` | 蒸馏：把多个节点合并为骨架（质量守恒） |
+| `resolve_conflict` | 冻结自愈：并发冲突的唯一裁决出口 |
+
+---
+
+## 🧠 记忆层第一阶段：分布留痕 / Memory layer v1
+
+AI 消费一段对话时，不是"一次生成一个节点"，而是（v3.2.0 起默认行为）：
 
 ```
-engram/
-├── src/                      # 前端（Svelte 5 + TypeScript）
-│   ├── App.svelte            # 主组件：图谱、波纹、布局、搜索、工具栏
-│   ├── lib/                  # 涟漪 BFS 分层、链数据转换、侧栏编辑、正文渲染
-│   └── components/           # 工作区栏、状态栏、新建节点对话框
-├── crates/                   # Rust workspace（cargo workspace 化，见 ARCHITECTURE.md）
-│   ├── engram-core/          # 领域核心纯库：唯一知道「规则」的地方（零 Tauri/MCP 依赖）
-│   │   ├── model/            # Node / ChainSnapshot / 更新模型
-│   │   ├── scanner/          # frontmatter 解析、目录扫描、结构校验
-│   │   ├── ops/              # 读写守门（D2/D3/D4）+ 检索工具 + 链级操作（唯一写路径）
-│   │   └── profile/guide/watch/… # 双模式 profile、AI 指南、watcher 回调
-│   ├── engram-mcp/           # MCP server 薄壳（stdio 协议映射，调 core）
-│   └── engram-gui/           # Tauri 桌面壳薄命令层（调 core）
-├── resources/                # 双 AI 使用指南（分析 v7 / 开发 v2）
-├── demo/                     # 两个示例工程（可直接打开体验）
-└── docs/                     # 截图与文档
+三遍关注（要点 / 残余 / 结构）
+  → 候选方向加权   w = s语义 × s结构 × s效用   （乘法门控，任一为零即淘汰）
+  → 多峰检测       单峰 → 1 节点；多峰 → 每峰各 1 节点；全低 → skip 或伏笔
+  → 提交           commit = argmax；探索模式 sample = 保留式抽取（种子可重放）
+  → 痕迹写入       decision 记录 candidates / mode / seed / foreshadowing
 ```
 
-## 🛠 技术栈 / Tech Stack
+三个值得注意的设计：
 
-| 层 | 选型 |
+- **伏笔登记**（`foreshadow`）：注意到但还没懂的线索只登记在账本里，不进图谱——不给上下文的孤立断言只会污染事实源；等证据回来再结晶
+- **决策全量留痕**：抽中谁、没抽中谁、权重多少全部写入 `decision` 记录——将来发现选错，替代方案就在痕迹里
+- **对话账本**（`.chain/dialogue/log.jsonl`）：`covers` 既是消费锚点（新会话只读上次消费点之后）也是审计证据；`skip` 也必须留一行非空理由——这是"AI 自主跳过"与"AI 遗漏"的唯一区分证据
+
+```json
+{"k":"decision","seq":7,"decided":"keep","covers":[5,6],"mode":"sample","seed":"a3f9",
+ "nodes":[{"id":"t-042","dir":"提炼为方案节点","score":0.62,"selected":true}],
+ "candidates":[{"dir":"提炼为方案节点","score":0.62},{"dir":"并入 t-030","score":0.24}],
+ "foreshadowing":[{"covers":[5,5],"note":"第 5 条消息提到一个未解释的常量，方向未定"}]}
+```
+
+---
+
+## 🧭 两种模式 / Two Modes
+
+| | 分析模式 · 链协议（指南 v23） | 开发模式 · 自由知识库（指南 v17） |
+|---|---|---|
+| 定位 | 工程推进：目标 → 设计 → 任务 → 验证 | 知识搭建：笔记、卡片、任意拓扑 |
+| 结构 | 严格单根树，校验器强制（单根/无环/无悬空） | 完全自由：多根、孤立卡片、环都可以 |
+| 状态 | pending / in_progress / success / failed / blocked | 无状态（中性 note 类型） |
+| 建链 | `remember` op 词表护栏：根唯一、防环、前缀 id、状态流转（v3.2.1） | 自由建模，关系线型：`contains` / `solves` / `alternative` |
+
+> 工作区模式由 `.chain/.mode` 绑定，随工程走，不可混用。两份 AI 指南内置版本管理，随 MCP `get_guide` 自动对齐。
+
+---
+
+## ⚡ 桌面端功能 / Desktop features
+
+- 🌊 **水面波纹**：单击节点 = 波源，关系强弱一眼可见；亮度按 BFS 层深衰减，可调对比
+- 📖 **文件树视图**：图谱一键切成文件树——新建/编辑/删除、全库搜索、「上一篇/下一篇」把整库当书读（人专用，AI 不可见）
+- 💬 **对话阅读面**：直接读 `.chain/dialogue/log.jsonl`——AI 的每条决策和理由都在
+- 🧲 **力导向布局**：最小间距硬保证 + 交叉最小化，1500 节点实测冷启 13.5s / 热调用 0.4s
+- 🔎 **搜索定位**：标题/id/标签/正文模糊匹配，回车居中 + 高亮脉冲
+
+---
+
+## 📁 架构与目录 / Architecture
+
+三层依赖单向（显示 → 记忆 → 文件），由 crate 依赖图在编译期强制：
+
+```
+chain-gui/
+├── crates/
+│   ├── engram-file/   # 文件层：.chain 唯一读写原语（atomic_write / append-only / scanner / watch）
+│   ├── engram-core/   # 记忆层：规则 + 记忆动力学（守门 / 对话消费 / 嵌入 / 强度 / 蒸馏）
+│   ├── engram-mcp/    # MCP server（stdio，11 工具）
+│   ├── engram-gui/    # Tauri 2 桌面壳（Svelte 5 + Cytoscape.js + canvas 水面层）
+│   └── engram-cli/    # 命令行工具
+├── resources/         # AI 指南（AI_GUIDE.md v23 / AI_GUIDE_DEV.md v17）
+├── demo/dev/          # 可直接打开的示例工作区
+├── docs/              # 设计文档（含 adr/ 决策记录）与截图
+└── src/               # 前端源码
+```
+
+**质量基线**：270 个 Rust 单元测试 + 38 条 golden 全绿 + svelte-check 类型检查；删光派生物（索引/统计/审计）软件仍可用。
+
+## 📌 当前状态 / Status（v3.2.1，2026-10-04）
+
+| 已落地 | 进行中 |
 |---|---|
-| 桌面壳 | Tauri 2 |
-| 前端框架 | Svelte 5（runes）+ TypeScript |
-| 构建 | Vite 5 |
-| 图谱渲染 | Cytoscape.js（自定义力导向布局 + canvas 水面层） |
-| 公式/正文 | markdown-it + KaTeX |
-| 后端 | Rust（serde / serde_yaml / walkdir / notify） |
+| 三层重构（文件层独立 crate、`remember` 唯一入口、GUI 写通道移除） | 部署实例切换到新契约 |
+| 对话账本 + covers 消费锚点 | 强度修复（clamp 假零 / 墙钟假空） |
+| 记忆层第一阶段：三遍关注 / 伏笔 / 多峰建节点 / 保留式抽取 | 判据与参数的实测数据校准 |
+| 分析模式建链词表护栏（根唯一 / 防环 / 状态流转） | 记忆层第二阶段：新证据回写伏笔 |
 
-## 📜 常用命令 / Commands
-
-| 命令 | 用途 |
-|---|---|
-| `cargo tauri dev` | 开发模式（vite + 桌面窗口） |
-| `cargo tauri build` | 打包发布版安装包 |
-| `npm run check` | svelte-check 类型检查 |
-| `npm run build` | 前端生产构建 |
-| `cargo test --lib` | Rust 单元测试 |
+设计与理论文档见 [`docs/`](docs/)（三层重构、记忆层第一阶段设计、AI 可用性分析、记忆理论 v3.0、ADR-0001~0015）。
 
 ## ❓ 常见问题 / FAQ
 
@@ -157,8 +202,8 @@ engram/
 |---|---|
 | `tauri-cli not found` | `cargo install tauri-cli --version "^2.0" --locked` |
 | `link.exe not found` | 安装 Visual Studio Build Tools（C++ 桌面开发 workload） |
-| 窗口白屏 | 在工程根目录执行 `npm install` |
-| 图谱空白 | 添加的目录必须**包含** `.chain/nodes/`（选其父目录） |
+| 图谱空白 | 工作区目录必须包含 `.chain/nodes/`（选其父目录；新工作区可复制 `demo/dev` 结构） |
+| MCP 连不上 | 确认 `--workspace` 指向**已初始化**的工作区目录，且路径为绝对路径 |
 | 端口 1420 被占用 | 结束残留的 vite 进程后重试 |
 
 ## 📄 许可证 / License

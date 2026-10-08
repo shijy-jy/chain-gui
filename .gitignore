@@ -25,7 +25,8 @@ CODELY.md
 mem-log/
 
 # Engram 工作区派生物（事实源 nodes/ 与 dialogue/ 入库，派生物不入）
-.chain/audit.jsonl
-.chain/stats.json
-.chain/index/
-.chain/code_map/
+**/.chain/audit.jsonl
+**/.chain/stats.json
+**/.chain/index/
+**/.chain/code_map/
+**/.chain/AI_GUIDE.md
