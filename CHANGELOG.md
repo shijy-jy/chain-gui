@@ -11,6 +11,7 @@
 - **`chain_ops::refresh_guide_if_stale(root, mode)`**：按模式刷新的统一入口（analysis → AI_GUIDE / dev → AI_GUIDE_DEV；无标记视为旧版；同版/更新保留批注），`init_chain` 与 MCP 启动共用；
 - **engram-mcp 启动时刷新**：`Workspace::open` 后按工作区模式刷新过期引导并写 stderr 日志（`盘上 v21 → 内嵌 v23`）；失败不阻断启动；stdout 协议通道零影响（golden 38 条复跑全过）；
 - 契约 v11 不变（启动副作用非工具变更）；新增 dev 模式刷新回归测试（engram-file 测试 +1）。
+- **GUI 重新打包（同版本）**：安装时曾用裸 `cargo build -p engram-gui` 打包 → 缺 `custom-protocol` feature，release 二进制仍是 dev 模式，WebView 请求 devUrl（localhost 拒绝连接，白屏 ERR_CONNECTION_REFUSED）；改用 `--features custom-protocol` 重打包后 CDP 实测 `tauri.localhost` 正常渲染（该坑已在 Cargo.toml 注释记载，本次为部署侧踩坑复现）。
 
 ## [3.2.1] - 2026-10-04
 
